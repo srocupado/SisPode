@@ -112,6 +112,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById(id).style.display = 'none';
     });
   });
+  document.getElementById('docan-arquivos').addEventListener('change', onDocanArquivos);
+  document.getElementById('btn-docan-add-link').addEventListener('click', onDocanAddLink);
+  document.getElementById('btn-docan-gerar').addEventListener('click', () => confirmarDocAnalista('nota'));
+  document.getElementById('btn-docan-parecer').addEventListener('click', () => confirmarDocAnalista('parecer'));
+  document.getElementById('btn-docan-livre').addEventListener('click', () => confirmarDocAnalista('livre'));
   document.getElementById('config-provedor').addEventListener('change', onProvedorChange);
   document.getElementById('btn-carregar-modelos').addEventListener('click', () => carregarModelos());
   // O aviso de faixa acompanha a escolha, e não só a abertura da tela.
@@ -711,6 +716,7 @@ function renderCard(it) {
         Gerar Análise
       </button>
       <button class="btn btn-outline btn-sm" data-role="btn-toggle" style="display:none">Ver análise</button>
+      <button class="btn btn-outline btn-sm" data-role="btn-doc-proprio" title="Anexar o PDF ou o link do documento a analisar (quando a Câmara ainda não o tem, ou para analisar um documento específico), ou escrever a nota à mão">📎 Documento próprio</button>
       <button class="btn btn-outline btn-sm" data-role="btn-vincular" style="display:none" title="Vincular manualmente o projeto cuja urgência é pedida (útil quando a API da Câmara não resolveu)">🔗 Vincular projeto</button>
       <a class="btn btn-outline btn-sm" data-role="link-portal" target="_blank" rel="noopener" style="display:none" title="Abrir página da proposição na Câmara dos Deputados">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -797,6 +803,8 @@ function renderCard(it) {
   if (it.tipoCategoria === 'requerimento') btnVinc.style.display = 'inline-flex';
   btnVinc.addEventListener('click', () => abrirVincularProjeto(it));
   card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
+  card.querySelector('[data-role=btn-doc-proprio]').addEventListener('click', () => abrirDocAnalista(it));
+  atualizarBotaoDocProprio(it, card);
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
   card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
@@ -2724,11 +2732,12 @@ async function resolverMPVDeclarando(it, idCamara) {
   }
 }
 
-// Cenário 8 (MPV, edição livre): cria uma análise de texto livre (manual, sem
-// IA) e abre o editor em branco para o analista escrever. Saída para quando
-// nenhum documento da MPV foi localizado. Se já houver análise, apenas reabre
-// o editor. O autosave persiste no Firebase como qualquer outra nota.
-async function iniciarAnaliseLivreMPV(it) {
+// Edição livre: cria uma análise de texto livre (manual, sem IA) e abre o editor em branco para o
+// analista escrever. Nasceu como o Cenário 8 da MPV (nenhum documento localizado) e, desde
+// 17/11/2026, vale para qualquer item cujo documento a Câmara ainda não tem — o PLP 299/2026 estava
+// na pauta e ainda em votação no Senado. Se já houver análise, apenas reabre o editor. O autosave
+// persiste no Firebase como qualquer outra nota.
+async function iniciarAnaliseLivre(it, cenario) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const painel   = card?.querySelector('[data-role=painel-analise]');
   if (painel) { painel.classList.add('aberto'); card.querySelector('[data-role=btn-toggle]').style.display = 'inline-flex'; }
@@ -2737,7 +2746,7 @@ async function iniciarAnaliseLivreMPV(it) {
     it.analise = {
       markdown:    '',
       manual:      true,
-      cenario:     CENARIO_MPV,
+      cenario:     cenario || (ehMPV(it) ? CENARIO_MPV : DOCAN_CENARIO_LIVRE),
       apelido:     it.apelido || '',
       analista:    it.analista || '',
       geradoEm:    new Date().toISOString(),
@@ -2751,11 +2760,136 @@ async function iniciarAnaliseLivreMPV(it) {
   renderAnaliseCard(it);
   entrarEdicaoAnalise(it);
 }
+function iniciarAnaliseLivreMPV(it) { return iniciarAnaliseLivre(it, CENARIO_MPV); }
+
+// ============================================================
+//  DOCUMENTO PRÓPRIO: o(a) analista entrega o documento da análise (docs-analista.js)
+// ============================================================
+// Os arquivos ficam SÓ na memória desta aba (chave do item → documentos com os bytes). Não vão para o
+// Firebase nem para o objeto do item, que é gravado inteiro com a pauta.
+const _docsAnalista = new Map();
+let _docanItem = null, _docanEntradas = [];
+
+/** Documentos próprios guardados para o item nesta aba, ou os links da análise gravada. */
+function docsProprios(it) {
+  const g = _docsAnalista.get(it.chave);
+  if (g) return g;
+  const salvos = (it.analise?.documentos || []).filter(d => d && d.doAnalista);
+  if (it.analise?.docsDoAnalista && docanSoLinks(it.analise.documentos)) return { docs: salvos.map(d => ({ ...d, buffer: null })), somarCamara: !!it.analise.somouCamara };
+  return null;
+}
+/** Bytes de cada documento: o do(a) analista já está em memória (vai uma cópia, porque o leitor de PDF consome o buffer). */
+function baixarDocumentos(docs) {
+  return Promise.all(docs.map(d => d.buffer ? Promise.resolve(d.buffer.slice(0)) : baixarPdf(d.url)));
+}
+function atualizarBotaoDocProprio(it, card) {
+  const b = (card || document.querySelector(`.an-card[data-chave="${it.chave}"]`))?.querySelector('[data-role=btn-doc-proprio]');
+  if (!b) return;
+  const n = _docsAnalista.get(it.chave)?.docs.length || 0;
+  b.textContent = n ? `📎 Documento próprio (${n})` : '📎 Documento próprio';
+}
+function renderDocanLista() {
+  const el = document.getElementById('docan-lista');
+  if (!_docanEntradas.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Nenhum documento adicionado.</div>'; return; }
+  el.innerHTML = _docanEntradas.map((e, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <span style="flex:1;min-width:150px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(e.url || e.nome)}">${e.origem === 'link' ? '🔗' : '📄'} ${escapeHtml(e.nome)}</span>
+      <select class="form-input" data-docan-tipo="${i}" style="width:230px;padding:4px 6px;font-size:12px">${DOCAN_TIPOS.map(t => `<option value="${t.valor}"${t.valor === e.tipo ? ' selected' : ''}>${escapeHtml(t.rotulo)}</option>`).join('')}</select>
+      <input type="text" class="form-input" data-docan-desc="${i}" value="${escapeHtml(e.descricao || '')}" placeholder="descrição (ex.: texto aprovado no Senado)" style="width:210px;padding:4px 6px;font-size:12px" maxlength="120">
+      <button class="btn btn-ghost btn-sm" data-docan-rem="${i}" title="Tirar da lista" style="color:#ff8e8e">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-docan-tipo]').forEach(x => x.addEventListener('change', () => { _docanEntradas[+x.dataset.docanTipo].tipo = x.value; }));
+  el.querySelectorAll('[data-docan-desc]').forEach(x => x.addEventListener('input', () => { _docanEntradas[+x.dataset.docanDesc].descricao = x.value; }));
+  el.querySelectorAll('[data-docan-rem]').forEach(x => x.addEventListener('click', () => { _docanEntradas.splice(+x.dataset.docanRem, 1); renderDocanLista(); }));
+}
+function abrirDocAnalista(it, aviso = '') {
+  _docanItem = it;
+  // reabre com o que já estava anexado nesta aba, para ajustar sem anexar tudo de novo
+  const g = _docsAnalista.get(it.chave);
+  _docanEntradas = g ? g.entradas.map(e => ({ ...e })) : [];
+  document.getElementById('docan-alvo').textContent = `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${it.ordem ? ` — item ${it.ordem}` : ''}`;
+  const av = document.getElementById('docan-aviso');
+  av.textContent = aviso; av.style.display = aviso ? 'block' : 'none';
+  document.getElementById('docan-arquivos').value = '';
+  document.getElementById('docan-link').value = '';
+  document.getElementById('docan-somar').checked = !!g?.somarCamara;
+  const st = document.getElementById('docan-status'); st.style.color = '#ff8e8e'; st.textContent = '';
+  renderDocanLista();
+  document.getElementById('modal-doc-analista').style.display = 'flex';
+}
+/** Primeiro documento da lista entra como "texto em votação"; os seguintes, como apoio. O(a) analista ajusta. */
+function tipoInicialDocan() { return _docanEntradas.some(e => e.tipo !== 'apoio') ? 'apoio' : 'texto'; }
+async function onDocanArquivos(ev) {
+  const st = document.getElementById('docan-status'); st.textContent = '';
+  for (const f of [...(ev.target.files || [])]) {
+    try { _docanEntradas.push({ origem: 'arquivo', nome: f.name, buffer: await f.arrayBuffer(), tipo: tipoInicialDocan(), descricao: '' }); }
+    catch (e) { st.textContent = `Não consegui ler ${f.name}: ${e.message}`; }
+  }
+  ev.target.value = '';
+  renderDocanLista();
+}
+function onDocanAddLink() {
+  const inp = document.getElementById('docan-link'), st = document.getElementById('docan-status'), url = inp.value.trim();
+  if (!docanLinkValido(url)) { st.textContent = 'Informe um link completo, começando por https://.'; return; }
+  st.textContent = '';
+  _docanEntradas.push({ origem: 'link', nome: docanNomeDoLink(url), url, tipo: tipoInicialDocan(), descricao: '' });
+  inp.value = '';
+  renderDocanLista();
+}
+/** acao: 'nota' (análise por IA), 'parecer' (Parecer de Especialista) ou 'livre' (escrever à mão). */
+async function confirmarDocAnalista(acao) {
+  const it = _docanItem; if (!it) return;
+  const st = document.getElementById('docan-status'), fechar = () => { document.getElementById('modal-doc-analista').style.display = 'none'; };
+  if (acao === 'livre') {
+    if (it.analise && !it.analise.manual && !confirm('Este item já tem uma análise gerada. Abrir o editor para alterá-la à mão?')) return;
+    fechar();
+    return it.analise ? entrarEdicaoAnalise(it) : iniciarAnaliseLivre(it);
+  }
+  const { docs, erros } = docanMontar(_docanEntradas);
+  if (erros.length) { st.style.color = '#ff8e8e'; st.textContent = erros.join(' '); return; }
+  // Link: baixa agora, para o erro aparecer aqui (site fora da lista da extensão, página que não é
+  // PDF) e não no meio da geração.
+  st.style.color = 'var(--text-dim)'; st.textContent = 'Conferindo os documentos…';
+  try {
+    for (const d of docs) {
+      if (d.buffer) continue;
+      let buf;
+      try { buf = await baixarPdf(d.url); } catch (e) { if (isAbortError(e)) throw e; throw new Error(`Não consegui baixar ${d.url.slice(0, 70)}. Baixe o PDF no navegador e anexe o arquivo.`); }
+      if (!docanEhPdf(buf)) throw new Error(`O link ${d.url.slice(0, 70)} não devolveu um PDF. Baixe o documento e anexe o arquivo.`);
+      d.buffer = buf;
+    }
+  } catch (e) { st.style.color = '#ff8e8e'; st.textContent = e.message; return; }
+  st.textContent = '';
+  const somarCamara = document.getElementById('docan-somar').checked;
+  if (acao === 'nota' && it.analise && !confirm('Este item já tem uma análise. Gerar com os documentos anexados vai substituí-la. Continuar?')) return;
+  _docsAnalista.set(it.chave, { docs, somarCamara, entradas: _docanEntradas.map(e => ({ ...e })) });
+  atualizarBotaoDocProprio(it);
+  fechar();
+  if (acao === 'parecer') return gerarParecerEspecialista(it);
+  return gerarAnaliseItem(it, true, { docsAnalista: docs, somarCamara });
+}
+/** Documentos da geração quando o(a) analista entregou os dele(a): os próprios e, se pedido, os da Câmara. */
+async function documentosComAnalista(it, proprios) {
+  let daCamara = [];
+  if (proprios.somarCamara) {
+    try { daCamara = await escolherDocumentos(it); }
+    catch (e) { if (isAbortError(e)) throw e; console.warn('Documentos da Câmara não somados:', e.message); mostrarToast('Não consegui somar os documentos da Câmara; a análise usa só os anexados.', 'aviso'); }
+  }
+  return docanJuntar(proprios.docs, daCamara);
+}
 
 // ============================================================
 //  GERAÇÃO DE ANÁLISE VIA IA
 // ============================================================
 async function gerarAnaliseItem(it, forcar = false, opts = {}) {
+  // Regerar uma análise feita com documento próprio: usa os mesmos documentos. Os que vieram por
+  // link são baixados de novo; os arquivos só existem na memória da aba em que foram anexados.
+  if (!opts.docsAnalista && forcar && it.analise?.docsDoAnalista) {
+    const g = docsProprios(it);
+    if (!g) return abrirDocAnalista(it, 'Esta análise foi feita com arquivos anexados, que não ficam guardados. Anexe-os de novo para gerar outra vez.');
+    opts = { ...opts, docsAnalista: g.docs, somarCamara: g.somarCamara };
+  }
+  if (opts.docsAnalista) forcar = true;      // o documento mudou: a análise em cache não serve
   resetAbortAll();
   await carregarConfig();
   if (!state.config?.apiKey) {
@@ -2818,7 +2952,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   it.analiseStatus = 'gerando';
 
   try {
-    const docs = await escolherDocumentos(it);
+    const docs = opts.docsAnalista ? await documentosComAnalista(it, { docs: opts.docsAnalista, somarCamara: opts.somarCamara }) : await escolherDocumentos(it);
+    const comAnalista = docs.some(d => d.doAnalista);
+    if (comAnalista) instrucoesExtra = [docanInstrucao(docs, { naCamara: !!it.enriquecimento?.idProposicao, identificacao: `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}` }), instrucoesExtra].filter(x => x && x.trim()).join('\n\n');
     if (!docs.length && ehMPV(it)) {
       // Nem Câmara nem Senado entregaram documento algum da MPV: declara os
       // motivos e abre a edição livre (Cenário 8) em vez de fingir análise.
@@ -2830,14 +2966,14 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       it.analiseStatus = 'sem_analise';
       return iniciarAnaliseLivreMPV(it);
     }
-    if (!docs.length) throw new Error('Documento (PRLP/PRLE ou inteiro teor) não disponível na API.');
+    if (!docs.length) { const e = new Error('A Câmara ainda não tem documento desta matéria (parecer ou inteiro teor).'); e.semDocumento = true; throw e; }
 
     // Requerimento de urgência e o projeto que ele urgencia costumam cair na
     // MESMA análise: o requerimento é sempre analisado sobre o inteiro teor do
     // projeto-alvo. Quando o projeto também está em Cenário 1 (sem parecer), os
     // dois leem exatamente os mesmos PDFs — e a segunda chamada à IA paga por
     // um texto que já existe. Reaproveita, desde que os documentos batam.
-    if (!forcar) {
+    if (!forcar && !comAnalista) {
       const irma = analiseIrmaAproveitavel(it, docs);
       if (irma) {
         aproveitarAnalise(it, irma, docs);
@@ -2847,7 +2983,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 
     // Baixa todos os PDFs em paralelo
     btnGer.innerHTML = `<span class="an-spinner"></span> Buscando ${docs.length} documento(s)...`;
-    const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
+    const pdfBuffers = await baixarDocumentos(docs);
 
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
@@ -2940,8 +3076,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       truncada:    truncated,
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
-      documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
-      cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs)
+      documentos:  comAnalista ? docanMetadados(docs) : docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
+      ...(comAnalista ? { docsDoAnalista: true, somouCamara: docs.some(d => !d.doAnalista) } : {}),
+      cenario:     comAnalista ? docanCenario(docs) : it.tipoCategoria === 'projeto' ? classificarCenario(docs)
         : it.sigla === 'REC' ? `Recurso — CCJC: ${rotuloVotoCCJC(it.enriquecimento?.recurso) || 'sem parecer'}` : '',
       apelido:     apelido || it.apelido || '',
       apensadosStatus: extrairStatusAcolhimento(markdown),
@@ -2971,7 +3108,18 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       console.error(e);
       it.analiseStatus = 'erro';
       it.analiseErro = e.message;
-      conteudo.innerHTML = `<div class="an-analise-erro">Erro: ${escapeHtml(e.message)}</div>`;
+      if (e.semDocumento) {
+        // Sem documento na Câmara não é beco sem saída: o(a) analista entrega o documento ou escreve a nota.
+        conteudo.innerHTML = `<div class="an-analise-erro">${escapeHtml(e.message)} Você pode anexar o documento (PDF ou link) e gerar a análise sobre ele, ou escrever a nota à mão.
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" data-role="btn-semdoc-anexar">📎 Anexar documento</button>
+            <button class="btn btn-outline btn-sm" data-role="btn-semdoc-livre">✍ Escrever a nota à mão</button>
+          </div></div>`;
+        conteudo.querySelector('[data-role=btn-semdoc-anexar]').addEventListener('click', () => abrirDocAnalista(it));
+        conteudo.querySelector('[data-role=btn-semdoc-livre]').addEventListener('click', () => iniciarAnaliseLivre(it));
+      } else {
+        conteudo.innerHTML = `<div class="an-analise-erro">Erro: ${escapeHtml(e.message)}</div>`;
+      }
     }
     btnGer.disabled = false;
     btnGer.innerHTML = iconeGerar() + ' Gerar Análise';
@@ -3034,8 +3182,10 @@ async function completarAnalise(it) {
 
   try {
     // Re-baixar os mesmos documentos (mantém o contexto consistente)
-    const docs = await escolherDocumentos(it);
-    const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
+    const proprios = it.analise.docsDoAnalista ? docsProprios(it) : null;
+    if (it.analise.docsDoAnalista && !proprios) { abrirDocAnalista(it, 'Esta análise foi feita com arquivos anexados, que não ficam guardados. Anexe-os de novo para completar a análise.'); return; }
+    const docs = proprios ? await documentosComAnalista(it, proprios) : await escolherDocumentos(it);
+    const pdfBuffers = await baixarDocumentos(docs);
 
     const cont = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
@@ -3154,7 +3304,7 @@ function operativosAtuais(it) {
 // evita falso positivo com documentos antigos não-operativos naquele cenário,
 // ex.: PRLP anterior ao retorno do Senado). novos=[] → em dia. null → N/A.
 function desatualizacaoOperativa(it) {
-  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
+  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos || it.analise.docsDoAnalista) return null;
   const salvos = it.analise.documentos.filter(d => TIPOS_OPERATIVOS.includes(d.tipo));
   const urlsSalvas = new Set(salvos.map(d => d.url));
   const datasSalvas = salvos
@@ -3462,6 +3612,7 @@ function analiseIrmaAproveitavel(it, docs) {
     if (outro === it) continue;
     if (!outro.analise || outro.analiseStatus !== 'ok') continue;
     if (outro.analise.manual) continue;                 // nota escrita à mão não se replica
+    if (outro.analise.docsDoAnalista) continue;         // nem a feita sobre documento entregue pelo analista
     if (!mesmaProposicao(it, outro)) continue;
     if (chaveDocumentos(outro.analise.documentos) !== alvoDocs) continue;
     return outro;
@@ -4327,7 +4478,7 @@ function renderAnaliseCard(it) {
   // rastreados — a nota manual (edição livre) não tem nenhum. Na MPV gerada
   // por IA, o botão é a varredura por PLV/parecer novo (8a → 8b).
   card.querySelector('[data-role=btn-verificar-item]').style.display =
-    (it.tipoCategoria === 'projeto' && !it.analise.manual) ? 'inline-flex' : 'none';
+    (it.tipoCategoria === 'projeto' && !it.analise.manual && !it.analise.docsDoAnalista) ? 'inline-flex' : 'none';
   // Nota manual: "Reanalisar" (instruções à IA) não se aplica. "Regerar" fica
   // disponível na MPV manual para migrar a nota antiga (edição livre) para a
   // geração por IA dos cenários 8a/8b.
@@ -4349,7 +4500,9 @@ function renderAnaliseCard(it) {
     const docs = it.analise.documentos
       || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
     const docsHtml = docs.length
-      ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" style="color:#0a6cf0;font-weight:600;text-decoration:underline">${escapeHtml(d.rotulo)}</a>`).join(' · ')
+      ? ' · ' + docs.map(d => d.url
+          ? `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" style="color:#0a6cf0;font-weight:600;text-decoration:underline">${escapeHtml(d.rotulo)}</a>`
+          : `<span title="Arquivo anexado pelo(a) analista${d.arquivo ? ': ' + escapeHtml(d.arquivo) : ''}. O arquivo não fica guardado.">📎 ${escapeHtml(d.rotulo)}</span>`).join(' · ')
       : '';
     const promptHtml = it.analise.promptCustom
       ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
@@ -4479,13 +4632,15 @@ function setChatStatus(it, s) { if (it._chat) { it._chat._status = s; renderChat
 async function montarContextoChat(it) {
   if (it._chat.contexto) return it._chat.contexto;
   let ctx = `NOTA TÉCNICA JÁ PRODUZIDA:\n${notaTextoPlano(it) || '(sem nota)'}\n`;
-  const docs = (it.analise?.documentos || []).filter(d => d && d.url);
+  // Documento anexado pelo(a) analista não tem link: se ainda está na memória desta aba, entra por ela.
+  const naAba = (_docsAnalista.get(it.chave)?.docs || []).filter(d => d.buffer);
+  const docs = [...naAba, ...(it.analise?.documentos || []).filter(d => d && d.url && !naAba.some(m => m.url && m.url === d.url))];
   if (docs.length) {
     ctx += `\n=== DOCUMENTOS DA MATÉRIA ===\n`;
     for (const d of docs) {
       if (ctx.length > CHAT_CTX_MAX) break;
       try {
-        const buf = await baixarPdf(d.url);
+        const buf = d.buffer ? d.buffer : await baixarPdf(d.url);
         const txt = await extrairTextoPdf(buf.slice(0));
         ctx += `\n## ${d.rotulo}\n${txt}\n`;
       } catch (_) {
@@ -5003,7 +5158,8 @@ function toggleGerarTodas() {
 // não busca), compara o texto operativo salvo com o atual e atualiza o badge.
 // Guarda o resultado em it.desatualizacao. Retorna o resultado (ou null se N/A).
 async function verificarAtualizacaoItem(it) {
-  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
+  // Análise sobre documento entregue pelo(a) analista não tem o que comparar na Câmara.
+  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos || it.analise.docsDoAnalista) return null;
   const enr = it.enriquecimento || (it.enriquecimento = {});
 
   // RECONSULTA A FONTE antes de comparar. Até 12/08/2026 esta função comparava
@@ -8337,11 +8493,17 @@ async function gerarParecerEspecialista(it) {
     passo('localizando documentos…');
     const temas = await temasDaProposicao(it.enriquecimento?.idProposicao);
     const situacao = await situacaoDaProposicao(it.enriquecimento?.idProposicao);
-    const docsMeta = await escolherDocumentos(it);
-    if (!docsMeta.length) { mostrarToast('Nenhum documento localizado para esta matéria — o parecer não é gerado sem texto.', 'aviso'); return; }
+    // Documento próprio do(a) analista (anexado nesta aba, ou os links da análise gravada) tem preferência.
+    const proprios = docsProprios(it);
+    const docsMeta = proprios ? await documentosComAnalista(it, proprios) : await escolherDocumentos(it);
+    if (!docsMeta.length) {
+      mostrarToast('A Câmara ainda não tem documento desta matéria — anexe o texto para gerar o parecer.', 'aviso');
+      abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar o Parecer de Especialista sobre ele.');
+      return;
+    }
     const docs = [];
     for (const d of docsMeta) {
-      try { docs.push({ rotulo: d.rotulo, url: d.url, buffer: await baixarPdf(d.url) }); }
+      try { docs.push({ rotulo: d.rotulo, url: d.url, buffer: d.buffer ? d.buffer.slice(0) : await baixarPdf(d.url) }); }
       catch (e) { console.warn('Parecer: documento não baixado', d.rotulo, e.message); }
     }
     if (!docs.length) { mostrarToast('Nenhum documento pôde ser baixado.', 'aviso'); return; }
@@ -8364,7 +8526,7 @@ async function gerarParecerEspecialista(it) {
       catch (err) { console.warn('Parecer: emenda não baixada', e.rotulo, err.message); }
     }
     const processo = {
-      cenario: it.tipoCategoria === 'projeto' ? classificarCenario(docsMeta) : '',
+      cenario: docsMeta.some(d => d.doAnalista) ? docanCenario(docsMeta) : it.tipoCategoria === 'projeto' ? classificarCenario(docsMeta) : '',
       textoEmVotacao: docsMeta[0]?.rotulo || '',
       relator: rel && rel.nome ? { nome: rel.nome, partido: rel.partido || '', uf: rel.uf || '', data: rel.data || '' } : null,
       documentos: docs.map(d => ({ rotulo: d.rotulo })),

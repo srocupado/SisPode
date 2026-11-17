@@ -322,6 +322,18 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 - **Retry com backoff exponencial** (5 s / 15 s / 30 s) em respostas 429 (rate limit) e 5xx
 - Botão **Parar tudo** (vermelho) aparece quando há qualquer chamada de IA em voo (lote, individual ou Completar) — usa `AbortController` global para abortar fetches em andamento, sleeps de throttle e timers de retry
 
+**Documento próprio** (quando a Câmara ainda não tem o documento)
+
+Matéria que está na pauta e ainda não chegou à Câmara — o PLP 299/2026 foi pautado em 17/11/2026 enquanto era votado no Senado — não tem parecer nem inteiro teor para baixar. Em vez do erro "documento não disponível", o item oferece duas saídas, também acessíveis pelo botão **📎 Documento próprio** de cada item (`docs-analista.js`):
+
+- **Anexar o documento**: um ou mais PDFs, ou o link de um PDF. Cada um é marcado como *texto em votação*, *parecer do relator* ou *documento de apoio*, com uma descrição livre. A nota técnica e o **Parecer de Especialista** passam a ser feitos sobre eles; é possível somá-los aos documentos que o SisPode encontrar na Câmara, e o do analista prevalece sobre o de mesmo papel
+- O modelo é avisado de que os documentos vieram do analista e, se for o caso, de que a matéria ainda não consta da Câmara; a nota declara em que documento se baseia e registra quando o texto ainda pode mudar
+- **Escrever a nota à mão**: a edição livre, que existia só para medidas provisórias, vale para qualquer item
+- **Os arquivos não são guardados**: ficam na memória da aba. A análise registra o rótulo, o nome do arquivo e, quando houver, o link. Regerar em outra aba exige anexar de novo, salvo quando todos os documentos vieram por link
+- Link é baixado e conferido (tem de ser PDF) antes de qualquer chamada de IA; arquivo que não é PDF ou passa de 25 MB é recusado com orientação
+- Análise feita com documento próprio não é replicada em outro item nem entra na verificação de atualização contra a Câmara
+- No Parecer de Especialista de matéria sem registro na Câmara, o quadro político diz isso, e mapa de votos e dados da bancada ficam de fora
+
 **Parecer de Especialista** (dossiê da matéria, por item)
 
 Além da nota técnica, cada card pode gerar um **parecer de especialista**: um dossiê para o analista, que cobre a matéria inteira — o que o texto faz, o que muda na lei, a tramitação, **o debate (o que os favoráveis e os contrários argumentam)**, **a experiência de outros países**, a análise técnica, os caminhos possíveis e as fontes. Foi **refeito do zero em 17/11/2026** (`pe5-*.js`), depois de medir três pareceres do formato anterior: a conferência dava "aprovado, zero pontos" mesmo com a tabela de legislação errada, o texto repetia os mesmos números de seção em seção, linhas sumiam na quebra de página e a urgência, a votação nominal e o voto da bancada ficavam de fora.
@@ -809,6 +821,7 @@ sispode/
 ├── guia-emendas.js                # Cartilhas × áreas temáticas × relator setorial
 ├── pe5-coleta.js / pe5-prompts.js / pe5-pipeline.js / pe5-conferencia.js / pe5-html.js   # Parecer de Especialista (refeito em 17/11/2026): dados do programa, prompts, etapas, conferência e PDF
 ├── parecer.js / pipeline-parecer.js   # escolha do modelo do parecer; pipeline anterior (abre os pareceres já salvos)
+├── docs-analista.js               # Documento próprio do analista: tipos, validação, rótulos e instrução ao modelo
 ├── especialistas.js               # As 15 lentes temáticas e seus roteiros
 ├── dossie.js / ficha-objeto.js    # Lei vigente, séries e estimativas; ficha do objeto
 ├── tese.js / gates.js             # Tese com evidências, contraditório, portões e rubrica M1–M14

@@ -334,6 +334,44 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: DOCUMENTO PRÓPRIO (o analista entrega o documento da análise) ===== -->
+  <div id="modal-doc-analista" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <h3>Documento próprio para a análise</h3>
+        <button class="modal-close" data-fecha="modal-doc-analista">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="docan-alvo" style="font-weight:600;font-size:14px;margin-bottom:8px;color:var(--text)"></p>
+        <p class="config-desc">Use quando a Câmara ainda não tem o documento (matéria que vem do Senado, texto fora do sistema) ou quando você quer a análise sobre um documento específico. Anexe o PDF ou cole o link; a nota e o Parecer de Especialista passam a ser feitos sobre ele.</p>
+        <div id="docan-aviso" style="display:none;font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 10px;border-left:3px solid #d68a00;background:rgba(214,138,0,.10);color:var(--text)"></div>
+        <div class="form-group">
+          <label>Arquivos PDF</label>
+          <input type="file" id="docan-arquivos" class="form-input" accept="application/pdf,.pdf" multiple>
+        </div>
+        <div style="display:flex; gap:8px; align-items:flex-end">
+          <div class="form-group" style="flex:1;margin-bottom:0">
+            <label>Ou link de um PDF</label>
+            <input type="text" id="docan-link" class="form-input" placeholder="https://…">
+          </div>
+          <button id="btn-docan-add-link" class="btn btn-outline" style="height:36px">Adicionar link</button>
+        </div>
+        <div id="docan-lista" style="margin-top:12px"></div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px;color:var(--text)">
+          <input type="checkbox" id="docan-somar"> Somar aos documentos que o SisPode encontrar na Câmara
+        </label>
+        <p class="config-desc" style="margin-top:8px">Os arquivos não são guardados: ficam só nesta aba, até você fechá-la. A análise registra o nome de cada documento e, quando houver, o link.</p>
+        <div id="docan-status" style="font-size:12px;color:#ff8e8e;min-height:16px;line-height:1.5"></div>
+      </div>
+      <div class="modal-footer" style="flex-wrap:wrap;gap:8px">
+        <button class="btn btn-ghost" data-fecha="modal-doc-analista">Cancelar</button>
+        <button id="btn-docan-livre" class="btn btn-outline" title="Abre o editor em branco para você escrever a nota, sem IA">✍ Escrever a nota à mão</button>
+        <button id="btn-docan-parecer" class="btn btn-outline" style="color:#8fd0ff" title="Gera o Parecer de Especialista sobre os documentos anexados">⚖ Parecer de Especialista</button>
+        <button id="btn-docan-gerar" class="btn btn-primary">Gerar análise com estes documentos</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== MODAL: COLISÃO DE PAUTA (duas sessões no mesmo dia) ===== -->
   <div id="modal-colisao-pauta" class="modal-overlay" style="display:none">
     <div class="modal">
@@ -573,6 +611,7 @@
   <script src="pe5-pipeline.js"></script>
   <script src="pe5-html.js"></script>
   <script src="ia-comum.js"></script>
+  <script src="docs-analista.js"></script>
   <script src="analise.js"></script>
 </body>
 </html>

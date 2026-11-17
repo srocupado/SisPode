@@ -187,13 +187,14 @@ const comAnalise = (it, docs, extra = {}) => ({
   console.log('\n== a fiação em gerarAnaliseItem ==');
   {
     const g = trecho(/async function gerarAnaliseItem\([\s\S]*?\n^}/m);
-    ok(/if \(!forcar\) \{\s*\n\s*const irma = analiseIrmaAproveitavel\(it, docs\)/.test(g),
+    // (desde 17/11/2026 a análise feita sobre documento do analista também não se reaproveita)
+    ok(/if \(!forcar && !comAnalista\) \{\s*\n\s*const irma = analiseIrmaAproveitavel\(it, docs\)/.test(g),
        'a busca acontece depois de escolherDocumentos e antes de baixar os PDFs');
-    const antesDoDownload = g.indexOf('analiseIrmaAproveitavel') < g.indexOf('Promise.all(docs.map(d => baixarPdf');
+    const antesDoDownload = g.indexOf('analiseIrmaAproveitavel') < g.indexOf('await baixarDocumentos(docs)');
     ok(antesDoDownload, 'nem os PDFs são baixados quando há reaproveitamento');
     // "Regerar" tem de forçar chamada nova, senão o analista não conseguiria
     // refazer uma nota de que discordou.
-    ok(/if \(!forcar\)/.test(g.slice(g.indexOf('analiseIrmaAproveitavel') - 200, g.indexOf('analiseIrmaAproveitavel'))),
+    ok(/if \(!forcar && !comAnalista\)/.test(g.slice(g.indexOf('analiseIrmaAproveitavel') - 200, g.indexOf('analiseIrmaAproveitavel'))),
        'Regerar (forcar) ignora o reaproveitamento e chama a IA');
   }
 
