@@ -24,17 +24,6 @@ const CSS_PE5 = `
   .pe-caixa p, .pe-caixa li { text-align:justify; }
   .pe-carimbo { text-align:center; font-size:8.5pt; color:#6b7280; margin:-6px 0 12px; }
   .pe-cola { break-inside:avoid; page-break-inside:avoid; }
-  .pe-ator { margin:12px 0 16px; }
-  .pe-ator-cont { margin:-10px 0 16px; }
-  .pe-ator-cont .arg, .pe-ator .arg { border-left:3px solid #c8d0d8; padding:2px 0 2px 10px; margin:6px 0 9px; break-inside:avoid; page-break-inside:avoid; }
-  .pe-ator-cont .arg p { margin:2px 0; font-size:11pt; line-height:1.5; }
-  .pe-ator h3 { margin:0 0 2px; font-size:12pt; color:#0a2f4f; break-after:avoid; page-break-after:avoid; }
-  .pe-ator .quem { font-size:9.5pt; color:#555; margin:0 0 6px; text-align:left; }
-  .pe-ator .arg p { margin:2px 0; font-size:11pt; line-height:1.5; }
-  .pe-aval { display:inline-block; font-size:8pt; font-weight:700; padding:1px 7px; border-radius:999px; margin-right:6px; vertical-align:1px; text-transform:uppercase; }
-  .pe-aval.sim { background:#d9f2e3; color:#155724; } .pe-aval.parte { background:#fdf0cf; color:#7a5200; } .pe-aval.nao { background:#fde2e1; color:#8a1c16; } .pe-aval.nv { background:#e8ecef; color:#475057; }
-  .pe-pos { font-size:9pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
-  .pe-pos.favor { color:#155724; } .pe-pos.contra { color:#8a1c16; } .pe-pos.neutro { color:#475057; }
   .pe-frase { font-size:13.5pt; line-height:1.45; font-weight:600; color:#003c1f; margin:10px 0 12px; text-align:left; }
   .pe-caixa { border:1.5px solid #0a4a7a; background:#f4f8fc; border-radius:4px; padding:10px 14px; margin:10px 0; }
   .pe-caixa.junta { break-inside:avoid; page-break-inside:avoid; }
@@ -163,25 +152,8 @@ function pe5IndicePesquisa(pq = {}) {
   return m;
 }
 function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" href="${esc(x.fonte_url_final || x.fonte_url)}">${esc(x.fonte_nome || 'fonte')}</a>` : ''; }
-const PE5_AVAL = { 'procede': ['sim', 'procede'], 'procede em parte': ['parte', 'procede em parte'], 'não procede': ['nao', 'não procede'], 'não verificável': ['nv', 'não verificável'], 'questão de mérito': ['nv', 'questão de mérito'] };
-
-/** "Quem se posicionou e como": entidade por entidade, com os argumentos e o que o texto e os dados mostram. */
-function pe5Posicoes(atores, idx, esc) {
-  if (!atores || !atores.length) return '';
-  const ordem = { 'favorável': 0, 'favorável com ressalvas': 1, 'neutro': 2, 'contrário com ressalvas': 3, 'contrário': 4 };
-  const arg = g => { const av = PE5_AVAL[String(g.avaliacao || '').toLowerCase()]; return `<div class="arg"><p><b>Argumento.</b> ${esc(g.tese)}</p>${g.evidencia ? `<p><b>Evidência apresentada.</b> ${esc(g.evidencia)}</p>` : ''}${g.porque ? `<p><b>O que o texto e os dados mostram.</b> ${av ? `<span class="pe-aval ${av[0]}">${esc(av[1])}</span>` : ''}${esc(g.porque)}</p>` : ''}</div>`; };
-  return [...atores].sort((a, b) => (ordem[a.posicao] ?? 2) - (ordem[b.posicao] ?? 2)).map((a, i) => {
-    const fonte = pe5LinkFonte((a.ev || []).map(e => idx.get(e)).find(Boolean), esc);
-    const cls = /favor/.test(a.posicao || '') ? 'favor' : /contr/.test(a.posicao || '') ? 'contra' : 'neutro';
-    const args = a.argumentos || [];
-    const cab = `<h3>${esc(a.ator)} <span class="pe-pos ${cls}">· ${esc(a.posicao || '')}</span></h3>
-      <p class="quem">${esc(a.quem_e || '')}${a.data ? ` · ${esc(a.data)}` : ''}${a.versao ? ` · sobre o ${esc(a.versao)}` : ''}${fonte ? ` · fonte: ${fonte}` : ''}</p>${args[0] ? arg(args[0]) : ''}`;
-    const resto = args.slice(1).map(arg).join('');
-    // O nome da entidade anda junto com o primeiro argumento; a primeira entidade, também com o título da seção.
-    return i === 0 ? `<!--cola--><div class="pe-ator">${cab}</div><!--/cola-->${resto ? `<div class="pe-ator-cont">${resto}</div>` : ''}`
-      : `<div class="pe-ator"><div class="pe-cola">${cab}</div>${resto}</div>`;
-  }).join('');
-}
+/** Texto corrido, um parágrafo por item (é a forma do parecer original para "Quem se posicionou e como" e "Os dois lados"). */
+function pe5Prosa(itens, esc) { return (itens || []).map(x => typeof x === 'string' ? x : x && x.texto).filter(t => t && String(t).trim()).map(t => `<p>${esc(t)}</p>`).join(''); }
 
 /** O parecer, pronto para o Paged.js. */
 function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
@@ -208,8 +180,9 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
 
   // ---- II. O debate ----
   parte('II', 'O debate');
+  sec('atores', 'Quem se posicionou e como', pe5Prosa(D.debate?.posicoes, esc) || pe5Atores(pq.debate?.atores, esc));
+  { const ld = D.debate?.lados || {}; sec('lados', 'Os dois lados', pe5Prosa([ld.apoia?.argumento, ld.apoia?.evidencia, ld.opoe?.argumento, ld.opoe?.evidencia], esc)); }
   sec('contro', 'Mapa de argumentos', (D.debate?.controversias || []).map(c => pe5Controversia(c, esc)).join(''));
-  sec('atores', 'Quem se posicionou e como', (D.debate?.atores || []).length ? pe5Posicoes(D.debate.atores, idx, esc) : pe5Atores(pq.debate?.atores, esc));
   sec('analise-arg', 'Argumentos que ninguém levantou', (D.debate?.da_analise || []).length
     ? `<p class="pe-fonte">Argumentos da assessoria, formulados a partir do texto e da comparação internacional. Não foram localizados nas manifestações públicas.</p>${D.debate.da_analise.map(a => `<p class="pe-ponto"><span class="pe-grav ${a.lado === 'favorável' ? 'baixa' : 'media'}">${a.lado === 'favorável' ? 'a favor' : 'contra'}</span>${esc(a.argumento)}</p>`).join('')}` : '');
 
@@ -302,7 +275,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <h2 class="item-h">Como o parecer foi produzido</h2>
   <ul>
     <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
-    <li>A avaliação de cada argumento ("procede", "procede em parte", "não procede", "não verificável") é do modelo, feita contra o texto analisado e os dados da base.</li>
+    <li>Em "Os dois lados", o que se diz sobre cada argumento ("confirma-se", "procede", "não procede") é avaliação do modelo, feita contra o texto analisado e os dados da base.</li>
     <li>Tramitação, votações, voto da bancada e o texto da lei em vigor foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</li>
     <li>Os valores em moeda estrangeira foram convertidos pelo câmbio de venda do Banco Central${p.cambio ? ` em ${esc(p.cambio.data)}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}` : ''}.</li>
     <li>O parecer não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.</li>
@@ -335,5 +308,5 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Posicoes, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
+  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
 }

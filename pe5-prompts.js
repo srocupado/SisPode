@@ -300,15 +300,15 @@ O QUE DEVOLVER
    "contexto": [ { "titulo": "…", "texto": "o que já existe hoje sobre o assunto, outras proposições, fatores externos relevantes", "ev": ["M1"] } ]
  },
  "debate": {
+   "posicoes": [ { "texto": "um parágrafo de texto corrido sobre UM ator", "ev": ["Q1"] } ],
+   "lados": {
+     "apoia": { "argumento": "um parágrafo: quem são os defensores, pelo nome, e o argumento deles no seu melhor", "evidencia": "um parágrafo: o que o texto em votação, a lei vigente e os dados mostram sobre esses argumentos", "ev": ["Q1","B2"] },
+     "opoe": { "argumento": "um parágrafo: quem são os críticos, pelo nome, e o argumento deles no seu melhor", "evidencia": "um parágrafo: o que o texto em votação, a lei vigente e os dados mostram sobre essas objeções", "ev": ["Q7","V1"] }
+   },
    "controversias": [ { "questao": "pergunta em disputa", "dispositivos": "arts. … ou —",
        "favor": [ { "argumento": "…", "quem": "quem sustenta", "evidencia": "o que apresenta como prova, ou \\"Não apresentada na fonte.\\"" } ],
        "contra": [ { "argumento": "…", "quem": "…", "evidencia": "…" } ],
        "estado": "como a questão está resolvida, ou não, no texto em votação", "ev": ["Q1","Q7","V1"] } ],
-   "atores": [ { "ator": "nome da entidade ou pessoa, como na pesquisa", "quem_e": "o que é e quem representa", "posicao": "favorável | favorável com ressalvas | neutro | contrário com ressalvas | contrário", "data": "…", "versao": "texto original | texto em votação | não especificada",
-       "argumentos": [ { "tese": "o argumento, fiel à fonte", "evidencia": "o que o ator apresenta como prova; vazio se não apresenta",
-           "avaliacao": "procede | procede em parte | não procede | não verificável | questão de mérito",
-           "porque": "o que o texto em votação, a lei vigente e os dados da base mostram sobre esse argumento, com o artigo" } ],
-       "ev": ["Q1"] } ],
    "da_analise": [ { "lado": "favorável | contrário", "argumento": "argumento relevante que decorre do texto ou da comparação internacional e que NENHUM ator levantou", "ev": ["T5","W1"] } ]
  },
  "internacional": {
@@ -325,7 +325,8 @@ ORIENTAÇÕES POR SEÇÃO
 - "documentos": a relação taxativa dos documentos que embasam a proposição, para consulta posterior: o texto original, a justificativa ou exposição de motivos, cada consulta, estudo, relatório ou nota que a leitura (ids U) e a pesquisa (ids Y) identificaram, o parecer e o substitutivo. Título completo, como está na base. Documento que foi localizado e não lido leva essa informação em "o_que_e".
 - "versoes": uma linha por mudança relevante entre o texto anterior e o texto em votação. Omita a seção se houver uma versão só.
 - "controversias": é o coração do parecer. Para cada pergunta em disputa, os argumentos de um lado e do outro, com QUEM sustenta e QUE EVIDÊNCIA apresenta. Argumento sem evidência na fonte leva "Não apresentada na fonte.". Se um lado não tem argumento localizado, deixe a lista vazia. Em "estado", diga o que o texto em votação fez com a questão e o que ficou em aberto. Quando dois críticos se contradizem, diga.
-- "atores": TODOS os atores da pesquisa do debate, um por um, com cada argumento. Para cada argumento, confronte com a base e classifique: "procede" (o texto ou os dados confirmam), "procede em parte" (confirma uma parte; diga qual), "não procede" (o texto em votação ou a lei vigente dizem o contrário; cite o artigo), "não verificável" (previsão ou afirmação de fato sem dado na base), "questão de mérito" (juízo de valor, que não se resolve com o texto). Em "porque", diga o que o texto dispõe sobre o ponto, com o artigo; se o argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. A avaliação é do ARGUMENTO, não da proposição: não diga se ela deve ser aprovada. Não repita aqui, por extenso, o que "controversias" já explica — lá fica o confronto por pergunta; aqui, a posição de cada um e a checagem.
+- "posicoes" (seção "Quem se posicionou e como"): TEXTO CORRIDO, um parágrafo por ator da pesquisa do debate — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo.
+- "lados" (seção "Os dois lados"): dois parágrafos por lado. Em "argumento", o melhor argumento do lado, nomeando quem o sustenta. Em "evidencia", o que o texto e os documentos mostram sobre o que esse lado afirma, ponto por ponto e com o artigo: o que se confirma; o que se confirma só em parte, e qual parte; o que o texto em votação ou a lei vigente contradizem; o que o substitutivo já atendeu; o que não há dado para verificar; e o que é divergência de mérito, que o texto não resolve. Se um argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. Avalia-se o ARGUMENTO, não a proposição: não diga quem tem razão no mérito nem se o texto deve ser aprovado.
 - "da_analise": de 2 a 5 argumentos que a leitura do texto ou a comparação internacional sustentam e que ninguém levantou. São da assessoria e serão impressos como tal.
 - "jurisdicoes": um bloco por país, mais um bloco para os que recuaram ou adiaram, se houver.
 - "comparativo": a primeira coluna é sempre o Brasil. De 5 a 8 linhas com os parâmetros que permitem comparar (como funciona, quem é alcançado, duração, sanção, resultado até agora). Valor em moeda estrangeira vem acompanhado da conversão em reais pelo câmbio da base, com "cerca de".
@@ -410,7 +411,7 @@ PROCURE
 7. Frase que recomenda voto, juridiquês, termo interno ("cenário", "lente", "achado") ou identificador da base no meio do texto.
 8. Afirmação de ausência ("não há", "não consta") sem dizer onde se procurou.
 9. Emenda cuja redação não corrige o problema apontado, ou que cita dispositivo inexistente.
-10. Avaliação de argumento ("procede", "não procede"…) que o texto em votação ou a lei vigente não sustentam, ou feita contra a versão errada do texto.
+10. Em "Os dois lados", avaliação de argumento ("confirma-se", "procede", "não procede"…) que o texto em votação ou a lei vigente não sustentam, ou feita contra a versão errada do texto.
 11. Nome genérico onde a base traz o nome próprio (órgão, documento, estudo, entidade), ou enumeração anunciada e não feita ("seis critérios" sem dizer quais).
 
 ${pe5Base(ctx)}

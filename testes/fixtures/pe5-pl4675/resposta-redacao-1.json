@@ -240,6 +240,150 @@
   ]
  },
  "debate": {
+  "posicoes": [
+   {
+    "texto": "O Poder Executivo, autor do projeto, é favorável e expôs suas razões na Exposição de Motivos Interministerial nº 00099/2025. Em 14/11/2026, segundo a Folhapress, a Secretaria de Comunicação Social e o Ministério da Fazenda voltaram a defender o texto em votação: sustentam que o projeto trata de concorrência, e não de conteúdo das redes sociais, e que o Cade precisa agir antes da infração, porque seus processos levam anos. Como base, o governo aponta o estudo do Ministério da Fazenda citado na exposição de motivos.",
+    "ev": [
+     "Q2",
+     "U2"
+    ]
+   },
+   {
+    "texto": "O relator de Plenário, deputado Aliel Machado (PV-PR), vice-líder do governo e autor do substitutivo, é favorável. Em declarações registradas pelo Mobile Time em 11/08/2026, sustentou que o substitutivo deixa claro que as obrigações não alcançam grandes empresas que são apenas usuárias das plataformas, como bancos e fintechs; que a livre concorrência é princípio do art. 170 da Constituição, e o projeto a protege; e que as empresas não deixarão o País, porque o mercado brasileiro é grande demais.",
+    "ev": [
+     "Q1"
+    ]
+   },
+   {
+    "texto": "O presidente da Câmara, deputado Hugo Motta, apoia a aprovação, segundo a Folhapress (14/11/2026). A mesma reportagem registra o apoio da Abrasel (bares e restaurantes), da Febraban (bancos), da Abipag (instituições de pagamento) e de parte do varejo, setores que dependem das plataformas ou concorrem com elas. A fonte lida não detalha os argumentos de cada um.",
+    "ev": [
+     "Q3"
+    ]
+   },
+   {
+    "texto": "Na sociedade civil, a organização Artigo 19, de defesa da liberdade de expressão, é favorável ao texto em votação. Em 16/09/2026, por meio de Raquel da Cruz Lima, afirmou ao Brasil de Fato que a urgência não atropela o debate, porque o texto nasceu de tomada de subsídios e de mais de um ano de discussão técnica; que a concentração já prejudica quem depende das plataformas, e citou o iFood, que teria passado a ditar preços e margens de bares e restaurantes, e a Apple, que fica com 30% de cada compra feita em aplicativo; e que os critérios valem para qualquer empresa, \"independentemente da nacionalidade\".",
+    "ev": [
+     "Q4"
+    ]
+   },
+   {
+    "texto": "A Data Privacy Brasil, organização de pesquisa em direitos digitais, é favorável. Seu representante, Rafael Zanatta, disse à Folhapress, em 14/11/2026, ver \"indícios de um movimento coordenado para espalhar desinformação sobre o projeto\". A fonte lida não registra argumento da entidade sobre dispositivos do texto.",
+    "ev": [
+     "Q5"
+    ]
+   },
+   {
+    "texto": "Na academia, o professor Nicolo Zingales, da FGV Direito Rio, especialista em direito da concorrência, é favorável. Em 14/11/2026, classificou como falácia a tese de que a lei é desnecessária porque o Cade já pode adotar medidas cautelares.",
+    "ev": [
+     "Q6"
+    ]
+   },
+   {
+    "texto": "A Associação Latino-Americana de Internet (ALAI), que reúne Google, Meta, X, Discord, Amazon e outras plataformas, é contrária ao texto em votação. Em manifestação de 03/11/2026, noticiada pelo Mercado & Consumo, sustenta que, mesmo com a lista fechada, os critérios de relevância sistêmica continuam abertos à interpretação do regulador; que as obrigações podem ser ampliadas com o tempo, formando \"uma estrutura regulatória rígida, sem qualquer garantia de proporcionalidade\"; que o texto restringe práticas legítimas, como integração de serviços e programas de fidelidade, sem prova de dano à concorrência; e que seis anos de designação é mais do que o Cade costuma aplicar a medidas comportamentais. Com base em estudo que encomendou, estima o custo entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos e afirma que parte dele será repassada a consumidores e a pequenos negócios. Diz ainda que o Brasil importaria um modelo que seus próprios formuladores já reconsideram e que mais de 75% dos que pedem acesso a dados sob a lei europeia não são empresas europeias.",
+    "ev": [
+     "Q7"
+    ]
+   },
+   {
+    "texto": "A Apple, dona de sistema operacional e de loja de aplicativos e já designada em outros países, é contrária. Em 10/07/2026, segundo o Teletime, chamou o projeto de \"desnecessário\" e disse que ele importa o modelo europeu, que estaria fracassando; que a abertura obrigatória, com pagamentos fora da loja e aplicativos baixados fora dela, enfraquece a privacidade e a segurança; e que o acordo que firmou com o Cade já é uma alternativa brasileira.",
+    "ev": [
+     "Q8"
+    ]
+   },
+   {
+    "texto": "O Conselho Digital, entidade que tem entre os associados Meta, Google, Amazon, OpenAI e TikTok, é contrário. Em 16/09/2026, afirmou ao Brasil de Fato que o texto permite \"a imposição discricionária de obrigações estruturais, mesmo sem demonstração de dano concreto ou indícios de má conduta\".",
+    "ev": [
+     "Q9"
+    ]
+   },
+   {
+    "texto": "A Câmara Brasileira da Economia Digital (camara-e.net), entidade do comércio eletrônico, é contrária. Seu representante, Igor Luna, disse à Folhapress, em 14/11/2026, que o projeto dá \"poderes amplos para intervir na economia digital e punir empresas pelo porte\" e que não houve estudo de impacto econômico.",
+    "ev": [
+     "Q10"
+    ]
+   },
+   {
+    "texto": "Ainda sobre o projeto original, catorze entidades e frentes parlamentares, entre elas Abes, ALAI, Amobitec, camara-e.net, Fecomercio-SP, Instituto Livre Mercado e a Frente Parlamentar pelo Livre Mercado, pediram em 25/11/2025, segundo o Teletime, a criação de comissão especial. Argumentaram que o projeto não veio com análise de impacto regulatório nem estudo econômico e que seus efeitos vão além da tecnologia e alcançam indústria, comércio e serviços.",
+    "ev": [
+     "Q11"
+    ]
+   },
+   {
+    "texto": "A Fecomercio e a CNC, federação e confederação do comércio, aparecem entre os opositores na reportagem da Folhapress de 14/11/2026, que não detalha os argumentos.",
+    "ev": [
+     "Q14"
+    ]
+   },
+   {
+    "texto": "No Parlamento, a deputada Any Ortiz (PP-RS), relatora do PL 2768/2022, outro projeto sobre concorrência digital, é contrária. Em 14/11/2026, disse que \"é preciso provar que essas empresas realmente têm ação predatória no mercado\" antes de impor obrigações.",
+    "ev": [
+     "Q12"
+    ]
+   },
+   {
+    "texto": "Deputados do PL, entre eles Mário Frias e Nikolas Ferreira, opõem-se ao projeto com o argumento de que ele seria um meio de regular as redes sociais, também segundo a Folhapress (14/11/2026).",
+    "ev": [
+     "Q13"
+    ]
+   },
+   {
+    "texto": "Fora do País, vinte deputados republicanos dos Estados Unidos, entre eles Adrian Smith e Jim Jordan, que preside o Comitê Judiciário da Câmara norte-americana, manifestaram-se contra em 23/07/2026, conforme o Congresso em Foco. Afirmam que o projeto \"replicaria intencionalmente\" a lei europeia de mercados digitais, que o regime seria discriminatório contra empresas americanas e que custaria bilhões de dólares.",
+    "ev": [
+     "Q15"
+    ]
+   },
+   {
+    "texto": "Entre os diretamente afetados, não foram localizadas, nas fontes pesquisadas, manifestações individuais de Google, Meta, Amazon ou Mercado Livre sobre o substitutivo: essas empresas falaram por meio das entidades de que participam. O relatório do governo que rebate as críticas é citado pela imprensa, mas o documento não foi localizado.",
+    "ev": [
+     "Q7",
+     "Q9"
+    ]
+   }
+  ],
+  "lados": {
+   "apoia": {
+    "argumento": "Os defensores do projeto — o Poder Executivo, o relator, o presidente da Câmara, organizações como Artigo 19 e Data Privacy Brasil e setores que dependem das plataformas, como bares e restaurantes, bancos e instituições de pagamento — sustentam que os instrumentos atuais do Cade, a análise de fusões e a punição de condutas já ocorridas, chegam tarde em mercados digitais. Para eles, o regime em duas etapas, com obrigações definidas caso a caso, permite corrigir práticas como o favorecimento dos próprios produtos e a venda casada antes que o dano se consolide; vale para qualquer empresa, sem distinção de nacionalidade; e não trata de conteúdo das redes sociais.",
+    "evidencia": "Sobre os argumentos de quem apoia, o texto e os documentos mostram o seguinte. Confirma-se que nenhuma das obrigações do art. 47-E trata de moderação ou remoção de conteúdo: a que mais se aproxima é a de divulgar critérios de ranqueamento e de exibição de ofertas, que é de transparência comercial. Confirma-se também que os pisos são de faturamento e não distinguem origem: o piso nacional alcança grupos brasileiros, como Magazine Luiza e iFood. A consulta que antecedeu o projeto existiu e está documentada, pois a Tomada de Subsídios SRE/MF nº 1/2024 recebeu 301 contribuições de 72 participantes; na Câmara, porém, a matéria não passou por comissão, e o pedido de comissão especial não foi votado. Confirma-se só em parte a afirmação do relator de que bancos e fintechs ficam de fora: o texto não traz essa exclusão; diz que as obrigações só valem para quem for designado (art. 47-E, § 1º, IV) e que a designação exige as seis características do art. 47-C, § 2º, de modo que um grupo financeiro que passe do piso e as reúna pode, em tese, ser designado. Quanto à resposta de que o Cade já dispõe de medida cautelar, a lei atual prevê a medida preventiva (art. 84), mas só dentro de inquérito ou processo por infração; ela não permite impor obrigações permanentes a empresa que não é investigada. Os documentos lidos não permitem verificar a lentidão dos processos do Cade em mercados digitais, porque não informam o tempo médio desses processos, nem os exemplos de prejuízo citados pela Artigo 19, que são da própria entidade. A afirmação de que nenhuma empresa deixará o País é previsão; nas fontes lidas sobre outros países não há registro de empresa que tenha saído do mercado por causa de lei semelhante.",
+    "ev": [
+     "Q1",
+     "Q2",
+     "Q3",
+     "Q4",
+     "Q5",
+     "Q6",
+     "B2",
+     "U1",
+     "Z5",
+     "Z6"
+    ]
+   },
+   "opoe": {
+    "argumento": "Os críticos — a ALAI, a Apple, o Conselho Digital, a camara-e.net, a Fecomercio, a CNC, a deputada Any Ortiz, deputados do PL e vinte deputados republicanos dos Estados Unidos — sustentam que o projeto impõe obrigações a empresas sem prova de infração nem de dano, com critérios de designação que continuam abertos à interpretação do regulador. Dizem que ele copia a lei europeia, que estaria fracassando; que a abertura de sistemas compromete a segurança e a privacidade; que o custo, estimado pela ALAI entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos, será repassado a consumidores e a pequenos negócios; que não houve estudo de impacto; e, para parte da oposição, que o texto abre caminho para regular as redes sociais.",
+    "evidencia": "Sobre as objeções de quem se opõe, o texto e os documentos mostram o seguinte. Procede que o projeto dispensa a prova de infração e de dano: é a sua escolha central, e exigir essa prova, como propõe a deputada Any Ortiz, equivale a manter o modelo atual. É divergência de mérito, que a leitura do texto não resolve. Procede também que os documentos do projeto não trazem análise de impacto regulatório nem estimativa de custo; o relatório do Ministério da Fazenda de outubro de 2024 fundamenta a proposta, mas não foi lido para este parecer. Procede em parte a crítica aos critérios: a lista de características é fechada e exige análise conjunta e fundamentada, mas \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" não têm definição no texto. O substitutivo já respondeu a parte das objeções: proibiu o Cade de impor obrigação fora da lista do art. 47-E e de criar sanções por resolução (art. 48, § 1º), exige justificativa econômica em cada decisão (art. 87-B, § 1º) e manda considerar o que melhora a funcionalidade do produto e a segurança da informação (art. 47-E, § 2º), embora sem criar salvaguarda específica de segurança. Não procede que as obrigações sejam \"estruturais\": a lista é de transparência, de fazer e de não fazer, e não inclui venda de ativos nem separação de empresas. Não procede que o texto copie a lei europeia: lá as obrigações estão escritas na lei e valem para todos os designados; aqui são fixadas caso a caso, como na Alemanha e no Reino Unido, e a revisão oficial da lei europeia, de abril de 2026, concluiu que ela é adequada, embora reconheça atrasos no cumprimento. Não procede, por fim, que o texto regule conteúdo: ele não contém obrigação sobre moderação ou remoção de publicações. O custo estimado vem de estudo encomendado por parte interessada, e nas fontes lidas não há estimativa oficial nem independente para comparar. Sobre a alegação de discriminação contra empresas norte-americanas, os critérios são de faturamento e alcançam também grupos brasileiros; entre os quatro grupos acima do piso mundial listados neste parecer, três são norte-americanos.",
+    "ev": [
+     "Q7",
+     "Q8",
+     "Q9",
+     "Q10",
+     "Q11",
+     "Q12",
+     "Q13",
+     "Q14",
+     "Q15",
+     "B2",
+     "B3",
+     "V1",
+     "W1",
+     "W2",
+     "W3",
+     "Y1",
+     "Z1",
+     "Z2",
+     "Z3",
+     "Z4"
+    ]
+   }
+  },
   "controversias": [
    {
     "questao": "É preciso uma regra preventiva, ou a lei atual basta?",
@@ -479,368 +623,6 @@
      "W4"
     ],
     "argumento": "No Reino Unido e no Japão, a autoridade obteve mudanças de conduta por compromisso e diálogo, sem multa. O instrumento equivalente no texto é a proposta voluntária do representado."
-   }
-  ],
-  "atores": [
-   {
-    "ev": [
-     "Q1"
-    ],
-    "ator": "Relator, deputado Aliel Machado (PV-PR)",
-    "quem_e": "Relator de Plenário, vice-líder do governo e autor do substitutivo",
-    "posicao": "favorável",
-    "data": "11/08/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O substitutivo deixa claro que as obrigações não alcançam grandes empresas que são apenas usuárias das plataformas, como bancos e fintechs.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "O texto não traz exclusão expressa de bancos ou fintechs. O que ele diz é que as obrigações só valem para quem for designado (art. 47-E, § 1º, IV) e que a designação exige as seis características do art. 47-C, § 2º. Um grupo financeiro que passe do piso e reúna essas características pode, em tese, ser designado."
-     },
-     {
-      "tese": "A livre concorrência é princípio do art. 170 da Constituição, e o projeto a protege.",
-      "evidencia": "",
-      "avaliacao": "procede",
-      "porque": "É o fundamento que o próprio texto adota: os objetivos do art. 47-B são liberdade de escolha, redução de barreiras à entrada e proteção do processo competitivo. O argumento não responde, por si, se o instrumento escolhido é o adequado."
-     },
-     {
-      "tese": "As empresas não deixarão o País, porque o mercado brasileiro é grande demais.",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "É previsão. Nas fontes lidas sobre outros países não há registro de empresa que tenha saído do mercado por causa de lei semelhante."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q2"
-    ],
-    "ator": "Governo federal (Secretaria de Comunicação Social e Ministério da Fazenda)",
-    "quem_e": "Autor do projeto",
-    "posicao": "favorável",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O projeto trata de concorrência, não de conteúdo das redes sociais.",
-      "evidencia": "",
-      "avaliacao": "procede",
-      "porque": "Nenhuma das obrigações do art. 47-E trata de moderação ou remoção de conteúdo. A que mais se aproxima é a de divulgar critérios de ranqueamento e de exibição de ofertas, que é de transparência comercial."
-     },
-     {
-      "tese": "O Cade precisa agir antes da infração, porque seus processos levam anos.",
-      "evidencia": "Estudo do Ministério da Fazenda, citado na exposição de motivos.",
-      "avaliacao": "não verificável",
-      "porque": "A exposição de motivos afirma a necessidade de instrumentos mais rápidos, mas os documentos lidos não trazem o tempo médio dos processos do Cade em mercados digitais."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q3"
-    ],
-    "ator": "Presidente da Câmara, deputado Hugo Motta; Abrasel; Febraban; Abipag; parte do varejo",
-    "quem_e": "Presidência da Casa e setores que dependem das plataformas ou concorrem com elas: bares e restaurantes, bancos e instituições de pagamento",
-    "posicao": "favorável",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "Apoiam a aprovação. A fonte lida não detalha os argumentos de cada um.",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "A reportagem só registra o apoio."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q4"
-    ],
-    "ator": "Artigo 19 (Raquel da Cruz Lima)",
-    "quem_e": "Organização de defesa da liberdade de expressão",
-    "posicao": "favorável",
-    "data": "16/09/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "A urgência não atropela o debate: o texto nasceu de tomada de subsídios e de mais de um ano de discussão técnica.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "A tomada de subsídios existiu e está documentada, com 301 contribuições. Mas, na Câmara, o projeto não passou por nenhuma comissão, e o pedido de comissão especial não foi votado."
-     },
-     {
-      "tese": "A concentração já prejudica quem depende das plataformas.",
-      "evidencia": "O iFood passou a ditar preços e margens de bares e restaurantes; a Apple fica com 30% de cada compra feita em aplicativo.",
-      "avaliacao": "não verificável",
-      "porque": "Os exemplos são da entidade e não constam dos documentos do projeto."
-     },
-     {
-      "tese": "Os critérios valem para qualquer empresa, \"independentemente da nacionalidade\".",
-      "evidencia": "",
-      "avaliacao": "procede",
-      "porque": "Os pisos são de faturamento e não distinguem origem. O piso nacional alcança grupos brasileiros, como Magazine Luiza e iFood."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q5"
-    ],
-    "ator": "Data Privacy Brasil (Rafael Zanatta)",
-    "quem_e": "Organização de pesquisa em direitos digitais",
-    "posicao": "favorável",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "Há \"indícios de um movimento coordenado para espalhar desinformação sobre o projeto\".",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "É avaliação da entidade sobre a campanha contrária; não diz respeito ao texto."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q6"
-    ],
-    "ator": "Nicolo Zingales (FGV Direito Rio)",
-    "quem_e": "Professor de direito da concorrência",
-    "posicao": "favorável",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "É falácia dizer que a lei é desnecessária porque o Cade já pode adotar medidas cautelares.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "A lei atual prevê medida preventiva (art. 84), mas só dentro de inquérito ou processo por infração, quando há indício de dano. Ela não permite impor obrigações permanentes a uma empresa que não é investigada."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q7"
-    ],
-    "ator": "ALAI — Associação Latino-Americana de Internet",
-    "quem_e": "Entidade que reúne Google, Meta, X, Discord, Amazon e outras plataformas",
-    "posicao": "contrário",
-    "data": "03/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "Mesmo com a lista fechada, os critérios de relevância sistêmica continuam abertos à interpretação do regulador.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "A lista de características é fechada e exige análise conjunta e fundamentada. Mas \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" não têm definição no texto."
-     },
-     {
-      "tese": "As obrigações podem ser ampliadas com o tempo: \"uma estrutura regulatória rígida, sem qualquer garantia de proporcionalidade\".",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "As obrigações podem ser revistas depois de dois anos (art. 87-B, § 4º). Mas o Cade não pode impor obrigação fora da lista do art. 47-E (art. 48, § 1º), e cada decisão exige justificativa econômica (art. 87-B, § 1º)."
-     },
-     {
-      "tese": "O texto restringe práticas legítimas, como integração de serviços e programas de fidelidade, sem prova de dano à concorrência.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "É verdade que não se exige infração nem prova de dano: é a escolha central do projeto. O texto exige, porém, justificativa econômica e manda considerar o que melhora a funcionalidade do produto (art. 47-E, § 2º)."
-     },
-     {
-      "tese": "Seis anos de designação é mais do que o Cade costuma aplicar a medidas comportamentais.",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "Não há, nas fontes lidas, dado sobre a duração usual das medidas do Cade."
-     },
-     {
-      "tese": "Parte do custo será repassada a consumidores e a pequenos negócios.",
-      "evidencia": "Estudo encomendado pela entidade: custo entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos.",
-      "avaliacao": "não verificável",
-      "porque": "O número vem de parte interessada, e não há estimativa oficial nem independente para comparar."
-     },
-     {
-      "tese": "O Brasil importaria um modelo que seus próprios formuladores já reconsideram.",
-      "evidencia": "Segundo a entidade, mais de 75% dos que pedem acesso a dados sob a lei europeia não são empresas europeias.",
-      "avaliacao": "não procede",
-      "porque": "A revisão oficial da lei europeia, de abril de 2026, concluiu que ela é adequada e não precisa de mudança por ora. E o desenho brasileiro, em duas etapas, é mais próximo do alemão e do britânico que do europeu."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q8"
-    ],
-    "ator": "Apple",
-    "quem_e": "Dona de sistema operacional e loja de aplicativos; designada em outros países",
-    "posicao": "contrário",
-    "data": "10/07/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O projeto é \"desnecessário\" e importa o modelo europeu, que estaria fracassando.",
-      "evidencia": "",
-      "avaliacao": "não procede",
-      "porque": "O texto não copia a lei europeia: lá as obrigações estão escritas na lei e valem para todos; aqui são fixadas caso a caso, como na Alemanha e no Reino Unido. Sobre o fracasso, a revisão oficial europeia concluiu o contrário, embora reconheça atrasos no cumprimento."
-     },
-     {
-      "tese": "A abertura obrigatória enfraquece privacidade e segurança: pagamentos fora da loja e aplicativos baixados fora dela.",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "O texto permite essas obrigações (art. 47-E, II) e manda o Cade considerar a segurança da informação ao fixá-las (art. 47-E, § 2º, I), sem criar salvaguarda específica. O efeito sobre a segurança não está medido nas fontes lidas."
-     },
-     {
-      "tese": "O acordo que a empresa firmou com o Cade já é uma alternativa brasileira.",
-      "evidencia": "O próprio termo de compromisso firmado com o Cade.",
-      "avaliacao": "procede em parte",
-      "porque": "O acordo existe e resultou de investigação por infração. Ele vale para aquela empresa e aquela conduta; não cria regra para as demais."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q9"
-    ],
-    "ator": "Conselho Digital",
-    "quem_e": "Entidade com associados como Meta, Google, Amazon, OpenAI e TikTok",
-    "posicao": "contrário",
-    "data": "16/09/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O texto permite \"a imposição discricionária de obrigações estruturais, mesmo sem demonstração de dano concreto ou indícios de má conduta\".",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "Procede que não se exige dano nem má conduta. Não procede que as obrigações sejam estruturais: a lista do art. 47-E é de transparência, de fazer e de não fazer, e não inclui venda de ativos nem separação de empresas. Também não é livre: a lista é fechada para o Cade e a decisão exige justificativa econômica."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q10"
-    ],
-    "ator": "Camara-e.net (Igor Luna)",
-    "quem_e": "Câmara Brasileira da Economia Digital, entidade do comércio eletrônico",
-    "posicao": "contrário",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O projeto dá \"poderes amplos para intervir na economia digital e punir empresas pelo porte\".",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "O porte é só o primeiro filtro: a designação exige as seis características, e a sanção só vem do descumprimento de obrigação já imposta. Os poderes são amplos, mas o substitutivo proibiu o Cade de criar obrigações e sanções por resolução."
-     },
-     {
-      "tese": "Não houve estudo de impacto econômico.",
-      "evidencia": "",
-      "avaliacao": "procede",
-      "porque": "A exposição de motivos não traz estimativa de custo nem análise de impacto regulatório. O relatório da Fazenda de outubro de 2024 fundamenta a proposta, mas não foi lido para este parecer."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q11"
-    ],
-    "ator": "Catorze entidades e frentes parlamentares (Abes, ALAI, Amobitec, Camara-e.net, Fecomercio-SP, Instituto Livre Mercado, Frente Parlamentar pelo Livre Mercado e outras)",
-    "quem_e": "Setor de software, plataformas, mobilidade, comércio e frentes parlamentares",
-    "posicao": "contrário",
-    "data": "25/11/2025",
-    "versao": "projeto original",
-    "argumentos": [
-     {
-      "tese": "O tema exige comissão especial, porque o projeto não veio com análise de impacto regulatório nem estudo econômico.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "Procede que não há análise de impacto regulatório junto ao projeto. A comissão especial foi pedida em 22/10/2025 e não foi votada; a urgência aprovada em 18/03/2026 levou a matéria direto ao Plenário."
-     },
-     {
-      "tese": "Os efeitos vão além da tecnologia e alcançam indústria, comércio e serviços.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "O piso nacional de faturamento alcança, por exemplo, um varejista com marketplace. A designação, porém, depende das seis características, que descrevem plataformas."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q12"
-    ],
-    "ator": "Deputada Any Ortiz (PP-RS)",
-    "quem_e": "Relatora do PL 2768/2022, outro projeto sobre concorrência digital",
-    "posicao": "contrário",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "\"É preciso provar que essas empresas realmente têm ação predatória no mercado\" antes de impor obrigações.",
-      "evidencia": "",
-      "avaliacao": "questão de mérito",
-      "porque": "Não é ponto de fato: é a divergência central. O projeto dispensa a prova de infração de propósito; quem defende essa exigência defende o modelo atual."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q13"
-    ],
-    "ator": "Deputados do PL (Mário Frias, Nikolas Ferreira)",
-    "quem_e": "Oposição",
-    "posicao": "contrário",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O projeto seria um meio de regular as redes sociais.",
-      "evidencia": "",
-      "avaliacao": "não procede",
-      "porque": "O texto lido não contém obrigação sobre conteúdo, moderação ou remoção de publicações."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q14"
-    ],
-    "ator": "Fecomercio e CNC",
-    "quem_e": "Federação e confederação do comércio",
-    "posicao": "contrário",
-    "data": "14/11/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "Estão entre os opositores. A fonte lida não detalha os argumentos.",
-      "evidencia": "",
-      "avaliacao": "não verificável",
-      "porque": "A reportagem só registra a oposição."
-     }
-    ]
-   },
-   {
-    "ev": [
-     "Q15"
-    ],
-    "ator": "Vinte deputados republicanos dos Estados Unidos (Adrian Smith, Jim Jordan e outros)",
-    "quem_e": "Parlamentares norte-americanos; Jordan preside o Comitê Judiciário da Câmara dos EUA",
-    "posicao": "contrário",
-    "data": "23/07/2026",
-    "versao": "texto em votação",
-    "argumentos": [
-     {
-      "tese": "O projeto \"replicaria intencionalmente\" a lei europeia de mercados digitais.",
-      "evidencia": "",
-      "avaliacao": "não procede",
-      "porque": "O desenho é de duas etapas, com obrigações fixadas caso a caso; a lei europeia traz obrigações gerais escritas na própria lei."
-     },
-     {
-      "tese": "O regime seria discriminatório contra empresas americanas e custaria bilhões de dólares.",
-      "evidencia": "",
-      "avaliacao": "procede em parte",
-      "porque": "Os critérios são de faturamento e alcançam também grupos brasileiros e de outros países. Entre os quatro grupos acima do piso mundial listados neste parecer, três são norte-americanos. O custo não tem estimativa independente."
-     }
-    ]
    }
   ]
  },

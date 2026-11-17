@@ -48,7 +48,6 @@ function pe5ExtensoParaDigitos(texto) {
 
 // ---- extração de números com unidade ----
 const PE5_MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const PE5_AVALIACOES = ['procede', 'procede em parte', 'não procede', 'não verificável', 'questão de mérito'];
 const PE5_MULT = { mil: 1e3, milhao: 1e6, milhoes: 1e6, bilhao: 1e9, bilhoes: 1e9, trilhao: 1e12, trilhoes: 1e12 };
 const pe5NumBR = s => { const t = String(s).trim(); if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) return Number(t.replace(/\./g, '').replace(',', '.')); return Number(t.replace(',', '.')); };
 /** [{ tipo: 'moeda'|'pct'|'prazo'|'qtd'|'data', moeda?, valor, unidade?, literal }] */
@@ -101,8 +100,9 @@ function pe5Blocos(doc = {}) {
   for (const c of doc.debate?.controversias || []) {
     add('debate', { texto: [c.questao, c.dispositivos, c.estado, ...(c.favor || []).flatMap(a => [a.argumento, a.evidencia]), ...(c.contra || []).flatMap(a => [a.argumento, a.evidencia])].filter(Boolean).join(' '), ev: c.ev }, ['texto']);
   }
-  // As posições por entidade retomam, de propósito, os argumentos das controvérsias: mesma seção para o teste de repetição.
-  for (const a of doc.debate?.atores || []) add('debate', { texto: (a.argumentos || []).flatMap(g => [g.tese, g.evidencia, g.porque]).filter(Boolean).join(' '), ev: a.ev }, ['texto']);
+  // "Quem se posicionou" e "Os dois lados" retomam, de propósito, os argumentos das controvérsias: mesma seção para o teste de repetição.
+  for (const x of doc.debate?.posicoes || []) add('debate', x, ['texto']);
+  for (const k of ['apoia', 'opoe']) add('debate', doc.debate?.lados?.[k], ['argumento', 'evidencia']);
   for (const x of doc.debate?.da_analise || []) add('debate-analise', x, ['argumento']);
   for (const x of doc.internacional?.jurisdicoes || []) add('internacional', x, ['regra', 'aconteceu', 'criticas']);
   if (doc.internacional?.comparativo) add('comparativo', { texto: (doc.internacional.comparativo.linhas || []).flatMap(l => l.valores || []).join(' ') }, ['texto'], false);
@@ -237,13 +237,12 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Documentos que embasam a proposição estão relacionados pelo nome', !refsFora.length && (docsD.length > 0 || !refs.length),
     refsFora.length ? `Identificado(s) na leitura ou na pesquisa e fora da relação: ${refsFora.slice(0, 5).join('; ')}.` : docsD.length ? `${docsD.length} documento(s) relacionado(s).` : 'Nenhum documento de base identificado na leitura nem na pesquisa.');
 
-  // --- posições, entidade por entidade, com a avaliação de cada argumento ---
-  const atP = pq.debate?.atores || [], atD = doc.debate?.atores || [];
-  const atFalta = atP.filter(q => !atD.some(d => (d.ev || []).includes(q.id))).map(q => q.ator);
-  const args = atD.flatMap(a => (a.argumentos || []).map(g => ({ ator: a.ator, ...g })));
-  const semAval = args.filter(g => !PE5_AVALIACOES.includes(String(g.avaliacao || '').toLowerCase()) || !String(g.porque || '').trim());
-  add('Cada entidade aparece com seus argumentos, e cada argumento foi confrontado com o texto', !atFalta.length && !semAval.length,
-    [atFalta.length ? `Na pesquisa e fora do parecer: ${atFalta.slice(0, 5).join('; ')}.` : '', semAval.length ? `${semAval.length} argumento(s) sem avaliação ou sem a razão dela, por exemplo de ${semAval[0].ator}.` : ''].filter(Boolean).join(' ') || `${atD.length} entidade(s), ${args.length} argumento(s) avaliado(s): ${PE5_AVALIACOES.map(v => [v, args.filter(g => String(g.avaliacao).toLowerCase() === v).length]).filter(x => x[1]).map(x => `${x[1]} "${x[0]}"`).join(', ')}.`);
+  // --- quem se posicionou (um parágrafo por ator) e os dois lados (o argumento e o que a evidência diz) ---
+  const atP = pq.debate?.atores || [], posD = doc.debate?.posicoes || [], ld = doc.debate?.lados || {};
+  const atFalta = atP.filter(q => !posD.some(d => (d.ev || []).includes(q.id))).map(q => q.ator);
+  const ldFalta = ['apoia', 'opoe'].filter(k => atP.some(q => (k === 'apoia' ? /favor/ : /contr/).test(q.posicao || '')) && !(String(ld[k]?.argumento || '').trim() && String(ld[k]?.evidencia || '').trim()));
+  add('Cada entidade da pesquisa tem seu parágrafo, e os dois lados trazem o argumento e o que a evidência diz', !atFalta.length && !ldFalta.length,
+    [atFalta.length ? `Na pesquisa e fora de "Quem se posicionou e como": ${atFalta.slice(0, 5).join('; ')}.` : '', ldFalta.length ? `Em "Os dois lados", falta o argumento ou a avaliação de quem ${ldFalta.map(k => k === 'apoia' ? 'apoia' : 'se opõe').join(' e de quem ')}.` : ''].filter(Boolean).join(' ') || (atP.length ? `${atP.length} entidade(s) em ${posD.length} parágrafo(s).` : 'A pesquisa não localizou manifestações.'));
 
   // --- fontes ---
   const atores = pq.debate?.atores || [], juris = pq.contexto?.jurisprudencia || [], jur = pq.internacional?.jurisdicoes || [];
@@ -305,5 +304,5 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pe5Conferir, pe5Blocos, PE5_AVALIACOES, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
+  module.exports = { pe5Conferir, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
 }
