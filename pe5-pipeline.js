@@ -225,7 +225,7 @@ async function gerarParecerPE5(ctx, io) {
   try { lv = await pe5LeiVigente(leitura.alteracoes, io.fetchFn || null, R); } catch (e) { lv.avisos.push(`Lei vigente não lida: ${e.message}`); }
 
   // --- IA 2-5: pesquisas ---
-  let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], outra_casa: [], judicializacao: [], avisos: [] } };
+  let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], judicializacao: [], avisos: [] } };
   if (io.semWeb !== true) {
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
     const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR };
@@ -237,9 +237,9 @@ async function gerarParecerPE5(ctx, io) {
       uma('pesquisa-debate', R.pe5PromptDebate(base), { atores: 'Q' }),
       uma('pesquisa-internacional', R.pe5PromptInternacional(base), { jurisdicoes: 'W' }),
       uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
-      uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', outra_casa: 'N', judicializacao: 'L' }),
+      uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', judicializacao: 'L' }),
     ]);
-    pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], outra_casa: [], judicializacao: [], ...cg } };
+    pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];
     pesquisa.debate.controversias.forEach((c, i) => { if (c && !c.id) c.id = `D${i + 1}`; });
   }

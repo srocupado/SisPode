@@ -130,7 +130,6 @@ function pe5Fontes(p, esc) {
   for (const j of pq.contexto?.documentos_base || []) add(j.documento, j);
   for (const j of pq.contexto?.alcance || []) add(`Receita: ${j.grupo}`, j);
   for (const j of pq.congresso?.historico || []) add(`Histórico: ${j.proposicao}`, j);
-  for (const j of pq.congresso?.outra_casa || []) add(`Próxima etapa: ${j.assunto || ''}${j.quem ? ' — ' + j.quem : ''}`, j);
   for (const j of pq.congresso?.judicializacao || []) add(`Judicialização: ${j.alvo || j.sinal || ''}`, j);
   if (!linhas.length) return '';
   const vistos = new Set();
@@ -150,7 +149,7 @@ function pe5LargurasFixas(html) {
 /** Índice das referências da pesquisa por id (Q1, W2, R1, Y1, Z3…), para pôr a fonte junto do texto. */
 function pe5IndicePesquisa(pq = {}) {
   const m = new Map();
-  for (const x of [...(pq.debate?.atores || []), ...(pq.internacional?.jurisdicoes || []), ...(pq.contexto?.jurisprudencia || []), ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.outra_casa || []), ...(pq.congresso?.judicializacao || [])]) if (x && x.id) m.set(x.id, x);
+  for (const x of [...(pq.debate?.atores || []), ...(pq.internacional?.jurisdicoes || []), ...(pq.contexto?.jurisprudencia || []), ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.judicializacao || [])]) if (x && x.id) m.set(x.id, x);
   return m;
 }
 function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" href="${esc(x.fonte_url_final || x.fonte_url)}">${esc(x.fonte_nome || 'fonte')}</a>` : ''; }
@@ -257,8 +256,6 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
   sec('emendas', 'Emendas possíveis, com redação', (D.caminhos?.emendas || []).map(e => `<div class="pe-emenda"><p class="pe-ponto"><b>${esc(e.dispositivo)}</b>: ${esc(e.problema)}</p><div class="red">${esc(e.redacao)}</div></div>`).join(''));
   sec('perguntas', 'Perguntas a fazer', (D.caminhos?.perguntas || []).length
     ? `<table class="pe"><thead><tr><th style="width:18%">A quem</th><th style="width:44%">Pergunta</th><th>Por que importa</th></tr></thead><tbody>${D.caminhos.perguntas.map(q => `<tr><td><b>${esc(q.a_quem)}</b></td><td>${esc(q.pergunta)}</td><td>${esc(q.por_que)}</td></tr>`).join('')}</tbody></table>` : '');
-  { const f = G.fase || {}; const tit = f.codigo === 'senado' ? 'Depois do Senado' : f.revisao ? 'Depois desta votação' : /^camara/.test(f.codigo || '') ? 'O que espera a matéria no Senado' : 'Próxima etapa';
-    sec('proxima', tit, pe5Prosa(D.caminhos?.proxima_etapa, esc)); }
   sec('acompanhar', 'O que acompanhar', lista(D.caminhos?.acompanhar));
 
   // ---- abertura ----
@@ -307,7 +304,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   const tab = (cab, linhas) => linhas.length ? `<table class="pe"><thead><tr>${cab.map(c => `<th${c === 'Resultado' ? ' style="width:16%"' : c === 'Teste' ? ' style="width:44%"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="pe-vazio">Nada a registrar.</p>';
   const mil = n => n ? `${String(Math.round(n / 100) / 10).replace('.', ',')} mil` : '—';
   const c = p.consumo || {};
-  const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'pesquisa-congresso': 'Pesquisa do histórico, da próxima etapa e da judicialização', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
+  const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'pesquisa-congresso': 'Pesquisa do histórico do tema e da judicialização', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
   return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
   <div class="cab">${logoDataUrl ? '<div class="sp"></div>' : ''}<div class="tit"><h1>Conferência do Parecer</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
@@ -320,7 +317,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <ul>
     <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
     <li>Em "Os dois lados", o que se diz sobre cada argumento ("confirma-se", "procede", "não procede") é avaliação do modelo, feita contra o texto analisado e os dados da base.</li>
-    <li>O histórico do tema no Congresso, o que espera a matéria na próxima etapa e os sinais de judicialização também vêm de pesquisa na internet feita pelo modelo. O risco de judicialização é exame de risco, não juízo sobre a constitucionalidade.</li>
+    <li>O histórico do tema no Congresso e os sinais de judicialização também vêm de pesquisa na internet feita pelo modelo. O risco de judicialização é exame de risco, não juízo sobre a constitucionalidade.</li>
     <li>O mapa de votos, as iniciativas e os projetos de deputados do Podemos e o voto da bancada em proposições correlatas foram lidos pelo programa nos dados abertos da Câmara. Quais projetos tratam do mesmo assunto foi escolha do modelo, a partir de uma busca por palavra-chave.</li>
     <li>Tramitação, votações, voto da bancada e o texto da lei em vigor foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</li>
     <li>Os valores em moeda estrangeira foram convertidos pelo câmbio de venda do Banco Central${p.cambio ? ` em ${esc(p.cambio.data)}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}` : ''}.</li>

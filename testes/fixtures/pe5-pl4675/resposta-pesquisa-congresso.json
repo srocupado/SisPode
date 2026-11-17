@@ -43,28 +43,6 @@
    "fonte_tipo": "imprensa"
   }
  ],
- "outra_casa": [
-  {
-   "id": "N1",
-   "assunto": "posição de parlamentar",
-   "o_que": "O relator na Câmara disse acreditar na aprovação do projeto nas duas Casas ainda em 2026 e admitiu que o texto pode ser alterado para garantir a aprovação.",
-   "quem": "Deputado Aliel Machado (PV-PR), relator",
-   "data": "11/08/2026",
-   "fonte_nome": "Mobile Time",
-   "fonte_url": "https://www.mobiletime.com.br/noticias/11/08/2026/pl-4675-aliel/",
-   "fonte_tipo": "imprensa"
-  },
-  {
-   "id": "N2",
-   "assunto": "órgão consultivo do Congresso",
-   "o_que": "O Conselho de Comunicação Social do Congresso Nacional aprovou parecer sobre o projeto, a ser encaminhado ao presidente do Senado para orientar os parlamentares. O conselho é consultivo.",
-   "quem": "Conselho de Comunicação Social",
-   "data": "05/10/2026",
-   "fonte_nome": "Monitor do Mercado",
-   "fonte_url": "https://monitordomercado.com.br/noticias/cade-noticias/429671-ccs-aprova-parecer-sobre-pl-4675-25-que-cria-superintendencia-no-cade/",
-   "fonte_tipo": "imprensa"
-  }
- ],
  "judicializacao": [
   {
    "id": "L1",
@@ -94,8 +72,6 @@
  "avisos": [
   "Não foram localizados projeto arquivado, veto ou medida provisória sobre concorrência em mercados digitais: com esse recorte, o tema chegou ao Congresso em 2022.",
   "A data e o placar da aprovação do PL 2630/2020 no Senado não foram confirmados em fonte oficial nesta pesquisa.",
-  "Não foi localizada proposição correlata em tramitação no Senado, nem comissão ou relator definidos: o projeto ainda não chegou àquela Casa.",
-  "O parecer do Conselho de Comunicação Social não foi lido: a página da notícia não abriu, e a data vem do resumo da busca e da agenda do Senado.",
   "Não foi localizada ação no Supremo Tribunal Federal contra lei federal de teor parecido, nem anúncio de partido, confederação ou entidade de que irá questionar o texto."
  ]
 }

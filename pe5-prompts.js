@@ -5,7 +5,7 @@
 //   debate         pesquisa quem se posicionou e o que argumenta (internet)
 //   internacional  pesquisa o que outros países fizeram e o que aconteceu (internet)
 //   contexto       pesquisa decisões judiciais, normas existentes, dados e proposições correlatas (internet)
-//   congresso      pesquisa o histórico do tema, o que espera a matéria na outra Casa e os sinais de judicialização (internet)
+//   congresso      pesquisa o histórico do tema no Congresso e os sinais de judicialização (internet)
 //   redacao 1 e 2  escreve o documento, em blocos por seção, só com o que está na base
 //   revisao        lê o documento pronto como adversário e devolve correções pontuais
 //
@@ -272,10 +272,8 @@ ${PE5_SO_JSON}`;
 }
 
 function pe5PromptCongresso({ identificacao, ementa, leitura, coleta, hoje }) {
-  const fase = coleta?.fase || {};
-  const outra = fase.codigo === 'senado' ? 'a Câmara dos Deputados, se o Senado alterar o texto' : fase.revisao ? 'a sanção ou a promulgação' : 'o Senado Federal';
   const pontos = (leitura?.achados || []).filter(a => a.gravidade === 'alta' || /^(1|1B)$/.test(String(a.lente))).map(a => `- ${a.questao} (${a.dispositivo})`).join('\n');
-  return `Pesquise na internet três coisas sobre a proposição abaixo: o HISTÓRICO do tema no Congresso Nacional, o que ESPERA a matéria na próxima etapa (${outra}) e os SINAIS DE JUDICIALIZAÇÃO.
+  return `Pesquise na internet duas coisas sobre a proposição abaixo: o HISTÓRICO do tema no Congresso Nacional e os SINAIS DE JUDICIALIZAÇÃO.
 
 MATÉRIA: ${identificacao}
 EMENTA: ${ementa || ''}
@@ -292,7 +290,6 @@ ${pontos || '(nenhum)'}
 
 O QUE PROCURAR
 - "historico": as tentativas ANTERIORES de legislar sobre o mesmo assunto, na Câmara e no Senado: projetos arquivados, rejeitados, vetados, medidas provisórias que perderam a eficácia, textos aprovados em uma Casa e parados na outra, comissões especiais e CPIs que trataram do tema. Para cada uma: a proposição com número e ano, o autor, o que propunha em relação ao texto atual, o desfecho e — o mais importante — POR QUE não avançou ou como terminou, segundo a fonte. Inclua as proposições em andamento que disputam o mesmo espaço. De 3 a 8 itens; se o tema é novo no Congresso, diga em "avisos".
-- "outra_casa": o que espera a matéria em ${outra}: proposições correlatas que já tramitam lá e em que comissão estão; as comissões por onde matéria desse tipo costuma passar; declarações de presidente da Casa, líderes, relator provável ou senadores e deputados que já se posicionaram; calendário anunciado; acordos ou compromissos públicos de alteração do texto. Só o que tiver fonte; não suponha tramitação.
 - "judicializacao": sinais concretos de que a lei, se aprovada, será levada ao Judiciário: (a) ação em curso no STF ou em tribunal superior contra lei de teor parecido (federal, estadual ou a própria lei que o texto altera), com classe, número, relator e situação; (b) partido, confederação, entidade de classe ou órgão que ANUNCIOU que irá questionar o texto, ou que tem legitimidade (art. 103 da Constituição) e já se manifestou contra; (c) parecer jurídico público (consultoria legislativa, órgão do governo, Ministério Público, entidade) que aponte vício no texto; (d) lei análoga, no Brasil, que foi suspensa ou derrubada. Diga o dispositivo ou o tema visado e o fundamento alegado. Registre o que as fontes dizem; NÃO conclua que o texto é inconstitucional. Se não houver sinal localizado, devolva a lista vazia e diga em "avisos" o que procurou.
 
 ${PE5_REGRAS_PESQUISA}
@@ -300,7 +297,6 @@ ${PE5_REGRAS_PESQUISA}
 O QUE DEVOLVER
 {
  "historico": [ { "id": "H1", "proposicao": "PL 0000/0000", "casa": "Câmara | Senado | Congresso", "ano": "aaaa", "autor": "…", "o_que_propunha": "…", "desfecho": "em tramitação | arquivada | rejeitada | vetada | perdeu a eficácia | aprovada em uma Casa | virou lei", "por_que": "o que travou ou decidiu, segundo a fonte", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
- "outra_casa": [ { "id": "N1", "assunto": "proposição correlata | comissões | posição de parlamentar | calendário | acordo", "o_que": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "judicializacao": [ { "id": "L1", "sinal": "ação em curso | anúncio de questionamento | parecer que aponta vício | lei análoga suspensa ou derrubada", "quem": "…", "alvo": "dispositivo ou tema do texto", "fundamento": "o que se alega, com o artigo da Constituição", "situacao": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "avisos": [ "o que procurou e não encontrou" ]
 }
@@ -333,7 +329,7 @@ ${j(pesquisa?.internacional || {})}
 PESQUISA DE CONTEXTO (ids R, M, F, K, Y, Z; fonte da internet):
 ${j(pesquisa?.contexto || {})}
 
-PESQUISA DO CONGRESSO (ids H: histórico do tema; N: o que espera a matéria na próxima etapa; L: sinais de judicialização; fonte da internet):
+PESQUISA DO CONGRESSO (ids H: histórico do tema; L: sinais de judicialização; fonte da internet):
 ${j(pesquisa?.congresso || {})}
 
 ${leiIntegral ? `LEI EM VIGOR, TEXTO INTEGRAL (lido pelo programa; use para verificar se a lei atual já tem regra parecida e cite o artigo):\n${leiIntegral}\n\n` : ''}CÂMBIO DO BANCO CENTRAL${cambio?.data ? ` em ${cambio.data}` : ''} (reais por unidade da moeda): ${cambio?.taxas ? Object.entries(cambio.taxas).map(([m, v]) => `${m} ${v}`).join('; ') : 'não obtido — não converta valores'}
@@ -436,7 +432,6 @@ O QUE DEVOLVER
    "emendas": [ { "dispositivo": "art. …", "problema": "o que a emenda corrige, em uma frase", "redacao": "o texto da emenda, redigido como dispositivo de lei", "ev": ["C1"] } ],
    "perguntas": [ { "a_quem": "…", "pergunta": "…", "por_que": "…" } ],
    "acompanhar": [ "fato ou data a acompanhar" ],
-   "proxima_etapa": [ { "texto": "um parágrafo: o que espera a matéria depois desta votação", "ev": ["N1"] } ],
    "partido": { "texto": [ { "texto": "um parágrafo sobre a relação entre a matéria e a atuação da bancada do Podemos", "ev": ["G"] } ],
        "projetos": [ "rótulos (PL 0000/0000) dos projetos de deputados do Podemos, da lista da base, que tratam do MESMO assunto" ] }
  },
@@ -458,7 +453,6 @@ ORIENTAÇÕES POR SEÇÃO
 - "impacto": fiscal (estimativa oficial, ou a ausência dela e a quem pedir), econômico (quem paga, quem ganha, com os números da base e quem os produziu), implementação.
 - "opcoes": as que existem NA FASE ATUAL, inclusive adiar, emendar e destacar, quando couber. Para cada uma, a consequência concreta. Sem recomendar.
 - "emendas": de 2 a 7, só para problema apontado na análise. Redija o dispositivo de verdade, na técnica da lei que se altera. Onde a escolha for política (um número, um prazo), deixe entre colchetes.
-- "proxima_etapa": de 1 a 4 parágrafos com o que a pesquisa (ids N) registra sobre a etapa seguinte: proposições correlatas que já tramitam lá, comissões, quem já se posicionou, calendário, compromissos de alterar o texto. Só o que está na base; sem a pesquisa, devolva a lista vazia. Não estime votos.
 - "partido": de 1 a 4 parágrafos, só com os dados do bloco "O PODEMOS E A MATÉRIA" e das votações. Diga: como a bancada votou nesta matéria e quem divergiu; se deputado do partido é autor, relator ou apresentou requerimento, emenda ou destaque, e o que pedia; quais projetos de deputados do partido tratam do mesmo assunto e se vão na MESMA direção do texto em votação, em direção DIFERENTE ou tratam de aspecto que o texto não cobre (explique com a ementa); e como a bancada votou nas proposições correlatas. A lista de projetos vem de busca por palavra e traz itens sem relação: cite e inclua em "projetos" SÓ os que tratam do mesmo assunto; se nenhum tratar, diga que a busca não localizou projeto da bancada sobre o tema. É registro de coerência, não orientação: não diga como a bancada deve votar.
 - "perguntas": o que o parlamentar pode perguntar ao governo, ao relator ou ao órgão executor para obter o que falta.
 - "abertura": escreva por último. É o único lugar onde se resume o que já foi dito — mas resumo DETALHADO: quem lê só a abertura tem de sair sabendo o que o texto cria, com os nomes. Órgão, cargo ou unidade novos vão com o NOME COMPLETO que o texto lhes dá e com a posição que ocupam na estrutura (não "uma unidade": "a Superintendência …, novo órgão do …"). Lista de critérios, requisitos ou condições vai ENUMERADA por inteiro (não "seis características": as seis). Em "decide", se o texto em votação é um substitutivo ou veio alterado da outra Casa, diga o que ele mudou.

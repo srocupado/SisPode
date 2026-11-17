@@ -117,7 +117,6 @@ function pe5Blocos(doc = {}) {
   for (const x of doc.caminhos?.emendas || []) add('emendas', x, ['dispositivo', 'problema', 'redacao']);
   for (const x of doc.caminhos?.perguntas || []) add('perguntas', { texto: `${x.pergunta} ${x.por_que}` }, ['texto'], false);
   for (const x of doc.caminhos?.acompanhar || []) add('acompanhar', { texto: x }, ['texto'], false);
-  for (const x of doc.caminhos?.proxima_etapa || []) add('proxima-etapa', x, ['texto']);
   for (const x of doc.caminhos?.partido?.texto || []) add('partido', x, ['texto']);
   return B;
 }
@@ -153,7 +152,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   for (const x of pq.debate?.controversias || []) ids.add(x.id);
   for (const x of pq.internacional?.jurisdicoes || []) ids.add(x.id);
   for (const k of ['jurisprudencia', 'normas', 'dados', 'correlatas', 'documentos_base', 'alcance']) for (const x of pq.contexto?.[k] || []) ids.add(x.id);
-  for (const k of ['historico', 'outra_casa', 'judicializacao']) for (const x of pq.congresso?.[k] || []) ids.add(x.id);
+  for (const k of ['historico', 'judicializacao']) for (const x of pq.congresso?.[k] || []) ids.add(x.id);
   const semEv = blocos.filter(b => b.exigeEv && !b.ev.length);
   const evFalsa = [...new Set(blocos.flatMap(b => b.ev.filter(e => !ids.has(e))))];
   add('Cada bloco do parecer aponta para a base (documento, pesquisa ou dado do programa)', !semEv.length && !evFalsa.length,
@@ -277,7 +276,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   const atores = pq.debate?.atores || [], juris = pq.contexto?.jurisprudencia || [], jur = pq.internacional?.jurisdicoes || [];
   const semData = atores.filter(a => !a.data).map(a => a.ator), semFonte = [...atores, ...juris, ...jur].filter(x => !/^https?:\/\//.test(x.fonte_url || '')).map(x => x.ator || x.processo || x.lugar);
   const usados = new Set(blocos.flatMap(b => b.ev));
-  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.outra_casa || []), ...(pq.congresso?.judicializacao || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
+  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.judicializacao || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
   const todas = [...atores, ...juris, ...jur].filter(x => x.fonte_url);
   const prim = todas.filter(x => PE5_PRIMARIA.test(x.fonte_url) || /prim[áa]ria/i.test(x.fonte_tipo || '')).length;
   const temporarios = todas.filter(x => /vertexaisearch|grounding-api-redirect|googleusercontent/.test(x.fonte_url) && !x.fonte_url_final).length;
