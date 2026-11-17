@@ -1,0 +1,89 @@
+{
+  "atores": [
+    { "id": "Q1", "ator": "Relator, dep. Aliel Machado (PV-PR)", "quem_e": "Relator de Plenário e vice-líder do governo; autor do substitutivo", "posicao": "favorável", "versao": "substitutivo", "data": "11/08/2026",
+      "argumentos": [
+        { "tese": "A livre concorrência é princípio do art. 170 da Constituição e o projeto a protege." },
+        { "tese": "O substitutivo deixa claro que as obrigações não alcançam grandes empresas que são usuárias das plataformas, como bancos e fintechs." },
+        { "tese": "As empresas não deixarão o País: o mercado brasileiro é grande demais para isso." },
+        { "tese": "Há desconhecimento sobre o texto: \"algumas pessoas acham que regular big techs é censurar o WhatsApp\"." } ],
+      "fonte_nome": "Mobile Time", "fonte_url": "https://www.mobiletime.com.br/noticias/11/08/2026/pl-4675-aliel/", "fonte_tipo": "imprensa" },
+    { "id": "Q2", "ator": "Governo federal (Secom e Ministério da Fazenda)", "quem_e": "Autor do projeto", "posicao": "favorável", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [
+        { "tese": "O projeto trata de concorrência e não de conteúdo de redes sociais." },
+        { "tese": "O governo preparou relatório para rebater as críticas e reuniu sociedade civil, entidades e empresas no Planalto em 10/11/2026 para votar o texto ainda em novembro." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q3", "ator": "Presidente da Câmara, dep. Hugo Motta (Republicanos-PB); Abrasel; Febraban; Abipag; parte do varejo", "quem_e": "Presidência da Casa; bares e restaurantes; bancos; instituições de pagamento — setores que dependem das plataformas ou concorrem com elas", "posicao": "favorável", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "Apoiam a aprovação do texto, segundo a reportagem, que não detalha os argumentos de cada um." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q4", "ator": "Artigo 19 (Raquel da Cruz Lima)", "quem_e": "Organização de defesa da liberdade de expressão", "posicao": "favorável", "versao": "substitutivo", "data": "16/09/2026",
+      "argumentos": [
+        { "tese": "A urgência não atropela o debate: o texto nasceu de tomada de subsídios do Ministério da Fazenda e de mais de um ano de discussão técnica." },
+        { "tese": "A concentração já prejudica quem depende das plataformas.", "evidencia_citada": "O iFood passou a ditar preços e margens de bares e restaurantes; a Apple fica com 30% de cada compra feita em aplicativo." },
+        { "tese": "O projeto trata só de concorrência e os critérios valem para qualquer empresa, \"independentemente da nacionalidade\"." } ],
+      "fonte_nome": "Brasil de Fato", "fonte_url": "https://www.brasildefato.com.br/2026/09/16/donos-do-mercado-rechacam-regulamentacao-como-pl-contra-concentracao-virou-alvo-das-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q5", "ator": "Data Privacy Brasil (Rafael Zanatta)", "quem_e": "Organização de pesquisa em direitos digitais", "posicao": "favorável", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "Há \"indícios de um movimento coordenado para espalhar desinformação sobre o projeto\"." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q6", "ator": "Nicolo Zingales (FGV Direito Rio)", "quem_e": "Professor de direito da concorrência", "posicao": "favorável", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "É falácia dizer que a lei é desnecessária porque o Cade já pode adotar medidas cautelares." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q7", "ator": "ALAI — Associação Latino-Americana de Internet", "quem_e": "Entidade que reúne Google, Meta, X, Discord, Amazon e outras plataformas", "posicao": "contrário", "versao": "substitutivo", "data": "03/11/2026",
+      "argumentos": [
+        { "tese": "Mesmo com a lista fechada, os critérios de relevância sistêmica continuam abertos à interpretação do próprio regulador." },
+        { "tese": "Seis anos de designação ainda é mais do que o Cade costuma aplicar a medidas comportamentais." },
+        { "tese": "As obrigações podem ser ampliadas com o tempo: \"uma estrutura regulatória rígida, sem qualquer garantia de proporcionalidade\"." },
+        { "tese": "O texto pode restringir práticas legítimas, como integração de serviços e programas de fidelidade, sem prova de dano à concorrência." },
+        { "tese": "Parte do custo de conformidade será repassada a consumidores e a pequenos negócios que vendem e anunciam nas plataformas.", "evidencia_citada": "Estudo encomendado pela entidade estima custo regulatório entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos." },
+        { "tese": "O Brasil importaria um modelo que seus próprios formuladores já reconsideram.", "evidencia_citada": "Segundo a entidade, mais de 75% dos que pedem acesso a dados sob a lei europeia não são empresas europeias." } ],
+      "fonte_nome": "Mercado & Consumo", "fonte_url": "https://mercadoeconsumo.com.br/03/11/2026/economia/big-techs-criticam-projeto-que-regula-concorrencia-digital-e-falam-em-inseguranca-juridica/", "fonte_tipo": "imprensa" },
+    { "id": "Q8", "ator": "Apple", "quem_e": "Fabricante e dona de sistema operacional e loja de aplicativos; potencial designada", "posicao": "contrário", "versao": "substitutivo", "data": "10/07/2026",
+      "argumentos": [
+        { "tese": "O projeto é \"desnecessário\" e importa o modelo europeu, que estaria fracassando." },
+        { "tese": "A abertura obrigatória enfraquece privacidade e segurança: pagamentos fora do sistema da loja e download de aplicativos fora dela, com perda de controles parentais." },
+        { "tese": "O acordo que a empresa firmou com o Cade já é uma alternativa brasileira que preserva essas salvaguardas." } ],
+      "fonte_nome": "Teletime", "fonte_url": "https://teletime.com.br/10/07/2026/apple-mercados-digitais-desnecessario/", "fonte_tipo": "imprensa" },
+    { "id": "Q9", "ator": "Conselho Digital", "quem_e": "Entidade com associados como Meta, Google, Amazon, OpenAI e TikTok", "posicao": "contrário", "versao": "substitutivo", "data": "16/09/2026",
+      "argumentos": [ { "tese": "O texto permite \"a imposição discricionária de obrigações estruturais, mesmo sem demonstração de dano concreto ou indícios de má conduta\" e amplia o poder do governo sobre produtos digitais." } ],
+      "fonte_nome": "Brasil de Fato", "fonte_url": "https://www.brasildefato.com.br/2026/09/16/donos-do-mercado-rechacam-regulamentacao-como-pl-contra-concentracao-virou-alvo-das-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q10", "ator": "Camara-e.net (Igor Luna)", "quem_e": "Câmara Brasileira da Economia Digital, entidade do comércio eletrônico", "posicao": "contrário", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [
+        { "tese": "O projeto dá \"poderes amplos para intervir na economia digital e punir empresas pelo porte\"." },
+        { "tese": "Não houve estudo de impacto econômico." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q11", "ator": "Catorze entidades e frentes parlamentares (Abes, ALAI, Amobitec, Camara-e.net, Fecomercio-SP, Instituto Livre Mercado, Frente Parlamentar pelo Livre Mercado e outras)", "quem_e": "Setor de software, plataformas, mobilidade, comércio e frentes parlamentares", "posicao": "contrário", "versao": "original", "data": "25/11/2025",
+      "argumentos": [
+        { "tese": "O tema exige comissão especial: o projeto não veio com análise de impacto regulatório, avaliação econômica ou estudo técnico." },
+        { "tese": "Os efeitos vão além da tecnologia e alcançam indústria, comércio e serviços." } ],
+      "fonte_nome": "Teletime", "fonte_url": "https://teletime.com.br/25/11/2025/entidades-cobram-comissao-especial-para-discutir-pl-dos-mercados-digitais/", "fonte_tipo": "imprensa" },
+    { "id": "Q12", "ator": "Dep. Any Ortiz (PP-RS)", "quem_e": "Relatora de outro projeto sobre concorrência digital", "posicao": "contrário", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "\"É preciso provar que essas empresas realmente têm ação predatória no mercado\" antes de impor obrigações." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q13", "ator": "Deputados do PL (Mário Frias, Nikolas Ferreira)", "quem_e": "Oposição", "posicao": "contrário", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "O projeto seria um meio de controlar as redes: \"Conhecemos as intenções de Lula: regular as redes sociais\"." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q14", "ator": "Fecomercio e CNC", "quem_e": "Confederação e federação do comércio", "posicao": "contrário", "versao": "substitutivo", "data": "14/11/2026",
+      "argumentos": [ { "tese": "Estão entre os opositores, segundo a reportagem, que não detalha os argumentos." } ],
+      "fonte_nome": "Folhapress, em Diário do Comércio", "fonte_url": "https://diariodocomercio.com.br/politica/governo-camara-regulacao-big-techs/", "fonte_tipo": "imprensa" },
+    { "id": "Q15", "ator": "Vinte deputados republicanos dos Estados Unidos (Adrian Smith, Jim Jordan e outros)", "quem_e": "Parlamentares norte-americanos; Jordan preside o Comitê Judiciário da Câmara dos EUA", "posicao": "contrário", "versao": "substitutivo", "data": "23/07/2026",
+      "argumentos": [
+        { "tese": "O projeto \"replicaria intencionalmente\" a lei europeia de mercados digitais e imporia regime oneroso a empresas americanas, com custo de bilhões de dólares e risco de cessão de propriedade intelectual." },
+        { "tese": "Pedem ao representante comercial dos EUA que o projeto seja tratado em qualquer negociação comercial com o Brasil e citam a investigação da Seção 301." } ],
+      "fonte_nome": "Congresso em Foco", "fonte_url": "https://www.congressoemfoco.com.br/noticia/120766/deputados-dos-eua-pedem-acao-contra-projeto-sobre-concorrencia-justa", "fonte_tipo": "imprensa" }
+  ],
+  "controversias": [
+    { "id": "D1", "questao": "É preciso uma regra preventiva, ou a lei atual do Cade basta?", "favor": ["Q2", "Q4", "Q6"], "contra": ["Q8", "Q12", "Q9"] },
+    { "id": "D2", "questao": "Os critérios de designação dão segurança ou deixam a escolha com o regulador?", "favor": ["Q1"], "contra": ["Q7", "Q10"] },
+    { "id": "D3", "questao": "O custo da regulação recai sobre quem?", "favor": ["Q4"], "contra": ["Q7", "Q11"] },
+    { "id": "D4", "questao": "O rito de urgência permitiu debate suficiente?", "favor": ["Q4"], "contra": ["Q11", "Q10"] },
+    { "id": "D5", "questao": "O projeto copia o modelo europeu?", "favor": ["Q1"], "contra": ["Q8", "Q7", "Q15"] },
+    { "id": "D6", "questao": "O projeto abre caminho para regular conteúdo das redes?", "favor": ["Q2", "Q1"], "contra": ["Q13"] },
+    { "id": "D7", "questao": "A abertura obrigatória de sistemas compromete segurança e privacidade?", "favor": [], "contra": ["Q8"] },
+    { "id": "D8", "questao": "A aprovação expõe o Brasil a retaliação comercial dos Estados Unidos?", "favor": ["Q4"], "contra": ["Q15"] }
+  ],
+  "avisos": [
+    "Uma das fontes (Brasil de Fato, 16/09/2026) afirma que o substitutivo reduziu a designação de dez para oito anos; o texto do substitutivo diz seis.",
+    "Uma das fontes (Teletime, 10/07/2026) fala em urgência constitucional; o registro da Câmara é de urgência regimental (art. 155).",
+    "Não foram localizadas manifestações públicas individuais de Google, Meta, Amazon ou Mercado Livre sobre o substitutivo, além das feitas por meio das entidades.",
+    "O relatório do governo que rebate as críticas é citado pela imprensa, mas o documento não foi localizado."
+  ]
+}

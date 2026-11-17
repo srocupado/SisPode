@@ -1,0 +1,993 @@
+{
+ "proposicao": {
+  "id": 2562481,
+  "sigla": "PL",
+  "numero": 4675,
+  "ano": 2025,
+  "ementa": "Altera a Lei nº 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de relevância sistêmica em mercados digitais e de determinação de obrigações especiais a agentes econômicos de relevância sistêmica e cria a Superintendência de Mercados Digitais no âmbito do Conselho Administrativo de Defesa Econômica",
+  "apresentacao": "18/09/2025",
+  "autores": [
+   "Poder Executivo"
+  ],
+  "totalAutores": 1
+ },
+ "status": {
+  "data": "12/08/2026",
+  "iso": "2026-08-12",
+  "orgao": "CDE",
+  "regime": "Urgência (Art. 155, RICD)",
+  "situacao": "Pronta para Pauta",
+  "andamento": "Aprovação de Requerimento",
+  "despacho": "Aprovado o requerimento nº 37/2026,do Sr. Rodrigo da Zaeli que requer a realização de Audiência Pública para discutir os Impactos econômicos da regulação dos mercados digitais através do PL 4675/2025."
+ },
+ "fase": {
+  "codigo": "camara_plenario",
+  "casa": "Câmara dos Deputados",
+  "descricao": "A matéria está na Câmara, em condições de ser votada no Plenário.",
+  "jaVotadaNaCamara": false,
+  "dataVotacao": "",
+  "revisao": false
+ },
+ "urgencia": {
+  "tem": true,
+  "regime": "Urgência (Art. 155, RICD)",
+  "tipo": "urgência regimental (art. 155 do Regimento Interno da Câmara)",
+  "aprovadaEm": "18/03/2026",
+  "requerimento": "Aprovado o requerimento nº 4612/2025,do Sr. Gilberto Abramo, que solicita urgência (art. 155) para o PL 4675/2025.",
+  "pedidaEm": "01/11/2025"
+ },
+ "marcos": [
+  {
+   "data": "18/09/2025",
+   "iso": "2025-09-18",
+   "orgao": "MESA",
+   "tipo": "apresentação",
+   "fato": "Apresentação do PL n. 4675/2025 (Projeto de Lei), pelo Poder Executivo, que \"Altera a Lei nº 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de relevância sistêmica em mercados digitais e de determinação de obrigações especiais a agentes econômicos de relevância…"
+  },
+  {
+   "data": "19/09/2025",
+   "iso": "2025-09-19",
+   "orgao": "MESA",
+   "tipo": "apresentação",
+   "fato": "Apresentação da MSC n. 1342/2025 (Mensagem), pelo Poder Executivo, que \"Submete à deliberação do Congresso Nacional o texto do projeto de lei que 'Altera a Lei n° 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de relevância sistêmica em mercados digitais e de…"
+  },
+  {
+   "data": "07/10/2025",
+   "iso": "2025-10-07",
+   "orgao": "PLEN",
+   "tipo": "relator",
+   "fato": "Designado Relator, Dep. Aliel Machado (PV-PR)."
+  },
+  {
+   "data": "22/10/2025",
+   "iso": "2025-10-22",
+   "orgao": "MESA",
+   "tipo": "comissão especial",
+   "fato": "Apresentação do REQ n. 4369/2025 (Requerimento de Constituição de Comissão Especial de Projeto), pela Deputada Caroline de Toni (PL/SC), que \"Requer a criação e instalação de Comissão Especial destinada a proferir parecer ao Projeto de Lei nº 4675/2025\"."
+  },
+  {
+   "data": "01/11/2025",
+   "iso": "2025-11-01",
+   "orgao": "MESA",
+   "tipo": "urgência",
+   "fato": "Apresentação do REQ n. 4612/2025 (Requerimento de Urgência (Art. 155 do RICD)), pelos Deputado Gilberto Abramo (REPUBLIC/MG) e outros, que \"Requer regime de urgência para apreciação do Projeto de Lei nº 4.675, de 2025, que altera a Lei nº 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de…"
+  },
+  {
+   "data": "18/03/2026",
+   "iso": "2026-03-18",
+   "orgao": "PLEN",
+   "tipo": "urgência",
+   "fato": "Aprovado o requerimento nº 4612/2025,do Sr. Gilberto Abramo, que solicita urgência (art. 155) para o PL 4675/2025."
+  },
+  {
+   "data": "18/03/2026",
+   "iso": "2026-03-18",
+   "orgao": "PLEN",
+   "tipo": "urgência",
+   "fato": "Alteração do Regime de Tramitação desta proposição em virtude da Aprovação do REQ 4612/2025."
+  },
+  {
+   "data": "06/07/2026",
+   "iso": "2026-07-06",
+   "orgao": "CDE",
+   "tipo": "audiência pública",
+   "fato": "Apresentação do REQ n. 37/2026 (Requerimento de Audiência Pública), pelo Deputado Rodrigo da Zaeli (PL/MT), que \"Requer a realização de Audiência Pública para discutir os Impactos econômicos da regulação dos mercados digitais através do PL 4675/2025\"."
+  },
+  {
+   "data": "08/07/2026",
+   "iso": "2026-07-08",
+   "orgao": "MESA",
+   "tipo": "parecer",
+   "fato": "Apresentação do PRLP n. 1 PLEN (Parecer Preliminar de Plenário), pelo Deputado Aliel Machado (PV/PR -Fdr PT-PCdoB-PV)."
+  },
+  {
+   "data": "12/08/2026",
+   "iso": "2026-08-12",
+   "orgao": "CDE",
+   "tipo": "audiência pública",
+   "fato": "Aprovado o requerimento nº 37/2026,do Sr. Rodrigo da Zaeli que requer a realização de Audiência Pública para discutir os Impactos econômicos da regulação dos mercados digitais através do PL 4675/2025."
+  }
+ ],
+ "votacoes": [
+  {
+   "id": "2579791-17",
+   "data": "18/03/2026",
+   "iso": "2026-03-18",
+   "orgao": "PLEN",
+   "descricao": "Aprovado o Requerimento de Urgência (Art. 155 do RICD). Sim: 276; Não: 186; Total: 462.",
+   "aprovada": true,
+   "nominal": true,
+   "sim": 276,
+   "nao": 186,
+   "outros": 1,
+   "total": 463,
+   "partidos": [
+    {
+     "partido": "PL",
+     "sim": 3,
+     "nao": 79,
+     "outros": 0
+    },
+    {
+     "partido": "PT",
+     "sim": 67,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "UNIÃO",
+     "sim": 23,
+     "nao": 24,
+     "outros": 0
+    },
+    {
+     "partido": "REPUBLICANOS",
+     "sim": 30,
+     "nao": 12,
+     "outros": 1
+    },
+    {
+     "partido": "PSD",
+     "sim": 22,
+     "nao": 21,
+     "outros": 0
+    },
+    {
+     "partido": "PP",
+     "sim": 30,
+     "nao": 12,
+     "outros": 0
+    },
+    {
+     "partido": "MDB",
+     "sim": 20,
+     "nao": 12,
+     "outros": 0
+    },
+    {
+     "partido": "PODE",
+     "sim": 14,
+     "nao": 2,
+     "outros": 0
+    },
+    {
+     "partido": "PDT",
+     "sim": 15,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "PSB",
+     "sim": 14,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "PSDB",
+     "sim": 2,
+     "nao": 11,
+     "outros": 0
+    },
+    {
+     "partido": "PSOL",
+     "sim": 10,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "PCdoB",
+     "sim": 8,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "AVANTE",
+     "sim": 4,
+     "nao": 2,
+     "outros": 0
+    },
+    {
+     "partido": "NOVO",
+     "sim": 0,
+     "nao": 5,
+     "outros": 0
+    },
+    {
+     "partido": "PRD",
+     "sim": 2,
+     "nao": 2,
+     "outros": 0
+    },
+    {
+     "partido": "PV",
+     "sim": 4,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "REDE",
+     "sim": 4,
+     "nao": 0,
+     "outros": 0
+    },
+    {
+     "partido": "SOLIDARIEDADE",
+     "sim": 3,
+     "nao": 1,
+     "outros": 0
+    },
+    {
+     "partido": "CIDADANIA",
+     "sim": 1,
+     "nao": 2,
+     "outros": 0
+    },
+    {
+     "partido": "MISSÃO",
+     "sim": 0,
+     "nao": 1,
+     "outros": 0
+    }
+   ],
+   "bancada": {
+    "sim": [
+     "Bruno Ganem",
+     "Dr. Victor Linhalis",
+     "Enfermeira Ana Paula",
+     "Fábio Macedo",
+     "Gilson Daniel",
+     "Glaustin da Fokus",
+     "Luiz Carlos Hauly",
+     "Raimundo Costa",
+     "Renata Abreu",
+     "Rodrigo Gambale",
+     "Romero Rodrigues",
+     "Ruy Carneiro",
+     "Sergio Santos Rodrigues",
+     "Tiago Dimas"
+    ],
+    "nao": [
+     "Rafael Fera",
+     "Sargento Portugal"
+    ],
+    "abstencao": [],
+    "obstrucao": [],
+    "outros": [],
+    "total": 16
+   },
+   "orientacoes": [
+    {
+     "quem": "Maioria",
+     "orientacao": ""
+    },
+    {
+     "quem": "MISSÃO",
+     "orientacao": "Não"
+    },
+    {
+     "quem": "Bl UniPpPsd...",
+     "orientacao": "Liberado"
+    },
+    {
+     "quem": "PDT",
+     "orientacao": "Sim"
+    },
+    {
+     "quem": "PL",
+     "orientacao": "Não"
+    },
+    {
+     "quem": "Governo",
+     "orientacao": "Sim"
+    },
+    {
+     "quem": "Oposição",
+     "orientacao": "Não"
+    },
+    {
+     "quem": "NOVO",
+     "orientacao": "Não"
+    },
+    {
+     "quem": "Fdr PSOL-REDE",
+     "orientacao": "Sim"
+    },
+    {
+     "quem": "Minoria",
+     "orientacao": "Não"
+    },
+    {
+     "quem": "Fdr PT-PCdoB-PV",
+     "orientacao": "Sim"
+    },
+    {
+     "quem": "PSB",
+     "orientacao": "Sim"
+    },
+    {
+     "quem": "Bl AvanSolidPrd...",
+     "orientacao": "Liberado"
+    }
+   ]
+  },
+  {
+   "id": "2637219-3",
+   "data": "12/08/2026",
+   "iso": "2026-08-12",
+   "orgao": "CDE",
+   "descricao": "Aprovado o Requerimento.",
+   "aprovada": true,
+   "nominal": false
+  }
+ ],
+ "relacionadas": [],
+ "coletadoEm": "2026-11-17T11:44:42.070Z",
+ "avisos": [],
+ "pauta": {
+  "titulo": "Pauta — 13/11/2026 · sessão deliberativa extraordinária",
+  "data": "13/11/2026"
+ },
+ "acessorias": [
+  {
+   "id": 2638403,
+   "rotulo": "PRLP 1",
+   "ementa": "Altera a Lei nº 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de relevância sistêmica em mercados digitais e para estabelecimento de obrigações…"
+  },
+  {
+   "id": 2609452,
+   "rotulo": "DTQ 1",
+   "ementa": "Destaque para Votação em Separado - PL 4675/2025"
+  },
+  {
+   "id": 2637219,
+   "rotulo": "REQ 37/2026",
+   "ementa": "Requer a realização de Audiência Pública para discutir os Impactos econômicos da regulação dos mercados digitais através do PL 4675/2025."
+  },
+  {
+   "id": 2562496,
+   "rotulo": "MSC 1342/2025",
+   "ementa": "Submete à deliberação do Congresso Nacional o texto do projeto de lei que \"Altera a Lei n° 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de…"
+  },
+  {
+   "id": 2574763,
+   "rotulo": "REQ 4369/2025",
+   "ementa": "Requer a criação e instalação de Comissão Especial destinada a proferir parecer ao Projeto de Lei nº 4675/2025"
+  },
+  {
+   "id": 2579791,
+   "rotulo": "REQ 4612/2025",
+   "ementa": "Requer regime de urgência para apreciação do Projeto de Lei nº 4.675, de 2025, que altera a Lei nº 12.529, de 30 de novembro de 2011, dispõe sobre os processos de designação de agentes econômicos de…"
+  },
+  {
+   "id": 2579977,
+   "rotulo": "RPD 1",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2579979,
+   "rotulo": "RPD 3",
+   "ementa": "Requerimento de Adiamento da Discussão Matéria Urgente - PL 4675/2025"
+  },
+  {
+   "id": 2579981,
+   "rotulo": "RPD 5",
+   "ementa": "Requerimento de Adiamento da Votação Matéria Urgente - PL 4675/2025"
+  },
+  {
+   "id": 2579984,
+   "rotulo": "RPD 7",
+   "ementa": "Requerimento de Votação Nominal - PL 4675/2025"
+  },
+  {
+   "id": 2581133,
+   "rotulo": "RPD 8",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2583597,
+   "rotulo": "RPD 10",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2584663,
+   "rotulo": "RPD 12",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2601865,
+   "rotulo": "RPD 14",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2601957,
+   "rotulo": "RPD 16",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2601959,
+   "rotulo": "RPD 18",
+   "ementa": "Requerimento de Votação Nominal - PL 4675/2025"
+  },
+  {
+   "id": 2602475,
+   "rotulo": "RPD 19",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2602480,
+   "rotulo": "RPD 20",
+   "ementa": "Requerimento de Votação Nominal - PL 4675/2025"
+  },
+  {
+   "id": 2602489,
+   "rotulo": "RPD 22",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2609421,
+   "rotulo": "RPD 24",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  },
+  {
+   "id": 2610438,
+   "rotulo": "RPD 27",
+   "ementa": "Requerimento de Retirada de Matéria da Pauta - PL 4675/2025"
+  }
+ ],
+ "mapa": {
+  "quorum": {
+   "regra": "maioria simples, presente a maioria absoluta dos deputados",
+   "minimo": null,
+   "presenca": 257,
+   "base": "art. 47 da Constituição"
+  },
+  "votacao": {
+   "data": "18/03/2026",
+   "descricao": "Aprovado o Requerimento de Urgência (Art. 155 do RICD). Sim: 276; Não: 186; Total: 462.",
+   "sim": 276,
+   "nao": 186,
+   "outros": 1,
+   "total": 463,
+   "ehMerito": false
+  },
+  "linhas": [
+   {
+    "partido": "PL",
+    "sim": 3,
+    "nao": 79,
+    "outros": 0,
+    "orientacao": "Não",
+    "orientadoPor": "",
+    "situacao": "contra",
+    "contraOrientacao": 3
+   },
+   {
+    "partido": "PT",
+    "sim": 67,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "Fdr PT-PCdoB-PV",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "UNIÃO",
+    "sim": 23,
+    "nao": 24,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl UniPpPsd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "REPUBLICANOS",
+    "sim": 30,
+    "nao": 12,
+    "outros": 1,
+    "orientacao": "—",
+    "orientadoPor": "",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PSD",
+    "sim": 22,
+    "nao": 21,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl UniPpPsd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PP",
+    "sim": 30,
+    "nao": 12,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl UniPpPsd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "MDB",
+    "sim": 20,
+    "nao": 12,
+    "outros": 0,
+    "orientacao": "—",
+    "orientadoPor": "",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PODE",
+    "sim": 14,
+    "nao": 2,
+    "outros": 0,
+    "orientacao": "—",
+    "orientadoPor": "",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PDT",
+    "sim": 15,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PSB",
+    "sim": 14,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PSDB",
+    "sim": 2,
+    "nao": 11,
+    "outros": 0,
+    "orientacao": "—",
+    "orientadoPor": "",
+    "situacao": "contra",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PSOL",
+    "sim": 10,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "Fdr PSOL-REDE",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PCdoB",
+    "sim": 8,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "Fdr PT-PCdoB-PV",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "AVANTE",
+    "sim": 4,
+    "nao": 2,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl AvanSolidPrd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "NOVO",
+    "sim": 0,
+    "nao": 5,
+    "outros": 0,
+    "orientacao": "Não",
+    "orientadoPor": "",
+    "situacao": "contra",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PRD",
+    "sim": 2,
+    "nao": 2,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl AvanSolidPrd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "PV",
+    "sim": 4,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "Fdr PT-PCdoB-PV",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "REDE",
+    "sim": 4,
+    "nao": 0,
+    "outros": 0,
+    "orientacao": "Sim",
+    "orientadoPor": "Fdr PSOL-REDE",
+    "situacao": "a favor",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "SOLIDARIEDADE",
+    "sim": 3,
+    "nao": 1,
+    "outros": 0,
+    "orientacao": "Liberado",
+    "orientadoPor": "Bl AvanSolidPrd...",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "CIDADANIA",
+    "sim": 1,
+    "nao": 2,
+    "outros": 0,
+    "orientacao": "—",
+    "orientadoPor": "",
+    "situacao": "dividido",
+    "contraOrientacao": 0
+   },
+   {
+    "partido": "MISSÃO",
+    "sim": 0,
+    "nao": 1,
+    "outros": 0,
+    "orientacao": "Não",
+    "orientadoPor": "",
+    "situacao": "contra",
+    "contraOrientacao": 0
+   }
+  ],
+  "divididos": [
+   {
+    "partido": "UNIÃO",
+    "sim": 23,
+    "nao": 24
+   },
+   {
+    "partido": "REPUBLICANOS",
+    "sim": 30,
+    "nao": 12
+   },
+   {
+    "partido": "PSD",
+    "sim": 22,
+    "nao": 21
+   },
+   {
+    "partido": "PP",
+    "sim": 30,
+    "nao": 12
+   },
+   {
+    "partido": "MDB",
+    "sim": 20,
+    "nao": 12
+   },
+   {
+    "partido": "AVANTE",
+    "sim": 4,
+    "nao": 2
+   },
+   {
+    "partido": "PRD",
+    "sim": 2,
+    "nao": 2
+   },
+   {
+    "partido": "SOLIDARIEDADE",
+    "sim": 3,
+    "nao": 1
+   },
+   {
+    "partido": "CIDADANIA",
+    "sim": 1,
+    "nao": 2
+   }
+  ],
+  "ausentes": 50,
+  "podemos": {
+   "orientacao": "",
+   "orientadoPor": "",
+   "sim": 14,
+   "nao": 2,
+   "divergiram": []
+  }
+ },
+ "partido": {
+  "partido": "PODE",
+  "deputados": 27,
+  "autoresDaMateria": [],
+  "acessorias": [],
+  "termos": [
+   "concorrência",
+   "digitais",
+   "plataformas",
+   "Cade"
+  ],
+  "projetos": [
+   {
+    "id": 2641058,
+    "rotulo": "PL 4374/2026",
+    "ementa": "Institui a Política Nacional de Desenvolvimento Competitivo dos Mercados Fornecedores da Administração Pública, estabelece diretrizes para o fortalecimento da concorrência, da capacidade fornecedora, da inovação, do desenvolvimento territorial e da…",
+    "termo": "concorrência",
+    "situacao": "Distribuição",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2630308,
+    "rotulo": "PL 2917/2026",
+    "ementa": "Institui o Marco Legal da Soberania Financeira Digital Brasileira e da Proteção das Infraestruturas Estratégicas Nacionais de Pagamentos, estabelece a Política Nacional de Soberania Financeira Digital, dispõe sobre a proteção dos sistemas nacionais de…",
+    "termo": "concorrência",
+    "situacao": "Aguardando Parecer",
+    "apresentacao": "08/06/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641446,
+    "rotulo": "PL 4742/2026",
+    "ementa": "Institui a Lei da Vedação à Publicidade Oculta em Plataformas de Streaming, estabelece normas de transparência publicitária em conteúdos audiovisuais e serviços digitais por assinatura, e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Despacho de Apensação",
+    "apresentacao": "21/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641320,
+    "rotulo": "PL 4625/2026",
+    "ementa": "Institui o VIVA – Vida Integrada de Serviços ao Cidadão, plataforma digital destinada a reunir protocolos, benefícios, agendamentos e interações administrativas em ambiente único, acessível e organizado para o usuário.",
+    "termo": "digitais",
+    "situacao": "Distribuição",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641246,
+    "rotulo": "PL 4558/2026",
+    "ementa": "Institui a Lei da Integridade da Assinatura Digital, estabelece normas de proteção da expectativa legítima do consumidor em serviços digitais contratados mediante assinatura, e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Despacho de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641245,
+    "rotulo": "PL 4557/2026",
+    "ementa": "Institui o Estatuto do Consumidor Digital de Plataformas e Serviços de Streaming, estabelece direitos mínimos dos consumidores em ambientes digitais, serviços de assinatura, plataformas de streaming e aplicações de internet, e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Despacho de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641243,
+    "rotulo": "PL 4555/2026",
+    "ementa": "Institui deveres de transparência, previsibilidade e comunicação prévia nas alterações unilaterais promovidas por plataformas digitais em serviços ofertados aos consumidores.",
+    "termo": "digitais",
+    "situacao": "Notificação de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641242,
+    "rotulo": "PL 4554/2026",
+    "ementa": "Dispõe sobre a proteção da experiência digital contratada pelo consumidor e veda práticas de degradação artificial de serviços digitais destinadas à indução de migração para planos mais caros.",
+    "termo": "digitais",
+    "situacao": "Notificação de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641234,
+    "rotulo": "PL 4546/2026",
+    "ementa": "Institui a Política Nacional de Humanização dos Serviços Digitais, estabelece direitos dos usuários em ambientes digitais, cria mecanismos de proteção contra barreiras tecnológicas excessivas, assegura a possibilidade de escalonamento para atendimento humano…",
+    "termo": "digitais",
+    "situacao": "Despacho de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641160,
+    "rotulo": "PL 4473/2026",
+    "ementa": "Institui a Política Nacional de Garantia de Recuperação Patrimonial das Vítimas de Fraudes Digitais, estabelece direitos das vítimas de fraudes financeiras praticadas por meios digitais, cria mecanismos de recuperação patrimonial, mediação financeira digital…",
+    "termo": "digitais",
+    "situacao": "Despacho de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641101,
+    "rotulo": "PL 4414/2026",
+    "ementa": "Institui a Lei de Transparência nas Assinaturas Híbridas Digitais e estabelece direitos dos consumidores em contratos de serviços digitais que combinem pagamento periódico e exposição à publicidade.",
+    "termo": "digitais",
+    "situacao": "Aguardando Encaminhamento",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641098,
+    "rotulo": "PL 4411/2026",
+    "ementa": "Institui a Lei da Neutralidade Comercial da Interface Digital e estabelece regras de transparência para conteúdos patrocinados, impulsionamentos pagos e mecanismos de promoção comercial em ambientes digitais.",
+    "termo": "digitais",
+    "situacao": "Distribuição",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641082,
+    "rotulo": "PL 4395/2026",
+    "ementa": "Institui o Marco Legal da Governança dos Riscos Digitais Extremos para Proteção da Vida, estabelece a Política Nacional de Governança dos Riscos Digitais Extremos, dispõe sobre o regime jurídico aplicável aos Prestadores de Serviços Digitais Estratégicos…",
+    "termo": "digitais",
+    "situacao": "Distribuição",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641071,
+    "rotulo": "PL 4387/2026",
+    "ementa": "Institui a Política Nacional de Localização Estratégica e Resiliência dos Dados Críticos e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Notificação de Apensação",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2641055,
+    "rotulo": "PL 4371/2026",
+    "ementa": "Institui normas gerais para promover a igualdade de oportunidades econômicas no ambiente digital, prevenir práticas digitais que produzam discriminações socioeconômicas injustificadas e estabelecer deveres proporcionais de diligência e governança para…",
+    "termo": "digitais",
+    "situacao": "Distribuição",
+    "apresentacao": "17/07/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2635117,
+    "rotulo": "PL 3288/2026",
+    "ementa": "Institui a Política Nacional de Cidadania Territorial Digital para Áreas Rurais, Remotas e de Difícil Acesso e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Aguardando Parecer",
+    "apresentacao": "24/06/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2630038,
+    "rotulo": "PL 2870/2026",
+    "ementa": "Institui a Política Nacional de Proteção contra a Exclusão Digital da Pessoa Idosa, estabelece garantias de acesso alternativo a serviços essenciais e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Tramitando em Conjunto",
+    "apresentacao": "03/06/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   },
+   {
+    "id": 2629771,
+    "rotulo": "PL 2818/2026",
+    "ementa": "Institui a Política Nacional de Garantia do Atendimento Humano à Pessoa Idosa em Serviços Essenciais e Digitais, estabelece o direito de opção por atendimento humano para pessoas idosas e dá outras providências.",
+    "termo": "digitais",
+    "situacao": "Tramitando em Conjunto",
+    "apresentacao": "02/06/2026",
+    "autores": [
+     "Duda Ramos"
+    ]
+   }
+  ],
+  "votacoesCorrelatas": [
+   {
+    "rotulo": "PL 2768/2022",
+    "encontrada": true,
+    "ementa": "Dispõe sobre a organização, o funcionamento e a operação das plataformas digitais que oferecem serviços ao público brasileiro e dá outras providências.",
+    "nominais": []
+   },
+   {
+    "rotulo": "PL 2630/2020",
+    "encontrada": true,
+    "ementa": "Institui a Lei Brasileira de Liberdade, Responsabilidade e Transparência na Internet.",
+    "nominais": [
+     {
+      "data": "25/04/2023",
+      "descricao": "Aprovado o Requerimento de Urgência (Art. 154 do RICD). Sim: 238; não: 192; total: 430.",
+      "sim": 238,
+      "nao": 192,
+      "podemosSim": 1,
+      "podemosNao": 9,
+      "votaramNao": [
+       "Bruno Ganem",
+       "Deltan Dallagnol",
+       "Dr. Victor Linhalis",
+       "Gilson Daniel",
+       "Igor Timo",
+       "Mauricio Marcon",
+       "Nely Aquino",
+       "Renata Abreu",
+       "Rodrigo Gambale"
+      ],
+      "votaramSim": [
+       "Sargento Portugal"
+      ],
+      "orientacao": "Sim",
+      "orientadoPor": "Bl MdbPsdRepPodePsc"
+     }
+    ]
+   }
+  ],
+  "avisos": []
+ }
+}
