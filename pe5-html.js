@@ -72,7 +72,9 @@ const PE5_GRAV = { alta: 'alta', media: 'média', baixa: 'baixa' };
 function pe5Encurta(t, max = 420) { const s = String(t || '').trim(); return s.length <= max ? s : s.slice(0, max).replace(/\s+\S*$/, '') + ' […]'; }
 
 function pe5QuadroPolitico(G, esc) {
-  if (!G) return '';
+  // Matéria que a Câmara ainda não registrou (parecer feito sobre documento entregue pelo analista):
+  // dizer isso, em vez de imprimir "Fase." e "Regime." vazios.
+  if (!G || (!G.proposicao && !G.status && !(G.votacoes || []).length)) return '<p>A Câmara dos Deputados não tinha registro de tramitação desta matéria na data deste parecer. Regime, votações e voto da bancada não puderam ser levantados.</p>';
   const L = [];
   const u = G.urgencia || {};
   L.push(`<p><b>Fase.</b> ${esc(G.fase?.descricao || '')}${G.status?.situacao ? ` Situação registrada em ${esc(G.status.data)}: ${esc(G.status.situacao)}${G.status.orgao ? ` (${esc(G.status.orgao)})` : ''}.` : ''}</p>`);
