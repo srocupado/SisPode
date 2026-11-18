@@ -129,6 +129,7 @@
           <div class="form-group"><label>Análises em paralelo</label><input type="number" id="config-paralelas" class="form-input" min="1" max="6" value="2"><div class="form-hint">Quantas chamadas ao modelo ao mesmo tempo ao gerar todas.</div></div>
           <div class="form-group"><label>Intervalo entre chamadas (s)</label><input type="number" id="config-intervalo" class="form-input" min="0" max="120" value="3"><div class="form-hint">Pausa mínima entre o início de duas chamadas. Sobe se o provedor devolver 429.</div></div>
         </div>
+        <div class="form-group"><label>Seu prompt de análise (opcional)</label><textarea id="config-prompt-usuario" class="form-input" rows="5" maxlength="4000" placeholder="Ex.: Dê mais atenção ao impacto para Estados e Municípios. Use linguagem ainda mais simples. Destaque sempre o custo estimado, quando constar."></textarea><div class="form-hint">Orientações suas para todas as notas de comissão: ênfase, profundidade, recortes, estilo. Ficam só neste navegador. Têm prioridade sobre o padrão do programa, mas não mudam a estrutura de seções, o limite de tamanho nem a regra de não inventar o que não está nos documentos. Para orientações de uma comissão só, compartilhadas com a equipe, use a configuração da comissão.</div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline" data-fecha="modal-configuracoes">Cancelar</button><button id="btn-config-salvar" class="btn btn-primary">Salvar</button></div>
     </div>

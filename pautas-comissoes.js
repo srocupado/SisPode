@@ -538,7 +538,7 @@ function atualizarPainelItem(it, card = cardDe(it)) {
   q('btn-gerar').className = tem ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm';
   if (!tem) { q('painel-analise').classList.remove('aberto'); return; }
   const a = it.analise;
-  q('analise-meta').innerHTML = `Documento${(a.documentos || []).length > 1 ? 's' : ''}: <b>${escapeHtml((a.documentos || []).map(d => d.rotulo).join('; ') || 'só a ementa e a conclusão da pauta')}</b> · ${escapeHtml(a.provedor || '')} ${escapeHtml(a.modelo || '')} · ${escapeHtml(formatDataHora(a.geradoEm))}${a.geradoPor ? ` por ${escapeHtml(a.geradoPor)}` : ''}${a.promptComissao ? ' · prompt da comissão' : ''}${a.instrucoes ? ' · com instruções' : ''}${a.editadoEm ? ` · editada ${escapeHtml(formatDataHora(a.editadoEm))}` : ''}`;
+  q('analise-meta').innerHTML = `Documento${(a.documentos || []).length > 1 ? 's' : ''}: <b>${escapeHtml((a.documentos || []).map(d => d.rotulo).join('; ') || 'só a ementa e a conclusão da pauta')}</b> · ${escapeHtml(a.provedor || '')} ${escapeHtml(a.modelo || '')} · ${escapeHtml(formatDataHora(a.geradoEm))}${a.geradoPor ? ` por ${escapeHtml(a.geradoPor)}` : ''}${a.promptComissao ? ' · prompt da comissão' : ''}${a.promptUsuario ? ' · prompt do(a) analista' : ''}${(n => n ? ` · <span${n > PC_LIMITE_PALAVRAS.max * 1.15 ? ' style="color:#ffcc66" title="Acima do limite de ' + PC_LIMITE_PALAVRAS.max + ' palavras pedido ao modelo: revise ou gere de novo"' : ''}>${n} palavras</span>` : '')(contarPalavrasNota(a.markdown))}${a.instrucoes ? ' · com instruções' : ''}${a.editadoEm ? ` · editada ${escapeHtml(formatDataHora(a.editadoEm))}` : ''}`;
   q('analise-conteudo').innerHTML = notaHtmlPC(it);
   q('painel-analise').classList.add('aberto');
   q('btn-toggle').textContent = 'Ocultar análise';
@@ -553,7 +553,8 @@ async function gerarAnaliseItem(reuniao, it, { forcar = false, instrucoes = '' }
   const prov = provedorParaComissao(cc, cfg, p => chaveDe(p, cfg));
   const pid = prov.pid, apiKey = prov.apiKey;
   if (prov.aviso && !pc._avisouProvedor) { pc._avisouProvedor = true; mostrarToast(prov.aviso, 'aviso'); }
-  const instrucoesTodas = juntarInstrucoes(cc.promptExtra, instrucoes);
+  const promptUsuario = (pc.config?.comissoes?.promptUsuario || '').trim();
+  const instrucoesTodas = juntarInstrucoes(cc.promptExtra, instrucoes, promptUsuario);
   if (!apiKey) { mostrarToast('Configure a chave de API em ⚙ antes de gerar.', 'aviso'); return; }
   if (temNotaPC(it) && !forcar) return;
   resetAbortAll();
@@ -573,7 +574,7 @@ async function gerarAnaliseItem(reuniao, it, { forcar = false, instrucoes = '' }
       const prompt = promptComissao({ comissao, reuniao, item: it, docs: docsOk, instrucoesExtra: instrucoesTodas });
       if (btn) btn.innerHTML = '<span class="an-spinner"></span> analisando…';
       const r = await chamarIA({ provedorId: pid, apiKey, modelo: prov.modelo, prompt, pdfBuffers: buffers });
-      it.analise = { markdown: r.text, formato: 'markdown', truncada: !!r.truncated, provedor: PROVEDORES_META[pid]?.label || pid, modelo: prov.modelo || '', promptComissao: !!(cc.promptExtra && cc.promptExtra.trim()), documentos: docsOk.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })), geradoEm: new Date().toISOString(), geradoPor: cfg.nomeUsuario || 'equipe', analista: it.analista || '', instrucoes: instrucoes || '' };
+      it.analise = { markdown: r.text, formato: 'markdown', truncada: !!r.truncated, provedor: PROVEDORES_META[pid]?.label || pid, modelo: prov.modelo || '', promptComissao: !!(cc.promptExtra && cc.promptExtra.trim()), promptUsuario: !!promptUsuario, documentos: docsOk.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })), geradoEm: new Date().toISOString(), geradoPor: cfg.nomeUsuario || 'equipe', analista: it.analista || '', instrucoes: instrucoes || '' };
     });
     await fbSalvarAnalise(reuniao, it).catch(e => mostrarToast('Nota gerada, mas não salva no Firebase: ' + e.message, 'aviso'));
     atualizarBadgesItem(it); atualizarPainelItem(it);
@@ -794,6 +795,7 @@ function abrirConfigPC() {
   document.getElementById('config-nome').value = c.nomeUsuario || '';
   document.getElementById('config-paralelas').value = c.comissoes?.paralelas || 2;
   document.getElementById('config-intervalo').value = c.comissoes?.intervaloS ?? 3;
+  document.getElementById('config-prompt-usuario').value = c.comissoes?.promptUsuario || '';
   preencherChaveEModelos();
   document.getElementById('modal-configuracoes').style.display = 'flex';
 }
@@ -820,7 +822,7 @@ async function salvarConfigPC() {
   const chaves = { ...(c.chaves || {}) }; if (c.apiKey && c.provedor && !chaves[c.provedor]) chaves[c.provedor] = c.apiKey; chaves[pid] = key;
   const paralelas = Math.min(6, Math.max(1, parseInt(document.getElementById('config-paralelas').value, 10) || 2));
   const intervaloS = Math.min(120, Math.max(0, parseInt(document.getElementById('config-intervalo').value, 10) || 0));
-  pc.config = { ...c, provedor: pid, apiKey: key, modelo: document.getElementById('config-modelo').value, chaves, nomeUsuario: document.getElementById('config-nome').value.trim(), comissoes: { ...(c.comissoes || {}), paralelas, intervaloS } };
+  pc.config = { ...c, provedor: pid, apiKey: key, modelo: document.getElementById('config-modelo').value, chaves, nomeUsuario: document.getElementById('config-nome').value.trim(), comissoes: { ...(c.comissoes || {}), paralelas, intervaloS, promptUsuario: document.getElementById('config-prompt-usuario').value.trim().slice(0, 4000) } };
   await new Promise(r => chrome.storage.local.set({ config: pc.config }, r));
   pc.fila.paralelas = paralelas; pc.fila.intervaloMs = intervaloS * 1000;
   document.getElementById('modal-configuracoes').style.display = 'none';

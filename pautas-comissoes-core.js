@@ -195,6 +195,15 @@ const REGRAS_RIGIDAS_PC = `REGRAS RÍGIDAS:
 - Ao se referir à proposição, use SEMPRE a forma curta da sigla (ex.: **PL 1234/2010**, **PLP 41/2026**), nunca "Projeto de Lei nº 1234, de 2010".
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
 
+// Tamanho da nota (pedido da equipe, 18/11/2026): de 1 a 2 páginas. O limite vai no prompt, em palavras,
+// e a tela mostra a contagem — o modelo nem sempre obedece, e quem revisa precisa ver quando passou.
+const PC_LIMITE_PALAVRAS = { min: 300, max: 600, maxRequerimento: 300 };
+const REGRA_TAMANHO_PC = `TAMANHO: a nota inteira tem de ${PC_LIMITE_PALAVRAS.min} a ${PC_LIMITE_PALAVRAS.max} palavras (de uma a duas páginas). É limite, não meta: se a matéria for simples, fique perto de ${PC_LIMITE_PALAVRAS.min}. Para caber, cada seção vai direto ao ponto, sem introdução, sem repetir a ementa e sem repetir em uma seção o que já foi dito em outra; seção sem conteúdo relevante leva uma frase.`;
+/** Palavras da nota, sem contar títulos e marcação. */
+function contarPalavrasNota(md) {
+  return (String(md || '').replace(/^#{1,6}\s.*$/gm, ' ').replace(/[*_`>#\[\]()|-]+/g, ' ').match(/[\p{L}\p{N}][\p{L}\p{N}.,/ºª°%$-]*/gu) || []).length;
+}
+
 /** A nota da comissão: um parecer, uma matéria, o papel do colegiado. */
 function promptComissao({ comissao, reuniao, item, docs = [], instrucoesExtra = '' }) {
   const papel = papelDaComissao(comissao.sigla, item.textoParecer);
@@ -225,10 +234,14 @@ O que a aprovação ou a rejeição produzem na prática na comissão; quem é c
 ## Pontos de atenção para a bancada
 Relação com matérias em tramitação na comissão e com temas de interesse do Podemos que os documentos permitam identificar; o que a bancada precisa saber antes de votar, sem recomendar voto.
 ${extra}
+TAMANHO: a nota inteira tem no máximo ${PC_LIMITE_PALAVRAS.maxRequerimento} palavras.
+
 ${REGRAS_RIGIDAS_PC}`;
   }
 
-  const cotejo = temTeor && temParecer ? ' O inteiro teor da matéria está anexado: **faça o cotejo entre o texto original e o texto que o parecer propõe (substitutivo ou emendas), dispositivo a dispositivo**, apontando o que foi INCLUÍDO, ALTERADO (antes e depois) e SUPRIMIDO. Se o parecer aprova a matéria sem alteração, diga isso e descreva o texto original.' : '';
+  // O foco é o texto que se vota (pedido da equipe, 18/11/2026). Até então a seção pedia o cotejo, dispositivo a
+  // dispositivo, com o texto original — e a nota gastava o espaço com o que mudou, não com o que o texto diz.
+  const cotejo = temTeor && temParecer ? ' O inteiro teor da matéria original está anexado só como apoio: **não faça cotejo com o texto original nem liste o que foi incluído, alterado ou suprimido**. Se o parecer altera a matéria de forma relevante, registre isso em UMA frase ao final da seção. Se o parecer aprova a matéria sem alteração, o texto em votação é o original: descreva-o.' : '';
   const secaoPapel = papel.tipo === 'admissibilidade'
     ? `## Admissibilidade
 O que o parecer conclui sobre constitucionalidade, juridicidade e técnica legislativa, com os fundamentos que ele dá (dispositivos da Constituição e do Regimento citados no documento). Se o parecer também examina o mérito, diga-o em parágrafo próprio. Não decrete inconstitucionalidade por conta própria: relate o que o parecer afirma e, se houver ponto que mereça exame, escreva "o ponto merece exame quanto a…".`
@@ -242,16 +255,16 @@ Primeiro o exame formal (${comissao.sigla}) que o parecer faz, com fundamentos; 
 Os argumentos de mérito do parecer: o problema que a matéria enfrenta, por que o(a) relator(a) conclui como conclui, e o que o parecer diz sobre impactos, custos e quem é afetado. Só o que consta do documento.`;
 
   return `${cab}
-Produza a nota técnica em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem bullets, salvo na seção de emendas), com as seguintes seções, nesta ordem e com estes títulos exatos ("##"):
+Produza a nota técnica em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem bullets, salvo nas seções de emendas e de argumentos), com as seguintes seções, nesta ordem e com estes títulos exatos ("##"):
 
 ## Objetivo
 Parágrafo único, direto e em linguagem acessível: do que trata a matéria em deliberação.
 
 ## O que a comissão vota
-O parecer do(a) relator(a): quem relata, a conclusão (aprovação, rejeição, com substitutivo, com emendas, pela admissibilidade…) e os fundamentos principais do voto, como constam do documento "parecer". Se houver apensados examinados no parecer, diga o que se conclui sobre cada um, em uma frase por apensado.
+O foco é o VOTO do(a) relator(a). **Comece exatamente com "**Voto do(a) relator(a):**"**, seguido de quem relata e da conclusão do voto, por inteiro e como consta do parecer: aprovação ou rejeição; com substitutivo ou com emendas (quais); o que se conclui sobre cada apensado e sobre cada emenda, quando o voto os mencionar; e, se for o caso, a conclusão sobre admissibilidade ou adequação. Depois, **no máximo duas frases** com a razão central que o(a) relator(a) dá para votar assim. Não resuma o relatório nem a fundamentação do parecer.
 
 ## Principais disposições do texto em votação
-O que o texto que a comissão vota (o substitutivo ou as emendas do parecer, ou a matéria original quando o parecer não a altera) efetivamente cria, altera ou revoga, citando os dispositivos.${cotejo} Descreva o que muda na prática, sem frases genéricas.
+O que diz o texto que a comissão vota — o substitutivo, ou a matéria com as emendas do parecer, ou a matéria original quando o parecer não a altera. Descreva os dispositivos desse texto: o que cada artigo ou grupo de artigos cria, obriga, proíbe, altera ou revoga, a quem se aplica, prazos, valores e vigência, citando os dispositivos (art., §, inciso).${cotejo} Sem frases genéricas.
 
 ## Emendas na comissão
 Se o parecer se manifestar sobre emendas apresentadas na comissão, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <acolhida | acolhida em parte | rejeitada> – <o que ela faz>", citando o número EXATAMENTE como no parecer. Se não houver emendas ou o parecer não as mencionar, escreva só: "O parecer não se manifesta sobre emendas na comissão."
@@ -262,9 +275,11 @@ ${secaoPapel}
 O que a bancada precisa saber antes de votar: o que muda em relação ao que vale hoje (só se constar dos documentos), quem ganha e quem perde, controvérsias que o próprio parecer registra (votos em separado, emendas rejeitadas com argumento), e o que a matéria ainda depende para virar lei (próximas comissões ou Plenário, se o parecer o disser). Sem recomendar voto.
 
 ## Argumentos favoráveis e contrários
-Dois parágrafos corridos. O primeiro **começa exatamente com **Argumentos favoráveis:**** e reúne os argumentos que sustentam a aprovação do parecer; o segundo **começa exatamente com **Argumentos contrários:**** e reúne os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral** para construir contrapontos plausíveis, apresentados como ponderação, não como fato; sem inventar dados sobre o conteúdo dos documentos.
+Em TÓPICOS, para leitura rápida. Escreva uma linha só com **Argumentos favoráveis:** e, abaixo dela, de 2 a 4 tópicos (itens de lista com "-"), um argumento por tópico, em uma frase curta cada, que sustentam a aprovação do parecer. Depois, uma linha só com **Argumentos contrários:** e, abaixo dela, de 2 a 4 tópicos no mesmo formato, que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral** para construir contrapontos plausíveis, apresentados como ponderação, não como fato; sem inventar dados sobre o conteúdo dos documentos.
 ${extra}
 PRINCÍPIOS: clareza (sem termo técnico sem explicação); objetividade; imparcialidade (fatos e impactos, sem posicionamento); fundamentação nos documentos.
+
+${REGRA_TAMANHO_PC}
 
 ${REGRAS_RIGIDAS_PC}`;
 }
@@ -274,10 +289,13 @@ ${REGRAS_RIGIDAS_PC}`;
  * equipe) e as instruções avulsas de uma reanálise entram juntos no mesmo
  * bloco de INSTRUÇÕES ADICIONAIS, cada um nomeado.
  */
-function juntarInstrucoes(promptComissaoExtra = '', instrucoesItem = '') {
-  const a = String(promptComissaoExtra || '').trim(), b = String(instrucoesItem || '').trim();
-  if (a && b) return `Orientações permanentes desta comissão:\n${a}\n\nInstruções para esta análise:\n${b}`;
-  return a || b;
+function juntarInstrucoes(promptComissaoExtra = '', instrucoesItem = '', promptUsuario = '') {
+  // promptUsuario: o prompt de análise que cada pessoa escreve nas Configurações (18/11/2026). Fica só no
+  // navegador dela e vale para todas as comissões; o da comissão é da equipe; o da reanálise, daquela nota.
+  const partes = [['Orientações do(a) analista para todas as notas de comissão', promptUsuario], ['Orientações permanentes desta comissão', promptComissaoExtra], ['Instruções para esta análise', instrucoesItem]]
+    .map(([t, v]) => [t, String(v || '').trim()]).filter(([, v]) => v);
+  if (partes.length <= 1) return partes.length ? partes[0][1] : '';
+  return partes.map(([t, v]) => `${t}:\n${v}`).join('\n\n');
 }
 
 /**
@@ -393,5 +411,5 @@ function htmlImpressaoReuniao({ comissao, reuniao, itens, notaHtml, logoDataUrl 
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { API_CAMARA_PC, COMISSOES_PERMANENTES, normalizarOrgaos, PAPEL_COMISSAO, papelDaComissao, eventosDeliberativos, agruparPorData, semanaDe, rotuloSemana, tituloReuniao, chaveReuniao, dataBR, diaSemana,
-    itensDaPauta, votoDoRelator, documentosDoItem, promptComissao, juntarInstrucoes, provedorParaComissao, criarFila, textoPropPartido, textoResumoReuniao, htmlImpressaoReuniao, limpaChave };
+    itensDaPauta, votoDoRelator, documentosDoItem, promptComissao, juntarInstrucoes, contarPalavrasNota, PC_LIMITE_PALAVRAS, provedorParaComissao, criarFila, textoPropPartido, textoResumoReuniao, htmlImpressaoReuniao, limpaChave };
 }
