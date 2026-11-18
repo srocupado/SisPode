@@ -143,7 +143,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   // --- citações ---
   const tr = p.trechos || { conferidos: 0, recusados: [] };
   add('Citações dos documentos localizadas no documento indicado', !(tr.recusados || []).length,
-    (tr.recusados || []).length ? `${tr.recusados.length} item(ns) da leitura saíram do parecer porque o trecho citado não foi localizado: ${tr.recusados.slice(0, 4).map(r => r.id).join(', ')}.` : `${tr.conferidos} trecho(s) conferido(s).`);
+    (tr.recusados || []).length ? `${tr.recusados.length} item(ns) da leitura saíram da NTA porque o trecho citado não foi localizado: ${tr.recusados.slice(0, 4).map(r => r.id).join(', ')}.` : `${tr.conferidos} trecho(s) conferido(s).`);
 
   // --- evidências ---
   const ids = new Set(['G']);
@@ -155,7 +155,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   for (const k of ['historico', 'judicializacao']) for (const x of pq.congresso?.[k] || []) ids.add(x.id);
   const semEv = blocos.filter(b => b.exigeEv && !b.ev.length);
   const evFalsa = [...new Set(blocos.flatMap(b => b.ev.filter(e => !ids.has(e))))];
-  add('Cada bloco do parecer aponta para a base (documento, pesquisa ou dado do programa)', !semEv.length && !evFalsa.length,
+  add('Cada bloco da NTA aponta para a base (documento, pesquisa ou dado do programa)', !semEv.length && !evFalsa.length,
     [semEv.length ? `${semEv.length} bloco(s) sem indicação de base, por exemplo em "${semEv[0].secao}": "${semEv[0].texto.slice(0, 80)}…".` : '', evFalsa.length ? `Referência(s) inexistente(s): ${evFalsa.slice(0, 6).join(', ')}.` : ''].filter(Boolean).join(' '), evFalsa.length > 0);
 
   // --- números ---
@@ -252,7 +252,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   const reDecreta = /(?:^|[^a-zà-ú])(?:[ée]|s[ãa]o|est[áa]|est[ãa]o|seria|mostra-se|revela-se|afigura-se|padece de)\s+(?:[a-zà-ú]+mente\s+)?(?:inconstitucion|v[íi]cio de inconstitucionalidade)|\b(?:viola|violam|ofende|ofendem|afronta|afrontam|fere|ferem)\s+(?:frontalmente\s+|diretamente\s+)?(?:a|o)\s+(?:Constitui[çc][ãa]o|art\.\s*\d+[ºo°]?\s*(?:,[^.]{0,30})?\s*da Constitui[çc][ãa]o)|\binconstitucionalidade\s+(?:flagrante|manifesta|evidente|patente)/i;
   const decreta = [];
   for (const b of blocos) for (const f of b.texto.split(/(?<=[.;])\s+/)) if (reDecreta.test(f) && !/\b(?:STF|Supremo|tribunal|decidiu|declarou|julgou|alega|alegam|sustenta|sustentam|afirma|afirmam|segundo|para (?:a|o|os|as)\b|tese|argument|pode(?:m|ria|riam)? ser|questiona)/i.test(f)) decreta.push(`"${f.slice(0, 90)}…" [${b.secao}]`);
-  add('O parecer não decreta inconstitucionalidade (só relata decisão ou alegação de alguém)', !decreta.length, decreta.slice(0, 3).join('; '), true);
+  add('A NTA não decreta inconstitucionalidade (só relata decisão ou alegação de alguém)', !decreta.length, decreta.slice(0, 3).join('; '), true);
   const sinais = pq.congresso?.judicializacao || [], judD = doc.analise?.judicializacao || [];
   const sinFora = sinais.filter(l => !judD.some(j => (j.ev || []).includes(l.id))).map(l => l.alvo || l.sinal);
   const judInc = judD.filter(j => !String(j.alvo || '').trim() || !String(j.fundamento || '').trim() || !String(j.quem || '').trim()).length;
@@ -303,9 +303,9 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   let okFase = true, detFase = fase.descricao || '';
   // Depois de votada na Câmara, "aprovar", "rejeitar" e "adiar" deixam de ser opções desta Casa.
   const opcaoDeVoto = (doc.caminhos?.opcoes || []).some(o => /^\s*(aprovar|rejeitar|adiar)\b/i.test(o.opcao || '') && !/senado/i.test(o.opcao || ''));
-  if (fase.jaVotadaNaCamara && (opcaoDeVoto || /o plen[áa]rio (?:da c[âa]mara )?decide/i.test(A.decide || ''))) { okFase = false; detFase = `${fase.descricao} As opções do parecer ainda tratam a votação na Câmara como pendente.`; }
-  if (fase.codigo === 'camara_revisao_do_senado' && !/senado/i.test(txtOpcoes)) { okFase = false; detFase = `${fase.descricao} As opções do parecer não tratam das alterações do Senado.`; }
-  if (fase.codigo === 'concluida' || fase.codigo === 'encerrada') { okFase = !/\b(aprovar|rejeitar)\b/i.test(txtOpcoes); if (!okFase) detFase = `${fase.descricao} O parecer ainda lista opções de voto.`; }
+  if (fase.jaVotadaNaCamara && (opcaoDeVoto || /o plen[áa]rio (?:da c[âa]mara )?decide/i.test(A.decide || ''))) { okFase = false; detFase = `${fase.descricao} As opções da NTA ainda tratam a votação na Câmara como pendente.`; }
+  if (fase.codigo === 'camara_revisao_do_senado' && !/senado/i.test(txtOpcoes)) { okFase = false; detFase = `${fase.descricao} As opções da NTA não tratam das alterações do Senado.`; }
+  if (fase.codigo === 'concluida' || fase.codigo === 'encerrada') { okFase = !/\b(aprovar|rejeitar)\b/i.test(txtOpcoes); if (!okFase) detFase = `${fase.descricao} A NTA ainda lista opções de voto.`; }
   add('Opções compatíveis com a fase da tramitação', okFase, detFase, !okFase);
 
   // --- legislação ---

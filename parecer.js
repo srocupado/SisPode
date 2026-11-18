@@ -147,7 +147,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = 
   if (!elegiveis.length) {
     return { erro: 'Nenhum modelo adequado disponível nesta chave: todos os '
       + `${ids.length} modelos oferecidos são de faixa econômica (${ranqueados.slice(0, 3).map(r => r.id).join(', ')}). `
-      + 'O Parecer de Especialista exige ao menos a faixa intermediária — a faixa econômica é otimizada para custo e latência e '
+      + 'A Nota Técnica Analítica (NTA) exige ao menos a faixa intermediária — a faixa econômica é otimizada para custo e latência e '
       + 'tende a completar lacuna com o plausível, que num parecer técnico é o erro de maior consequência.' };
   }
   const fix = fixado ? elegiveis.find(m => m.id === fixado) : null;

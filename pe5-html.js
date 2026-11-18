@@ -74,7 +74,7 @@ function pe5Encurta(t, max = 420) { const s = String(t || '').trim(); return s.l
 function pe5QuadroPolitico(G, esc) {
   // Matéria que a Câmara ainda não registrou (parecer feito sobre documento entregue pelo analista):
   // dizer isso, em vez de imprimir "Fase." e "Regime." vazios.
-  if (!G || (!G.proposicao && !G.status && !(G.votacoes || []).length)) return '<p>A Câmara dos Deputados não tinha registro de tramitação desta matéria na data deste parecer. Regime, votações e voto da bancada não puderam ser levantados.</p>';
+  if (!G || (!G.proposicao && !G.status && !(G.votacoes || []).length)) return '<p>A Câmara dos Deputados não tinha registro de tramitação desta matéria na data desta nota. Regime, votações e voto da bancada não puderam ser levantados.</p>';
   const L = [];
   const u = G.urgencia || {};
   L.push(`<p><b>Fase.</b> ${esc(G.fase?.descricao || '')}${G.status?.situacao ? ` Situação registrada em ${esc(G.status.data)}: ${esc(G.status.situacao)}${G.status.orgao ? ` (${esc(G.status.orgao)})` : ''}.` : ''}</p>`);
@@ -287,9 +287,9 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
   const indice = `<div class="pe-indice">${partes.map((pt, i) => { const fim = i + 1 < partes.length ? partes[i + 1].ini : secoes.length; const dentro = secoes.slice(pt.ini, fim); return dentro.length ? `<a href="#parte_${pt.num}"><b>Parte ${pt.num} — ${esc(pt.titulo)}</b><span class="ld"></span></a>${dentro.map(s => `<a href="#s_${s.id}">${esc(s.titulo)}<span class="ld"></span></a>`).join('')}` : ''; }).join('')}</div>`;
 
 
-  return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Parecer — ${esc(materia || p.materia || '')}</title>
+  return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Nota Técnica Analítica — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
-  <div class="cab">${logoDataUrl ? `<div class="sp"></div>` : ''}<div class="tit"><h1>Parecer de Especialista</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
+  <div class="cab">${logoDataUrl ? `<div class="sp"></div>` : ''}<div class="tit"><h1>Nota Técnica Analítica (NTA)</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
   <div class="rule"></div>
   <div class="meta">${esc(materia || p.materia || '')}${p.textoAnalisado ? ` · texto analisado: ${esc(p.textoAnalisado)}` : ''}${p.geradoEm ? ` · ${pe5DataHora(p.geradoEm)}` : ''}</div>
   ${p.ementa ? `<p class="pe-fonte" style="text-align:center;margin:-6px 0 10px">${esc(p.ementa)}</p>` : ''}
@@ -309,13 +309,13 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'pesquisa-congresso': 'Pesquisa do histórico do tema e da judicialização', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
   return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
-  <div class="cab">${logoDataUrl ? '<div class="sp"></div>' : ''}<div class="tit"><h1>Conferência do Parecer</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
+  <div class="cab">${logoDataUrl ? '<div class="sp"></div>' : ''}<div class="tit"><h1>Conferência da NTA</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
   <div class="rule"></div>
   <div class="meta">${esc(materia || p.materia || '')}${p.textoAnalisado ? ` · texto analisado: ${esc(p.textoAnalisado)}` : ''}</div>
-  <p class="pe-nota">Este relatório é para o analista. Mostra o que o programa testou no parecer, o que foi retirado ou corrigido antes de imprimir e o que cada etapa consumiu. ${esc(conf.resumo || '')}</p>
+  <p class="pe-nota">Este relatório é para o analista. Mostra o que o programa testou na Nota Técnica Analítica (NTA), o que foi retirado ou corrigido antes de imprimir e o que cada etapa consumiu. ${esc(conf.resumo || '')}</p>
   ${p.escolha ? `<p class="pe-fonte">${esc(p.escolha.motivo || '')}${p.escolha.ressalva ? ' ' + esc(p.escolha.ressalva) : ''}</p>` : ''}
   <p class="pe-fonte" style="text-align:center">Gerado em ${pe5DataHora(p.geradoEm)}${p.modelo ? ` · modelo ${esc(p.modelo)}` : ''}${(p.chamadas || []).length ? ` · ${p.chamadas.length} chamadas` : ''}${c.total ? ` · ${mil(c.total)} tokens` : ''}${p.geradoPor ? ` · por ${esc(p.geradoPor)}` : ''}</p>
-  <h2 class="item-h">Como o parecer foi produzido</h2>
+  <h2 class="item-h">Como a NTA foi produzida</h2>
   <ul>
     <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
     <li>Em "Os dois lados", o que se diz sobre cada argumento ("confirma-se", "procede", "não procede") é avaliação do modelo, feita contra o texto analisado e os dados da base.</li>
@@ -323,12 +323,12 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
     <li>O mapa de votos, as iniciativas e os projetos de deputados do Podemos e o voto da bancada em proposições correlatas foram lidos pelo programa nos dados abertos da Câmara. Quais projetos tratam do mesmo assunto foi escolha do modelo, a partir de uma busca por palavra-chave.</li>
     <li>Tramitação, votações, voto da bancada e o texto da lei em vigor foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</li>
     <li>Os valores em moeda estrangeira foram convertidos pelo câmbio de venda do Banco Central${p.cambio ? ` em ${esc(p.cambio.data)}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}` : ''}.</li>
-    <li>O parecer não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.</li>
+    <li>A NTA não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.</li>
   </ul>
   <h2 class="item-h">Testes do programa</h2>
   ${tab(['Teste', 'Resultado', 'Detalhe'], (conf.itens || []).map(i => [esc(i.teste), `<span class="${i.ok ? 'pe-ok' : 'pe-atencao'}">${i.ok ? 'sem ressalva' : i.critico ? 'atenção (crítico)' : 'atenção'}</span>`, esc(i.detalhe || '')]))}
   <h2 class="item-h">Citações dos documentos</h2>
-  <p>${tr.conferidos} trecho(s) transcrito(s) pela leitura foram localizados no documento indicado.${(tr.recusados || []).length ? ` ${tr.recusados.length} item(ns) saíram do parecer porque o trecho não foi localizado:` : ' Nenhum item foi retirado.'}</p>
+  <p>${tr.conferidos} trecho(s) transcrito(s) pela leitura foram localizados no documento indicado.${(tr.recusados || []).length ? ` ${tr.recusados.length} item(ns) saíram da NTA porque o trecho não foi localizado:` : ' Nenhum item foi retirado.'}</p>
   ${(tr.recusados || []).length ? tab(['Item', 'Motivo', 'Trecho informado'], tr.recusados.map(r => [esc(r.id), esc(r.motivo), esc(r.trecho || '')])) : ''}
   <h2 class="item-h">Revisão</h2>
   <p>${(rv.aplicadas || []).length} correção(ões) aplicada(s); ${(rv.ignoradas || []).length} não aplicada(s) por não localizar o trecho de forma única.</p>
@@ -337,7 +337,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <h2 class="item-h">O que foi lido</h2>
   <p>Documentos lidos na íntegra pelo modelo:</p><ul>${((p.inventario || {}).lidos || []).map(d => `<li>${esc(d.rotulo)}${d.caracteres ? ` — ${Math.round(d.caracteres / 1000)} mil caracteres` : ''}${d.legivel === false ? ' <span class="pe-atencao">(ilegível)</span>' : ''}</li>`).join('')}</ul>
   ${((p.inventario || {}).naoLidos || []).length ? `<p>Existem e <b>não</b> foram lidos:</p><ul>${p.inventario.naoLidos.map(d => `<li>${esc(d.rotulo)} — ${esc(d.motivo)}</li>`).join('')}</ul>` : ''}
-  <p>Quando o parecer diz que algo "não consta", refere-se a esses documentos.</p>
+  <p>Quando a NTA diz que algo "não consta", refere-se a esses documentos.</p>
   ${(p.leitura?.ausencias || []).length ? `<p>Não localizado nos documentos lidos:</p><ul>${p.leitura.ausencias.map(a => `<li>${esc(a.o_que)} <span class="pe-fonte">(procurado em: ${esc(a.onde_procurou)})</span></li>`).join('')}</ul>` : ''}
   <h2 class="item-h">Limites e avisos da pesquisa</h2>
   ${(() => { const av = [...(p.pesquisa?.debate?.avisos || []), ...(p.pesquisa?.internacional?.avisos || []), ...(p.pesquisa?.contexto?.avisos || []), ...(p.pesquisa?.congresso?.avisos || []), ...((p.coleta?.partido?.avisos || []).map(a => `Atuação da bancada: ${a}.`))]; return av.length ? `<ul>${av.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : '<p class="pe-vazio">Nenhum aviso.</p>'; })()}

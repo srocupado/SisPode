@@ -755,9 +755,9 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com o Revisor (IA), com base na nota e nos documentos">💬 Pergunte ao Revisor</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
         <button class="btn btn-outline btn-sm" data-role="btn-parecer" style="color:#8fd0ff"
-          title="Parecer técnico aprofundado, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot;; um diálogo confirma provedor e modelo antes de gerar.">⚖ Parecer de Especialista</button>
-        <button class="btn btn-outline btn-sm" data-role="btn-abrir-parecer" style="display:none;color:#8fd0ff">📄 Abrir parecer</button>
-        <button class="btn btn-outline btn-sm" data-role="btn-abrir-conferencia" style="display:none" title="Relatório de conferência do parecer (uso interno): rubrica automática, tese com evidências, o que foi descartado, modelo e consumo">🔍 Abrir conferência</button>
+          title="Nota Técnica Analítica (NTA): estudo aprofundado da matéria, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot;; um diálogo confirma provedor e modelo antes de gerar.">⚖ Nota Técnica Analítica (NTA)</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-abrir-parecer" style="display:none;color:#8fd0ff">📄 Abrir NTA</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-abrir-conferencia" style="display:none" title="Relatório de conferência da NTA (uso interno): rubrica automática, tese com evidências, o que foi descartado, modelo e consumo">🔍 Abrir conferência</button>
       </div>
       <div class="an-apelido-row" data-role="apelido-row" style="display:none">
         <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
@@ -7515,7 +7515,7 @@ function popularSelectModelos(selecionado, lista) {
     const fixado = (state.config?.modeloParecer || {})[pid] || '';
     const rk = ranquearModelos(modelos.map(m => m.id));
     selP.innerHTML = '<option value="">Automático — o melhor do provedor no momento</option>' + rk.map(m =>
-      `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para o parecer)'}</option>`).join('');
+      `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para a NTA)'}</option>`).join('');
     selP.value = rk.some(m => m.id === fixado && m.elegivel) ? fixado : '';
   }
 }
@@ -7533,10 +7533,10 @@ function avisarFaixaModelo() {
   if (!id) { el.style.display = 'none'; return; }
   const f = faixaDoModelo(id);
   const avisos = {
-    superior: ['#2fcf7a', 'Faixa superior: adequada para análise densa e para o Parecer de Especialista.'],
+    superior: ['#2fcf7a', 'Faixa superior: adequada para análise densa e para a Nota Técnica Analítica (NTA).'],
     intermediaria: ['#8da3a8', 'Faixa intermediária: dá conta do resumo de pauta. Para análise densa, prefira a superior.'],
     economica: ['#d68a00', 'Faixa econômica: rápida e barata, boa para resumo de pauta. Tende a completar lacuna com o plausível, '
-      + 'o que enfraquece análise densa — e o Parecer de Especialista recusa rodar nesta faixa, escolhendo sozinho um modelo superior.'],
+      + 'o que enfraquece análise densa — e a Nota Técnica Analítica (NTA) recusa rodar nesta faixa, escolhendo sozinho um modelo superior.'],
     nao_identificada: ['#8da3a8', 'Faixa não identificada pela convenção de nomes conhecida. O modelo funciona; só não dá para dizer se é adequado à análise densa.'],
     outra_modalidade: ['#d68a00', 'Este é um modelo de imagem, voz, vídeo ou embedding: ele não redige texto. '
       + 'Nenhuma análise sai com ele — troque por um modelo de texto.'],
@@ -8500,11 +8500,11 @@ function atualizarBotaoParecer(it, card) {
   const m = it.parecer?.meta || it.parecerMeta;
   if (!m) { btn.style.display = 'none'; if (btnC) btnC.style.display = 'none'; return; }
   btn.style.display = 'inline-flex';
-  btn.textContent = '📄 Abrir parecer';
+  btn.textContent = '📄 Abrir NTA';
   // `pontos`: quantos pontos de atenção a conferência anotou. Meta da 4.0.0 ou
   // anterior só tem `aprovado`; false ali quer dizer "há pontos", sem contagem.
   const pontos = typeof m.pontos === 'number' ? m.pontos : (m.aprovado === false ? null : 0);
-  btn.title = `Parecer de Especialista gerado em ${formatDataHora(m.em)} por ${m.por || 'equipe'} com ${m.modelo}`
+  btn.title = `Nota Técnica Analítica (NTA) gerada em ${formatDataHora(m.em)} por ${m.por || 'equipe'} com ${m.modelo}`
     + (pontos === 0 ? '' : ` — a conferência anotou ${pontos == null ? 'pontos' : `${pontos} ponto(s)`} de atenção; veja o relatório de conferência`);
   if (btnC) btnC.style.display = 'inline-flex';
 }
@@ -8518,8 +8518,8 @@ async function fbCarregarParecer(it) {
 async function abrirParecerSalvo(it, documento = 'parecer') {
   if (!it.parecer) {
     try { it.parecer = await fbCarregarParecer(it); }
-    catch (e) { mostrarToast('Não consegui ler o parecer salvo: ' + e.message, 'erro'); return; }
-    if (!it.parecer) { mostrarToast('Não há parecer salvo para esta proposição nesta pauta.', 'aviso'); it.parecerMeta = null; atualizarBotaoParecer(it); return; }
+    catch (e) { mostrarToast('Não consegui ler a NTA salva: ' + e.message, 'erro'); return; }
+    if (!it.parecer) { mostrarToast('Não há NTA salva para esta proposição nesta pauta.', 'aviso'); it.parecerMeta = null; atualizarBotaoParecer(it); return; }
   }
   abrirParecerEspecialista(it, documento);
 }
@@ -8567,7 +8567,7 @@ async function listarModelosDoProvedor(pid) {
 // geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
 // documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
 // isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
-const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '8 chamadas ao modelo, quatro delas com busca na internet', tokens: 'da ordem de R$ 10 por parecer na medição de 17/11/2026' };
+const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '8 chamadas ao modelo, quatro delas com busca na internet', tokens: 'da ordem de R$ 10 por NTA na medição de 17/11/2026' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
@@ -8585,15 +8585,15 @@ function confirmarModeloParecer(it) {
     const cfg = state.config || {};
     const provedores = Object.keys(PROVEDORES_META);
     const comChave = provedores.filter(p => chaveDoProvedor(p, cfg));
-    if (!comChave.length) { mostrarToast('Configure a chave de ao menos um provedor antes de gerar o parecer.', 'aviso'); resolve(null); return; }
+    if (!comChave.length) { mostrarToast('Configure a chave de ao menos um provedor antes de gerar a NTA.', 'aviso'); resolve(null); return; }
     document.getElementById('dlg-parecer')?.remove();
     const ov = document.createElement('div');
     ov.id = 'dlg-parecer'; ov.className = 'modal-overlay'; ov.style.display = 'flex';
     ov.innerHTML = `<div class="modal" style="max-width:560px">
-      <div class="modal-header"><h3>Parecer de Especialista</h3><button class="modal-close" id="dlg-parecer-fechar">✕</button></div>
+      <div class="modal-header"><h3>Nota Técnica Analítica (NTA)</h3><button class="modal-close" id="dlg-parecer-fechar">✕</button></div>
       <div class="modal-body">
         <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 12px">${escapeHtml(`${it.sigla} ${it.numero}/${it.ano}`)} — ${escapeHtml((it.ementa || '').slice(0, 160))}${(it.ementa || '').length > 160 ? '…' : ''}</p>
-        <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> O parecer não é uma resposta rápida: o modelo lê os documentos, pesquisa na internet o debate, a experiência de outros países e o contexto jurídico, redige e revisa o próprio texto.
+        <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> A NTA não é uma resposta rápida: o modelo lê os documentos, pesquisa na internet o debate, a experiência de outros países e o contexto jurídico, redige e revisa o próprio texto.
           <ul>
             <li><b>Tempo:</b> ${AVISO_PARECER.tempo}. Mantenha esta aba aberta.</li>
             <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. Custo <b>${AVISO_PARECER.tokens}</b>, no formato anterior; o consumo real desta geração fica registrado no relatório de conferência.</li>
@@ -8623,7 +8623,7 @@ function confirmarModeloParecer(it) {
       const rk = ranquearModelos(lista.map(m => m.id));
       escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null });
       if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }
-      selM.innerHTML = rk.map(m => `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para o parecer)'}</option>`).join('');
+      selM.innerHTML = rk.map(m => `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para a NTA)'}</option>`).join('');
       selM.value = escolhaAuto.modelo;
       st.textContent = escolhaAuto.motivo;
       btnG.disabled = false;
@@ -8677,8 +8677,8 @@ async function gerarParecerEspecialista(it) {
     const proprios = docsProprios(it);
     const docsMeta = proprios ? await documentosComAnalista(it, proprios) : await escolherDocumentos(it);
     if (!docsMeta.length) {
-      mostrarToast('A Câmara ainda não tem documento desta matéria — anexe o texto para gerar o parecer.', 'aviso');
-      abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar o Parecer de Especialista sobre ele.');
+      mostrarToast('A Câmara ainda não tem documento desta matéria — anexe o texto para gerar a NTA.', 'aviso');
+      abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar a Nota Técnica Analítica (NTA) sobre ele.');
       return;
     }
     const docs = [];
@@ -8763,8 +8763,8 @@ async function gerarParecerEspecialista(it) {
     abrirParecerEspecialista(it);
     if (p.versao === 5) {
       const c = p.conferencia || {}, cons = p.consumo || {};
-      mostrarToast(`Parecer gerado em ${String(cons.minutos ?? '?').replace('.', ',')} min${cons.total ? `, ${Math.round(cons.total / 1000)} mil tokens` : ''}. ${c.resumo || ''}${c.atencao ? ' Veja o relatório de conferência.' : ''}`, c.criticos ? 'aviso' : 'sucesso');
-      if (!salvoNoFirebase) mostrarToast(`ATENÇÃO: o parecer NÃO foi salvo no Firebase (${erroSalvar}). Ele está aberto nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
+      mostrarToast(`NTA gerada em ${String(cons.minutos ?? '?').replace('.', ',')} min${cons.total ? `, ${Math.round(cons.total / 1000)} mil tokens` : ''}. ${c.resumo || ''}${c.atencao ? ' Veja o relatório de conferência.' : ''}`, c.criticos ? 'aviso' : 'sucesso');
+      if (!salvoNoFirebase) mostrarToast(`ATENÇÃO: a NTA NÃO foi salva no Firebase (${erroSalvar}). Ela está aberta nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
       return;
     }
     const pontos = p.pontosDeAtencao || [];
@@ -8773,11 +8773,11 @@ async function gerarParecerEspecialista(it) {
       : `Parecer gerado sem ressalvas na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`,
       pontos.length ? 'aviso' : 'sucesso');
     if (!salvoNoFirebase) {
-      mostrarToast(`ATENÇÃO: o parecer NÃO foi salvo no Firebase (${erroSalvar}). Ele está aberto nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
+      mostrarToast(`ATENÇÃO: a NTA NÃO foi salva no Firebase (${erroSalvar}). Ela está aberta nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
     }
 
   } catch (e) {
-    if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }
+    if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar a NTA: ' + e.message, 'erro'); }
   } finally {
     clearInterval(relogio);
     iaInFlightDec();
@@ -8795,12 +8795,12 @@ async function abrirParecerEspecialista(it, documento = 'parecer') {
   const p = it.parecer;
   if (!p) return;
   const novoFormato = p.versao === 5;          // pe5-*.js; os salvos antes de 17/11/2026 abrem pelo código antigo
-  if (!novoFormato && (!p.ficha || !p.rubrica)) { mostrarToast('Este parecer foi gerado por uma versão anterior; gere de novo.', 'aviso'); return; }
+  if (!novoFormato && (!p.ficha || !p.rubrica)) { mostrarToast('Esta NTA foi gerada por uma versão anterior; gere de novo.', 'aviso'); return; }
   const conferencia = documento === 'conferencia';
   const w = window.open('', '_blank', 'width=900,height=760');
-  if (!w) { mostrarToast('Permita pop-ups para abrir o parecer.', 'aviso'); return; }
+  if (!w) { mostrarToast('Permita pop-ups para abrir a NTA.', 'aviso'); return; }
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
-    + `<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando ${conferencia ? 'o relatório de conferência' : 'o parecer'}…</body></html>`);
+    + `<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando ${conferencia ? 'o relatório de conferência' : 'a Nota Técnica Analítica'}…</body></html>`);
   w.document.close();
 
   const logoDataUrl = await carregarLogoDataUrl();

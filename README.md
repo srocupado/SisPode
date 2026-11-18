@@ -326,13 +326,13 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 
 Matéria que está na pauta e ainda não chegou à Câmara — o PLP 299/2026 foi pautado em 17/11/2026 enquanto era votado no Senado — não tem parecer nem inteiro teor para baixar. Em vez do erro "documento não disponível", o item oferece duas saídas, também acessíveis pelo botão **📎 Documento próprio** de cada item (`docs-analista.js`):
 
-- **Anexar o documento**: um ou mais PDFs, ou o link de um PDF. Cada um é marcado como *texto em votação*, *parecer do relator* ou *documento de apoio*, com uma descrição livre. A nota técnica e o **Parecer de Especialista** passam a ser feitos sobre eles; é possível somá-los aos documentos que o SisPode encontrar na Câmara, e o do analista prevalece sobre o de mesmo papel
+- **Anexar o documento**: um ou mais PDFs, ou o link de um PDF. Cada um é marcado como *texto em votação*, *parecer do relator* ou *documento de apoio*, com uma descrição livre. A nota técnica e a **Nota Técnica Analítica (NTA)** passam a ser feitos sobre eles; é possível somá-los aos documentos que o SisPode encontrar na Câmara, e o do analista prevalece sobre o de mesmo papel
 - O modelo é avisado de que os documentos vieram do analista e, se for o caso, de que a matéria ainda não consta da Câmara; a nota declara em que documento se baseia e registra quando o texto ainda pode mudar
 - **Escrever a nota à mão**: a edição livre, que existia só para medidas provisórias, vale para qualquer item
 - **Os arquivos não são guardados**: ficam na memória da aba. A análise registra o rótulo, o nome do arquivo e, quando houver, o link. Regerar em outra aba exige anexar de novo, salvo quando todos os documentos vieram por link
 - Link é baixado e conferido (tem de ser PDF) antes de qualquer chamada de IA; arquivo que não é PDF ou passa de 25 MB é recusado com orientação
 - Análise feita com documento próprio não é replicada em outro item nem entra na verificação de atualização contra a Câmara
-- No Parecer de Especialista de matéria sem registro na Câmara, o quadro político diz isso, e mapa de votos e dados da bancada ficam de fora
+- Na Nota Técnica Analítica (NTA) de matéria sem registro na Câmara, o quadro político diz isso, e mapa de votos e dados da bancada ficam de fora
 
 **Item aguardando registro na Câmara** (matéria pautada antes de chegar)
 
@@ -340,16 +340,18 @@ Matéria que está na pauta e ainda não chegou à Câmara — o PLP 299/2026 fo
 
 - **Entra na pauta** com o selo **⏳ Aguardando registro na Câmara**, tanto pela importação do PDF quanto pelo **Adicionar à mão**. "Não encontrada" (a Câmara respondeu e não tem) é tratado à parte de "API fora do ar" (que continua sendo erro e oferece o Reverificar)
 - **Consulta o Senado** pela mesma sigla, número e ano — desde 2019 a numeração de PL, PLP, PEC e PDL é única nas duas Casas. Vêm de lá a ementa, o autor, a situação, o último andamento e os documentos. O que a pauta não trouxe é completado; se a ementa do Senado não se parecer com a da pauta, o card pede conferência em vez de afirmar. Usa o serviço atual de dados abertos do Senado (`/processo`), não o descontinuado
-- **Documentos da análise**: o parecer mais recente do relator no Senado (que traz o substitutivo, quando há) e o texto — a redação final, se já publicada, senão o texto inicial. Emendas avulsas e requerimentos ficam de fora. A nota e o Parecer de Especialista saem com o cenário **Documentos do Senado**, e o modelo é instruído a dizer de onde vêm os documentos, que a matéria não tem tramitação na Câmara e que o texto ainda pode mudar
+- **Documentos da análise**: o parecer mais recente do relator no Senado (que traz o substitutivo, quando há) e o texto — a redação final, se já publicada, senão o texto inicial. Emendas avulsas e requerimentos ficam de fora. A nota e a Nota Técnica Analítica (NTA) saem com o cenário **Documentos do Senado**, e o modelo é instruído a dizer de onde vêm os documentos, que a matéria não tem tramitação na Câmara e que o texto ainda pode mudar
 - **Vínculo automático**: a cada abertura da pauta, a cada 10 minutos com o painel aberto e no botão **↻ Verificar registro**, a Câmara é consultada de novo. Quando a proposição aparece, o item ganha o id da Câmara e perde o selo, sem apagar nem inserir de novo. A nota feita com documentos do Senado é mantida e fica marcada como **⚠ Pode estar desatualizada**, porque o texto pode ter mudado no caminho
 - **Editar detalhes**: ementa, autor e relator podem ser corrigidos ou preenchidos à mão. O que foi digitado não é sobrescrito pela consulta ao Senado
 - **Quando nem o Senado tem a matéria** (ou o tipo não tramita lá, como projeto de resolução), o aviso diz isso e aponta as saídas: editar os detalhes à mão e entregar o documento em **📎 Documento próprio**, ou remover o item e incluir de novo quando houver registro
 - O estado é gravado com a pauta (`provisorio`, `detalhesManuais`). O bot aceita o mesmo estado na importação e avisa na mensagem quais itens entraram aguardando registro
 - **Leitor da pauta**: título com letras e números separados pela geração do PDF ("P ROJETO DE LEI COMPLEMENTAR Nº 2 99 , DE 20 26", item 2 da pauta de 17/11/2026) é reescrito na forma padrão antes da leitura, sem IA; e o diagnóstico deixou de apontar "tipo de proposição não previsto" nesses casos
 
-**Parecer de Especialista** (dossiê da matéria, por item)
+**Nota Técnica Analítica (NTA)** (dossiê da matéria, por item)
 
-Além da nota técnica, cada card pode gerar um **parecer de especialista**: um dossiê para o analista, que cobre a matéria inteira — o que o texto faz, o que muda na lei, a tramitação, **o debate (o que os favoráveis e os contrários argumentam)**, **a experiência de outros países**, a análise técnica, os caminhos possíveis e as fontes. Foi **refeito do zero em 17/11/2026** (`pe5-*.js`), depois de medir três pareceres do formato anterior: a conferência dava "aprovado, zero pontos" mesmo com a tabela de legislação errada, o texto repetia os mesmos números de seção em seção, linhas sumiam na quebra de página e a urgência, a votação nominal e o voto da bancada ficavam de fora.
+Chamava-se *Parecer de Especialista* até 18/11/2026; o nome mudou no cabeçalho do PDF, nos botões e nos avisos da tela. Os nomes internos (arquivos `pe5-*.js`, `parecer*.js`, campos gravados) continuam os mesmos.
+
+Além da nota técnica, cada card pode gerar uma **Nota Técnica Analítica (NTA)**: um dossiê para o analista, que cobre a matéria inteira — o que o texto faz, o que muda na lei, a tramitação, **o debate (o que os favoráveis e os contrários argumentam)**, **a experiência de outros países**, a análise técnica, os caminhos possíveis e as fontes. Foi **refeito do zero em 17/11/2026** (`pe5-*.js`), depois de medir três pareceres do formato anterior: a conferência dava "aprovado, zero pontos" mesmo com a tabela de legislação errada, o texto repetia os mesmos números de seção em seção, linhas sumiam na quebra de página e a urgência, a votação nominal e o voto da bancada ficavam de fora.
 
 - **Quem faz o quê.** O **programa** entrega tudo o que é dado: tramitação, urgência, votações nominais com o voto da bancada, **fase** (em que Casa está e se a Câmara já votou), artigo vigente de cada dispositivo alterado, câmbio do Banco Central e lista de fontes. O **modelo** lê, pesquisa, redige e revisa
 - **Oito chamadas**: leitura dos documentos (como **texto**, uma única vez) → quatro pesquisas na internet, em paralelo (debate; experiência internacional; contexto jurídico e de fato; **histórico do tema no Congresso e sinais de judicialização**) → redação em duas metades (a segunda recebe a primeira, para não repetir) → revisão adversarial, que devolve correções pontuais aplicadas pelo programa. Raciocínio alto só na leitura e na redação
@@ -739,7 +741,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 
 ### Provedor de IA
 
-Todos os módulos que usam IA compartilham a mesma configuração. O usuário escolhe entre três provedores; apenas um fica ativo por vez — ao trocar, é necessário colar a chave do novo provedor (as chaves já usadas ficam guardadas por provedor). As **Pautas de Comissões** admitem provedor e modelo próprios por colegiado, e o **Parecer de Especialista** pede o modelo no momento da geração.
+Todos os módulos que usam IA compartilham a mesma configuração. O usuário escolhe entre três provedores; apenas um fica ativo por vez — ao trocar, é necessário colar a chave do novo provedor (as chaves já usadas ficam guardadas por provedor). As **Pautas de Comissões** admitem provedor e modelo próprios por colegiado, e a **Nota Técnica Analítica (NTA)** pede o modelo no momento da geração.
 
 | Provedor | Onde obter a chave | Formato da chave |
 |---|---|---|
@@ -832,7 +834,7 @@ sispode/
 ├── ficha.js / serie.js            # Ficha de parâmetros do exercício e série histórica das cotas
 ├── mensagem.js / normas.js        # Tabelas e parâmetros da Mensagem; conferência de normas e valores
 ├── guia-emendas.js                # Cartilhas × áreas temáticas × relator setorial
-├── pe5-coleta.js / pe5-prompts.js / pe5-pipeline.js / pe5-conferencia.js / pe5-html.js   # Parecer de Especialista (refeito em 17/11/2026): dados do programa, prompts, etapas, conferência e PDF
+├── pe5-coleta.js / pe5-prompts.js / pe5-pipeline.js / pe5-conferencia.js / pe5-html.js   # Nota Técnica Analítica (NTA), refeita em 17/11/2026: dados do programa, prompts, etapas, conferência e PDF
 ├── parecer.js / pipeline-parecer.js   # escolha do modelo do parecer; pipeline anterior (abre os pareceres já salvos)
 ├── docs-analista.js               # Documento próprio do analista: tipos, validação, rótulos e instrução ao modelo
 ├── senado-materia.js              # Matéria pautada sem registro na Câmara: consulta ao Senado, documentos, avisos e instrução ao modelo
@@ -856,9 +858,9 @@ sispode/
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 │   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
-│   ├── pe5.test.js                 # Parecer de Especialista novo: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
+│   ├── pe5.test.js                 # NTA, formato atual: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
 │   ├── pe5-referencia.js           # caso de referência (PL 4675/2025) com as respostas gravadas no lugar do modelo
-│   ├── parecer-v3.test.js          # Parecer de Especialista anterior: pipeline, tese, portões, rubrica
+│   ├── parecer-v3.test.js          # NTA, formato anterior: pipeline, tese, portões, rubrica
 │   ├── parecer-tela.test.js        # Parecer no escopo real da página (vm + linkedom)
 │   ├── parecer-modelo.test.js      # Escolha de modelo por faixa e recusa da faixa econômica
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
@@ -950,7 +952,7 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Diário Oficial da União](https://www.in.gov.br) | **Orçamento · Comparador de Portarias**: texto dos atos pelo link do DOU |
 | [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |
 | [Planalto](https://www.planalto.gov.br) e [LexML/Senado](https://www.lexml.gov.br) | Texto compilado e texto publicado das normas — as duas fontes seguintes da cascata |
-| [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Câmbio para a comparação internacional do Parecer de Especialista; séries de IPCA e arrecadação do pipeline anterior |
+| [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Câmbio para a comparação internacional da Nota Técnica Analítica (NTA); séries de IPCA e arrecadação do pipeline anterior |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
 | [Google Gemini](https://aistudio.google.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
 | [OpenAI](https://platform.openai.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
@@ -972,7 +974,7 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 **Extensão**
 - Google Chrome (versão compatível com Manifest V3)
 - Conexão com internet para consultar as APIs da Câmara
-- Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA. O **Parecer de Especialista** exige modelo de faixa intermediária ou superior
+- Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA. A **Nota Técnica Analítica (NTA)** exige modelo de faixa intermediária ou superior
 - Chave gratuita do Portal da Transparência — apenas para o painel de Emendas
 
 **Bot** (opcional — ver [`bot/INSTALACAO.md`](bot/INSTALACAO.md))

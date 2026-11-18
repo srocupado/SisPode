@@ -192,7 +192,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       const html = av('htmlParecer(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
       ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && !/<td>T1<\/td>/.test(html) && !/Rubrica automática/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota e limites — sem a tabela da tese nem a rubrica');
       const htmlConf = av('htmlConferencia(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
-      ok(/Conferência do Parecer/.test(htmlConf) && /@page/.test(htmlConf) && /<td>T1<\/td>/.test(htmlConf) && /Rubrica automática/.test(htmlConf) && /M1 Ficha do objeto/.test(htmlConf), 'htmlConferencia imprime o relatório à parte no escopo da página, com tese e rubrica');
+      ok(/Conferência da NTA/.test(htmlConf) && /@page/.test(htmlConf) && /<td>T1<\/td>/.test(htmlConf) && /Rubrica automática/.test(htmlConf) && /M1 Ficha do objeto/.test(htmlConf), 'htmlConferencia imprime o relatório à parte no escopo da página, com tese e rubrica');
       // os dois botões do card
       const cardHtml = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
       ok(/data-role="btn-abrir-conferencia"/.test(cardHtml) && /abrirParecerSalvo\(it, 'conferencia'\)/.test(cardHtml) && /htmlConferencia\(p, opts\)/.test(cardHtml), 'o card tem "Abrir conferência", que abre o relatório pelo mesmo caminho do parecer salvo');

@@ -228,7 +228,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
       ${s === onde ? tabelas.corpo : ''}
     </div>`).join('');
 
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Parecer — ${esc(materia)}</title>
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Nota Técnica Analítica — ${esc(materia)}</title>
   <style>
 ${css}
 ${CSS_PARECER_EXTRA}
@@ -237,7 +237,7 @@ ${CSS_TAB || ''}
   </style></head><body>
     <div class="cab">
       <div class="sp"></div>
-      <div class="tit"><h1>Parecer de Especialista</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
+      <div class="tit"><h1>Nota Técnica Analítica (NTA)</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
       ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
     </div>
     <div class="rule"></div>
@@ -322,12 +322,12 @@ ${CSS_TAB || ''}
   </style></head><body>
     <div class="cab">
       <div class="sp"></div>
-      <div class="tit"><h1>Conferência do Parecer</h1><p>Liderança do Podemos na Câmara dos Deputados · uso interno</p></div>
+      <div class="tit"><h1>Conferência da NTA</h1><p>Liderança do Podemos na Câmara dos Deputados · uso interno</p></div>
       ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
     </div>
     <div class="rule"></div>
     <div class="meta">${esc(materia)} · texto analisado: ${esc(p.textoAnalisado)}${quando ? ` · gerado em ${esc(dataBR(quando))}` : ''}${p.geradoPor || p.meta?.por ? ` por ${esc(p.geradoPor || p.meta.por)}` : ''}</div>
-    <div class="produto">Relatório de conferência do Parecer de Especialista. Para a assessoria que confere o documento antes de circular; não é o parecer e não se destina ao leitor final.</div>
+    <div class="produto">Relatório de conferência da Nota Técnica Analítica (NTA). Para a assessoria que confere o documento antes de circular; não é a NTA e não se destina ao leitor final.</div>
     <div class="bloco tecnico">
       <h3 class="item-h">Resultado da conferência automática</h3>
       ${pontos.length
