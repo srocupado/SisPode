@@ -732,7 +732,9 @@ function renderMarkdown(md) {
   // Listas
   html = html.replace(/(^|\n)(\s*[-*]\s+.+(?:\n\s*[-*]\s+.+)*)/g, (m, pre, bloco) => {
     const itens = bloco.split(/\n/).map(l => l.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean);
-    return `${pre}<ul>${itens.map(i => `<li>${i}</li>`).join('')}</ul>`;
+    // A lista vira bloco próprio: colada a uma linha de texto (ex.: "**Argumentos favoráveis:**" seguido dos
+    // tópicos), ela ficava dentro do <p>, o que é HTML inválido e deixava uma linha em branco sobrando.
+    return `${pre}${pre ? '\n' : ''}<ul>${itens.map(i => `<li>${i}</li>`).join('')}</ul>\n`;
   });
   // Quebras de parágrafo (com alinhamento por marcador [[left|center|right|justify]]
   // no início do bloco, inserido pela barra de formatação do editor).

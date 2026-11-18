@@ -123,8 +123,23 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
   ok(/Reunião de 01\/09\/2026/.test(document.getElementById('pc-lat').textContent), 'a pauta salva aparece na lateral');
   // modelo falso: devolve a nota
   av(`chamarIA = async ({ prompt, pdfBuffers }) => { __prompt = prompt; __pdfs = (pdfBuffers || []).length; return { text: '## Objetivo\\n\\nInscreve o nome no Livro dos Heróis [nota de teste].\\n\\n## O que a comissão vota\\n\\nO parecer do relator conclui pela constitucionalidade.', truncated: false }; }`);
+  // prompt de análise do próprio usuário (Configurações): gravado no navegador e enviado em toda nota
+  // linkedom: <select>.value só tem getter (mesmo shim usado adiante)
+  av(`(() => { const proto = Object.getPrototypeOf(document.createElement('select'));
+      Object.defineProperty(proto, 'value', { configurable: true,
+        get() { const o = this.querySelector('option[selected]') || this.querySelector('option:not([disabled])') || this.querySelector('option'); return o ? o.value : ''; },
+        set(v) { for (const o of this.querySelectorAll('option')) o.removeAttribute('selected'); const alvo = [...this.querySelectorAll('option')].find(o => o.value === String(v)); if (alvo) alvo.setAttribute('selected', ''); } }); })()`);
+  av(`abrirConfigPC()`);
+  await new Promise(r => setTimeout(r, 30));
+  ok(document.getElementById('config-prompt-usuario') && document.getElementById('config-prompt-usuario').value === '', 'Configurações têm o campo do prompt de análise do usuário, vazio de início');
+  document.getElementById('config-prompt-usuario').value = 'Destaque sempre o custo estimado.';
+  av(`salvarConfigPC()`);
+  await new Promise(r => setTimeout(r, 60));
+  ok(av(`pc.config.comissoes.promptUsuario`) === 'Destaque sempre o custo estimado.' && armazem.config.comissoes.promptUsuario === 'Destaque sempre o custo estimado.', 'o prompt do usuário fica no navegador (chrome.storage), não no Firebase');
   cards[0].querySelector('[data-role=btn-gerar]').click();
   await new Promise(r => setTimeout(r, 150));
+  ok(/Destaque sempre o custo estimado\./.test(av('__prompt')) && /a nota inteira tem de 300 a 600 palavras/.test(av('__prompt')) && /Voto do\(a\) relator\(a\)/.test(av('__prompt')), 'o prompt enviado leva a orientação do usuário, o limite de tamanho e o foco no voto do relator');
+  ok(/prompt do\(a\) analista/.test(cards[0].querySelector('[data-role=analise-meta]').textContent) && /\d+ palavras/.test(cards[0].querySelector('[data-role=analise-meta]').textContent), 'a linha de meta registra o prompt do analista e a contagem de palavras');
   ok(av(`__pdfs`) === 2 && /Documento 1 — PRL 1 — parecer do\(a\) relator\(a\) Helder Salomão/.test(av('__prompt')) && /## Admissibilidade/.test(av('__prompt')), 'a análise baixa os dois PDFs e manda o prompt de comissão (CCJC: admissibilidade)');
   ok(/Inscreve o nome no Livro dos Heróis/.test(cards[0].querySelector('[data-role=analise-conteudo]').innerHTML) && cards[0].querySelector('[data-role=painel-analise]').classList.contains('aberto'), 'a nota aparece no card (painel com a classe .aberto do analise.css)');
   ok(fb['analises/2003_82841/PL-4159-2025'] && /Livro dos Heróis/.test(fb['analises/2003_82841/PL-4159-2025'].markdown) && fb['indice/2003/82841'].nAnalisados === 1, 'a nota vai a pautas-comissoes/analises e o índice conta 1 analisado');
@@ -160,7 +175,7 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
     const card1 = document.querySelectorAll('#pc-lista .an-card')[1];
     card1.querySelector('[data-role=btn-gerar]').click();
     await new Promise(r => setTimeout(r, 150));
-    ok(av('__prov') === 'anthropic' && av('__mod') === 'claude-opus-4-8' && /INSTRUÇÕES ADICIONAIS[\s\S]{0,200}Destaque sempre o impacto sobre os servidores públicos federais\./.test(av('__prompt')), 'a análise usa o provedor e o modelo da comissão e leva o prompt customizado');
+    ok(av('__prov') === 'anthropic' && av('__mod') === 'claude-opus-4-8' && /INSTRUÇÕES ADICIONAIS[\s\S]{0,400}Destaque sempre o custo estimado\.[\s\S]{0,120}Orientações permanentes desta comissão:\s*Destaque sempre o impacto sobre os servidores públicos federais\./.test(av('__prompt')), 'a análise usa o provedor e o modelo da comissão e leva o prompt do analista e, depois, o da comissão');
     ok(/prompt da comissão/.test(card1.querySelector('[data-role=analise-meta]').textContent) && fb['analises/2003_82841/PL-2829-2024'].promptComissao === true, 'a meta da nota e o registro no Firebase dizem que o prompt da comissão foi usado');
     // provedor sem chave local: cai no padrão e avisa
     av(`pc.configComissoes.CCJC = { provedor: 'openai', modelo: 'gpt-5', promptExtra: '' }; pc._avisouProvedor = false;`);

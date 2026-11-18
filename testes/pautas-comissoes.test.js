@@ -55,7 +55,15 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const p = C.promptComissao({ comissao: com, reuniao: ccjc[0], item: itens[3], docs });
   ok(/COMISSÃO: Comissão de Constituição e Justiça e de Cidadania \(CCJC\)/.test(p) && /Relator\(a\) na comissão: Laura Carneiro \(PSD-RJ\)/.test(p) && /Documento 1 — PRL 1/.test(p), 'o prompt nomeia a comissão, a reunião, o relator e os documentos');
   ok(/## Papel da comissão neste item/.test(p) && /## O que a comissão vota/.test(p) && /## Emendas na comissão/.test(p) && /## Pontos de atenção para a bancada/.test(p) && /## Argumentos favoráveis e contrários/.test(p), 'seções da nota: o que se vota, disposições, emendas, papel (misto na CCJC com mérito), atenção, dois lados');
-  ok(/faça o cotejo entre o texto original e o texto que o parecer propõe/.test(p) && !/cenário/i.test(p), 'com os dois documentos pede o cotejo; nunca fala em cenário');
+  ok(/não faça cotejo com o texto original/.test(p) && /Descreva os dispositivos desse texto/.test(p) && !/cenário/i.test(p), 'disposições: foco no texto em votação, sem cotejo com o original; nunca fala em cenário');
+  ok(/Comece exatamente com "\*\*Voto do\(a\) relator\(a\):\*\*"/.test(p) && /no máximo duas frases/.test(p) && /Não resuma o relatório nem a fundamentação/.test(p), 'o que a comissão vota: abre pelo voto do relator; fundamentação em até duas frases');
+  ok(/Em TÓPICOS/.test(p) && /de 2 a 4 tópicos/.test(p) && !/Dois parágrafos corridos/.test(p), 'argumentos favoráveis e contrários em tópicos');
+  ok(/a nota inteira tem de 300 a 600 palavras/.test(p) && C.PC_LIMITE_PALAVRAS.max === 600, 'limite de tamanho: de 300 a 600 palavras (uma a duas páginas)');
+  ok(C.contarPalavrasNota('## Objetivo\nO projeto cria o Fundo X, de R$ 1,5 bilhão.\n\n- **Art. 2º** obriga a União.') === 15, 'contagem de palavras ignora títulos e marcação');
+  ok(C.juntarInstrucoes('', '', 'só meu') === 'só meu' && C.juntarInstrucoes('da comissão', '', '') === 'da comissão', 'uma só orientação vai sem rótulo');
+  const tres = C.juntarInstrucoes('da comissão', 'desta nota', 'do analista');
+  ok(tres.indexOf('do analista') < tres.indexOf('da comissão') && tres.indexOf('da comissão') < tres.indexOf('desta nota') && /Orientações do\(a\) analista para todas as notas de comissão:/.test(tres), 'prompt do analista, da comissão e da reanálise entram rotulados, do mais geral ao mais específico');
+  ok(/do analista/.test(C.promptComissao({ comissao: com, reuniao: ccjc[0], item: itens[3], docs, instrucoesExtra: tres })), 'o prompt do analista chega ao modelo');
   ok(/NÃO inclua recomendação de voto/.test(p) && /forma curta da sigla/.test(p), 'regras rígidas: sem recomendação de voto, sigla curta');
   const pAdm = C.promptComissao({ comissao: com, reuniao: ccjc[0], item: itens[0], docs });
   ok(/## Admissibilidade/.test(pAdm) && /Não decrete inconstitucionalidade por conta própria/.test(pAdm), 'CCJC sem mérito: seção de admissibilidade, sem decretar inconstitucionalidade');

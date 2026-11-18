@@ -111,7 +111,7 @@ const siglas = r => (r.itens || []).map(i => `${i.sigla} ${i.numero}/${i.ano}`).
     const fonte = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
     ok(!/PARECER_PATH\(chaveParecer\(it\)\), \{[\s\S]{0,200}\}\)\.catch\(e => console\.warn/.test(fonte),
       'a gravação do parecer não termina mais em catch que só escreve no console');
-    ok(/NÃO foi salvo no Firebase/.test(fonte), 'e existe aviso explícito de que o parecer não foi salvo');
+    ok(/NÃO foi salva no Firebase/.test(fonte), 'e existe aviso explícito de que a NTA (antes, Parecer de Especialista) não foi salva');
     ok(/exporte o PDF agora/.test(fonte), 'com instrução do que fazer para não perder o trabalho');
     ok(av('typeof chaveParecer') === 'function' && av('typeof PARECER_PATH') === 'function',
       'a página segue carregando com as funções de caminho do parecer');

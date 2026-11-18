@@ -372,7 +372,7 @@
       </div>
       <div class="modal-body">
         <p id="docan-alvo" style="font-weight:600;font-size:14px;margin-bottom:8px;color:var(--text)"></p>
-        <p class="config-desc">Use quando a Câmara ainda não tem o documento (matéria que vem do Senado, texto fora do sistema) ou quando você quer a análise sobre um documento específico. Anexe o PDF ou cole o link; a nota e o Parecer de Especialista passam a ser feitos sobre ele.</p>
+        <p class="config-desc">Use quando a Câmara ainda não tem o documento (matéria que vem do Senado, texto fora do sistema) ou quando você quer a análise sobre um documento específico. Anexe o PDF ou cole o link; a nota técnica e a Nota Técnica Analítica (NTA) passam a ser feitas sobre ele.</p>
         <div id="docan-aviso" style="display:none;font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 10px;border-left:3px solid #d68a00;background:rgba(214,138,0,.10);color:var(--text)"></div>
         <div class="form-group">
           <label>Arquivos PDF</label>
@@ -395,7 +395,7 @@
       <div class="modal-footer" style="flex-wrap:wrap;gap:8px">
         <button class="btn btn-ghost" data-fecha="modal-doc-analista">Cancelar</button>
         <button id="btn-docan-livre" class="btn btn-outline" title="Abre o editor em branco para você escrever a nota, sem IA">✍ Escrever a nota à mão</button>
-        <button id="btn-docan-parecer" class="btn btn-outline" style="color:#8fd0ff" title="Gera o Parecer de Especialista sobre os documentos anexados">⚖ Parecer de Especialista</button>
+        <button id="btn-docan-parecer" class="btn btn-outline" style="color:#8fd0ff" title="Gera a Nota Técnica Analítica (NTA) sobre os documentos anexados">⚖ Nota Técnica Analítica (NTA)</button>
         <button id="btn-docan-gerar" class="btn btn-primary">Gerar análise com estes documentos</button>
       </div>
     </div>
@@ -485,13 +485,13 @@
           </div>
 
           <div class="form-group" style="margin-top:14px">
-            <label>Modelo do Parecer de Especialista</label>
+            <label>Modelo da Nota Técnica Analítica (NTA)</label>
             <select id="config-modelo-parecer" class="form-input">
               <option value="">Automático — o melhor do provedor no momento</option>
             </select>
             <small style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block">
-              O parecer escolhe sozinho a versão mais alta que não seja econômica. Fixe um modelo aqui se preferir outro.
-              A cada parecer, um diálogo confirma provedor e modelo antes de gerar. A chave de cada provedor fica guardada separadamente.
+              A NTA escolhe sozinha a versão mais alta que não seja econômica. Fixe um modelo aqui se preferir outro.
+              A cada NTA, um diálogo confirma provedor e modelo antes de gerar. A chave de cada provedor fica guardada separadamente.
             </small>
           </div>
         </div>

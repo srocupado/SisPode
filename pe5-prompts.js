@@ -27,7 +27,8 @@ const PE5_ESTILO = `COMO ESCREVER
 - Cite o dispositivo (art. 47-C, § 2º) quando falar de regra do texto. Só cite artigo que esteja na base.
 - Não escreva identificadores (B1, Q7, W2…) dentro do texto. Eles vão apenas no campo "ev".
 - Não use termos internos: "cenário", "lente", "achado", "base", "evidência".
-- Aspas só para citação literal curta que esteja na base.`;
+- Aspas só para citação literal curta que esteja na base.
+- O documento que você escreve se chama Nota Técnica Analítica (NTA). Para se referir a ele, escreva "esta nota"; nunca "este parecer". A palavra "parecer" fica reservada aos pareceres da tramitação (do relator, de comissão, de entidade).`;
 
 const PE5_SO_JSON = 'Responda APENAS com o JSON, sem texto antes ou depois e sem cercas de código.';
 
