@@ -189,6 +189,7 @@ AÇÕES DO BOT (executam um fluxo pronto e encerram sua vez — use quando o usu
 - "resumo" {"pergunta":"dd/mm/aaaa"}: resumo oficial da sessão do dia (matérias apreciadas).
 - "digest" {}: radar de imprensa (assinantes).
 - "analisar" {}: gerar as notas técnicas da pauta (caro; pede confirmação).
+- "nota_avulsa" {"pergunta":"PLP 42/2023"}: gerar a nota técnica, em PDF, de UMA proposição que NÃO está na pauta (pede confirmação). Use quando pedirem para GERAR, FAZER ou PRODUZIR a nota de uma proposição específica, ou falarem em nota "avulsa". "ver_nota" só EXIBE nota que já existe de item da pauta.
 - "exportar" {}: PDF institucional da pauta.
 - "ajuda" {}: explicar o que o bot faz.`;
 
@@ -242,7 +243,7 @@ async function conversar({ userId, perfil, texto, dados = {} }) {
   // ainda sobra volta para o agente ler o resultado.
   const ACOES = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'ver_nota',
     'perguntar', 'listar_documentos', 'baixar_documentos', 'votacao', 'resumo',
-    'digest', 'analisar', 'exportar', 'ajuda'];
+    'digest', 'analisar', 'nota_avulsa', 'exportar', 'ajuda'];
   const DADOS = { ...dados, situacao_proposicao: situacaoProposicao, pagina_oficial: paginaOficial };
 
   const memoria = memoriaDe(userId);

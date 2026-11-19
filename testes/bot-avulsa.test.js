@@ -38,6 +38,15 @@ const J = x => JSON.stringify(x);
   ok(J(A.entradaDoTexto('PL 1234/2025')) === J({ sigla: 'PL', numero: 1234, ano: 2025 }), '"PL 1234/2025"');
   ok(J(A.entradaDoTexto('plp 230/25')) === J({ sigla: 'PLP', numero: 230, ano: 2025 }), '"plp 230/25" (ano com dois dígitos)');
   ok(J(A.entradaDoTexto('PEC nº 45, de 2019')) === J({ sigla: 'PEC', numero: 45, ano: 2019 }), '"PEC nº 45, de 2019"');
+  // pedido em texto livre ou por voz (19/11/2026): "Gerar uma nota avulsa do PLP 42 de 2023." caiu na nota da pauta
+  ok(J(A.pedidoDeAvulsa('Gerar uma nota avulsa do PLP 42 de 2023.')) === J({ entrada: { sigla: 'PLP', numero: 42, ano: 2023 } }), 'voz: "Gerar uma nota avulsa do PLP 42 de 2023." é pedido de avulsa, com a proposição');
+  ok(J(A.pedidoDeAvulsa('faz a avulsa do projeto de lei complementar número 42 de 2023')) === J({ entrada: { sigla: 'PLP', numero: 42, ano: 2023 } }), 'voz por extenso: "projeto de lei complementar número 42 de 2023"');
+  ok(J(A.refDoTexto('proposta de emenda à constituição 45 de 2019')) === J({ sigla: 'PEC', numero: 45, ano: 2019 }) && J(A.refDoTexto('projeto de lei 1.234/2025')) === J({ sigla: 'PL', numero: 1234, ano: 2025 }), 'tipos por extenso: PEC e PL');
+  ok(J(A.pedidoDeAvulsa('quero uma nota avulsa')) === J({ entrada: null }), '"quero uma nota avulsa" sem proposição: é pedido, o bot pergunta qual');
+  ok(A.pedidoDeAvulsa('qual a nota do PL 1234/2025?') === null && A.pedidoDeAvulsa('a pauta avulsa de hoje já saiu?') === null && A.pedidoDeAvulsa('anote: instruções avulsas do líder') === null, 'sem "avulsa", ou "avulsa" de outra coisa, não é pedido');
+  ok(/const avulsa = pedidoDeAvulsa\(texto\);\s*if \(avulsa\) return cmdAvulsa\(ctx, avulsa\);/.test(idx) && idx.indexOf('const avulsa = pedidoDeAvulsa(texto)') < idx.indexOf('await conversar({ userId: ctx.from.id, perfil, texto'), 'o pedido de avulsa é atendido pelo código, antes da conversa com a IA');
+  ok(/case 'nota_avulsa':\s+return cmdAvulsa\(/.test(idx) && /'nota_avulsa'/.test(fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'agente.js'), 'utf8')), 'a IA também tem a ação nota_avulsa');
+  ok(/não está na pauta em uso\/\.test\(r\.erro\)/.test(idx) && /avq:\$\{ref\.sigla\}:\$\{ref\.numero\}:\$\{ref\.ano\}/.test(idx) && /bot\.callbackQuery\(\/\^avq:/.test(idx), 'nota pedida de proposição fora da pauta: o bot oferece o botão da nota avulsa');
   ok(J(A.entradaDoTexto('PL 2.475/2025')) === J({ sigla: 'PL', numero: 2475, ano: 2025 }), 'número com ponto de milhar');
   ok(A.entradaDoTexto('') === null && A.entradaDoTexto('qualquer coisa') === null, 'sem referência: nada');
 
@@ -142,7 +151,7 @@ const J = x => JSON.stringify(x);
   ok(/verificarAtualizacaoItem\(window\.__avIt\)[\s\S]{0,300}gerarAnaliseItem\(it, true\)/.test(worker), 'nota da equipe aproveitada é conferida contra a fonte; superada → gerada de novo');
 
   console.log('\n== 6. o bot ==');
-  ok(/bot\.command\('avulsa', cmdAvulsa\)/.test(idx) && /\{ command: 'avulsa'/.test(idx) && /\/avulsa PL 1234\/2025 — nota técnica de proposição FORA da pauta/.test(idx), 'comando registrado, no menu e na ajuda');
+  ok(/bot\.command\('avulsa', ctx => cmdAvulsa\(ctx\)\)/.test(idx) && /\{ command: 'avulsa'/.test(idx) && /\/avulsa PL 1234\/2025 — nota técnica de proposição FORA da pauta/.test(idx), 'comando registrado, no menu e na ajuda');
   const doc = idx.slice(idx.indexOf("bot.on('message:document'"));
   ok(doc.indexOf('if (paraAvulsa)') > 0 && doc.indexOf('if (paraAvulsa)') < doc.indexOf('parsearPauta(texto)'), 'PDF da proposição (depois de /avulsa ou com a legenda "avulsa") não vira importação de pauta');
   const cb = idx.slice(idx.indexOf("bot.callbackQuery(/^av:(ok|nova|no)"));
