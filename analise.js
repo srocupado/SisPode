@@ -2042,6 +2042,17 @@ async function buscarPareceresPlenario(idProp) {
       porComissao.set(chave, { ...c, comissao: c.comissao || 'Comissão Especial', especial: !!c.especial });
     }
   }
+  // O PRL é o parecer que o(a) relator(a) APRESENTA; a comissão só o aprova quando sai o PAR (parecer da
+  // comissão) ou o SBT-A (substitutivo adotado). CASO REAL (PL 294/2015, 19/11/2026): só havia PRL na CSSF
+  // (2021) e na CPASF (2026, retirado de pauta), o programa chamou os dois de "Parecer da Comissão" e a
+  // nota escreveu que as comissões "aprovaram um substitutivo". `votado: false` = há PRL sem PAR/SBT-A
+  // da mesma comissão na data dele ou depois.
+  for (const [chave, pc] of porComissao) {
+    const daMesma = c => (c.comissao || (c.especial ? '__especial__' : null)) === chave;
+    const deliberacao = candidatos.find(c => daMesma(c) && (c.sigla === 'PAR' || c.sigla === 'SBT-A') && (!pc.data || !c.data || c.data >= pc.data));
+    pc.votado = pc.sigla === 'PAR' || !!deliberacao;
+    if (deliberacao?.dataBR) pc.votadoEm = deliberacao.dataBR;
+  }
   const comissoes = Array.from(porComissao.values())
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 
@@ -3501,8 +3512,11 @@ async function escolherDocumentos(it) {
     // item caía no ramo final e a nota saía sobre o inteiro teor, declarando
     // "Cenário 1 — sem parecer" quando havia PRLP/SBT-A. Resolve sob demanda,
     // como já se faz com MPV, EMS/SSP e apensados.
-    if ((!enr.pareceresPlenario || enr.pareceresPlenario.falha) && enr.idProposicao) {
-      try { enr.pareceresPlenario = await buscarPareceresPlenario(enr.idProposicao); }
+    // `semVotado`: lista lida por versão anterior (pauta já aberta ou vinda do Firebase), sem a marca de
+    // parecer votado ou não — relê, para o rótulo do documento sair certo ao regerar a nota.
+    const semVotado = (enr.pareceresPlenario?.comissoes || []).some(c => c.votado === undefined);
+    if ((!enr.pareceresPlenario || enr.pareceresPlenario.falha || semVotado) && enr.idProposicao) {
+      try { const lidos = await buscarPareceresPlenario(enr.idProposicao); if (!semVotado || !lidos.falha) enr.pareceresPlenario = lidos; }
       catch (e) { console.warn('Falha ao buscar pareceres de plenário sob demanda:', e.message); }
     }
     // Página de pareceres que não veio NÃO é "sem parecer": seguir daria uma
@@ -3646,12 +3660,16 @@ async function escolherDocumentos(it) {
       .filter(pc => !(it.sigla === 'PEC' && pc.especial))
       .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
     for (const pc of comissoesCron) {
+      const nomeCom = pc.especial ? 'Comissão Especial' : `Comissão ${pc.comissao}`;
+      const quando = pc.dataBR ? ' de ' + pc.dataBR : '';
+      // `votado === false`: parecer apresentado pelo(a) relator(a) e não deliberado (ver buscarPareceresPlenario).
+      // Enriquecimento antigo, sem o campo, fica com o rótulo de antes.
+      const naoVotado = pc.votado === false;
       docs.push({
         tipo: 'PARECER_COMISSAO',
-        rotulo: pc.especial
-          ? `Parecer da Comissão Especial${pc.dataBR ? ' de ' + pc.dataBR : ''}`
-          : `Parecer da Comissão ${pc.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''}`,
+        rotulo: naoVotado ? `Parecer do(a) relator(a) na ${nomeCom}${quando} — ainda não votado pela comissão` : `Parecer da ${nomeCom}${quando}`,
         url: pc.url,
+        ...(naoVotado ? { naoVotado: true } : {}),
       });
     }
   } else if (it.sigla === 'REC' && it.tipoCategoria === 'requerimento') {
@@ -3979,7 +3997,7 @@ REGRAS RÍGIDAS:
   // compará-los entre si para isolar a contribuição de cada comissão.
   const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
   const secaoPareceresComissoes = docsComissao.length
-    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data, no formato: "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>". Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
+    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data. **O rótulo do documento diz se a comissão deliberou.** Documento "Parecer da Comissão ...": a comissão votou; use o formato "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>" — e só afirme que aprovou se o próprio documento registrar a deliberação; se ele trouxer só o relatório e o voto do(a) relator(a), escreva que o(a) relator(a) apresentou o parecer. Documento "Parecer do(a) relator(a) na Comissão ... — ainda não votado pela comissão": a comissão NÃO deliberou; use o formato "Na Comissão de <nome>, o(a) relator(a), Deputado(a) <nome>, apresentou em <data por extenso> parecer <pela aprovação | pela rejeição>, <com substitutivo que…>, ainda não votado pela comissão". Nesse caso, nunca escreva que a comissão "aprovou", "adotou" ou "rejeitou", nem chame de substitutivo "aprovado" ou "adotado" pela comissão o que só consta do voto do(a) relator(a). Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido; se o parecer não votado apenas recomenda a aprovação do texto recebido, diga isso. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
@@ -4011,6 +4029,11 @@ REGRAS RÍGIDAS:
   // em 11/11", quando o PRLP 2 é o parecer do relator em Plenário PELAS comissões (CMADS e CCJC).
   if (hasPRLP || hasPRLE) {
     cenarioHint += ' ATENÇÃO À NATUREZA DO PARECER: o PRLP (parecer preliminar de plenário) e o PRLE (parecer às emendas de plenário) são pareceres do(a) relator(a) designado(a) em Plenário, proferidos em nome das comissões que ainda não se manifestaram ("Parecer de Plenário pelas Comissões de…"). A comissão NÃO deliberou nem aprovou esse parecer e o Plenário ainda vai votá-lo: escreva "o(a) relator(a), em Plenário, pelas Comissões de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou". O mesmo vale para o acolhimento ou a rejeição de emendas de plenário: é o parecer do(a) relator(a), não decisão da comissão.';
+  }
+
+  const naoVotados = docs.filter(d => d.tipo === 'PARECER_COMISSAO' && d.naoVotado);
+  if (naoVotados.length) {
+    cenarioHint += ` ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: ${naoVotados.length === 1 ? 'o documento' : 'os documentos'} ${naoVotados.map(d => `"${d.rotulo}"`).join(' e ')} ${naoVotados.length === 1 ? 'é parecer apresentado' : 'são pareceres apresentados'} pelo(a) relator(a) e NÃO ${naoVotados.length === 1 ? 'foi votado' : 'foram votados'} pela comissão. Em toda a nota, escreva "o(a) relator(a), na Comissão de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou" nem "substitutivo aprovado (ou adotado) pela Comissão". O texto em votação continua sendo o indicado acima; o substitutivo do(a) relator(a) é proposta ainda não deliberada.`;
   }
 
   // Título da seção de disposições — adaptado ao que está efetivamente em
@@ -4140,7 +4163,7 @@ function promptPDL(it, docs = [], instrucoesExtra = '') {
   const contextoPodemos = enr.autoriaPodemos
     ? '⚠ ATENÇÃO: O Projeto de Decreto Legislativo é de autoria de deputado(a) do Podemos.\n' : '';
   const secaoParecer = temParecer
-    ? '\n## Parecer da(s) comissão(ões)\nEm um parágrafo por comissão (documentos "Parecer da Comissão ..." anexados), resuma a conclusão do(a) relator(a) e os fundamentos — em especial se recomenda a aprovação ou a rejeição do decreto legislativo, e eventuais ressalvas.\n'
+    ? '\n## Parecer da(s) comissão(ões)\nEm um parágrafo por comissão (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), resuma a conclusão do(a) relator(a) e os fundamentos — em especial se recomenda a aprovação ou a rejeição do decreto legislativo, e eventuais ressalvas. Documento com o rótulo "ainda não votado pela comissão" é parecer só apresentado: diga que o(a) relator(a) o apresentou e que a comissão não o votou; nunca que a comissão aprovou.\n'
     : '';
   const instr = instrucoesExtra && instrucoesExtra.trim()
     ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, mas NÃO substituem a estrutura nem as regras abaixo):\n${instrucoesExtra.trim()}\n`
@@ -4436,7 +4459,7 @@ function avisoVerificacaoHtml(it) {
   if (vf.falhou) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod} não concluída: ${escapeHtml(vf.falhou)}. Gere a análise de novo para tentar outra vez.</div>`;
   const itens = vf.itens || [];
   if (!itens.length) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod}: nenhum trecho sem respaldo apontado.</div>`;
-  return `<div class="an-aviso-verif" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #c0392b;background:#fdecea;border-radius:4px;font-size:13px;color:#611a15">⚠ <strong>Verificação por IA${mod}:</strong> ${itens.length === 1 ? 'o trecho a seguir não tem' : 'os trechos a seguir não têm'} respaldo nos documentos, segundo o verificador. Confira antes de usar:<ul style="margin:6px 0 0 18px;padding:0">${itens.map(x => `<li>“${escapeHtml(x.trecho)}”${x.motivo ? ` — ${escapeHtml(x.motivo)}` : ''}</li>`).join('')}</ul></div>`;
+  return `<div class="an-aviso-verif" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #c0392b;background:#fdecea;border-radius:4px;font-size:13px;color:#611a15">⚠ <strong style="color:inherit">Verificação por IA${mod}:</strong> ${itens.length === 1 ? 'o trecho a seguir não tem' : 'os trechos a seguir não têm'} respaldo nos documentos, segundo o verificador. Confira antes de usar:<ul style="margin:6px 0 0 18px;padding:0">${itens.map(x => `<li>“${escapeHtml(x.trecho)}”${x.motivo ? ` — ${escapeHtml(x.motivo)}` : ''}</li>`).join('')}</ul></div>`;
 }
 
 // ---------- MPV (8b): conferência das emendas citadas contra o parecer ----------
@@ -4694,7 +4717,7 @@ function renderAnaliseCard(it) {
 
   const refs = it.analise.refsSuspeitas || [];
   const avisoRefs = refs.length
-    ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto dos documentos analisados. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
+    ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong style="color:inherit">Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto dos documentos analisados. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
   conteudo.innerHTML = avisoVerificacaoHtml(it) + avisoRefs + notaDisplayHtml(it);
   if (!emEdicao) {
@@ -8711,7 +8734,7 @@ async function gerarParecerEspecialista(it) {
       relator: rel && rel.nome ? { nome: rel.nome, partido: rel.partido || '', uf: rel.uf || '', data: rel.data || '' } : null,
       documentos: docs.map(d => ({ rotulo: d.rotulo })),
       emendas: emendas.map(e => ({ rotulo: e.rotulo, url: e.url, anexada: !!e.anexada })),
-      comissoes: [...(enr.pareceresPlenario?.comissoes || [])].sort((a, b) => (a.data || '').localeCompare(b.data || '')).map(pc => ({ comissao: pc.especial ? 'Comissão Especial' : pc.comissao, dataBR: pc.dataBR || '' }))
+      comissoes: [...(enr.pareceresPlenario?.comissoes || [])].sort((a, b) => (a.data || '').localeCompare(b.data || '')).map(pc => ({ comissao: pc.especial ? 'Comissão Especial' : pc.comissao, dataBR: pc.dataBR || '', ...(pc.votado === false ? { naoVotado: true } : {}) }))
         .concat((it.pareceresComissao || []).map(pc => ({ comissao: pc.comissao, posicao: pc.posicao || '', relator: pc.relator || '' }))),
       apensados: (enr.apensadosPodemos || []).map(ap => { const aut = (ap.autores || []).map(a => a.nome).filter(Boolean).join(', '); return `${ap.siglaTipo || ''} ${ap.numero || ''}/${ap.ano || ''}${aut ? ' — ' + aut : ''}`.trim(); }).filter(x => !/^\/$/.test(x)),
     };
