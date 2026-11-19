@@ -32,6 +32,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const PR = new Function(`
     ${trecho(/const TIPOS_MPV = [^\n]+/)}
     ${trecho(/const REGRA_ARGUMENTOS = [^\n]+/)}
+    ${trecho(/const FORMATO_PADRAO_NOTA = [^\n]+/)}
     ${fn('tipoLabel')}
     ${fn('ehMPV')}
     ${fn('ehPDL')}
@@ -89,6 +90,14 @@ O Deputado Fulano Inventado lembra o PL 9.999/2024 e diz que a medida atinge o "
   ok(r.includes('sigla IPHAN') && !r.some(x => /Ibama/.test(x)), 'sigla que a fonte não traz (só as de 3+ maiúsculas)');
   ok(B.conferirCitacoes('O Dep. Dr. Ismael diz "x y".', FONTE).every(x => !/Dr/.test(x)), 'título sozinho ("Dep. Dr.") não vira parlamentar suspeito');
   ok(B.conferirCitacoes('Inciso XIX do art. 5º; o PLV e o RICD.', FONTE).length === 0, 'numeral romano e siglas do sistema não são sinalizados');
+  // CASO REAL (PL 294/2015, 19/11/2026): citações curtas ("g") faziam o texto ENTRE duas citações ser lido como citação
+  const NOTA_ALINEAS = 'O art. 1º altera a alínea "c" do inciso V do art. 12 da Lei nº 9.605, de 1998. O art. 2º faz o mesmo com a alínea "c" do inciso V do art. 11 da Lei nº 8.072, de 1990. O texto evita a "prática reiterada".';
+  ok(B.conferirCitacoes(NOTA_ALINEAS, FONTE).length === 0, 'citações curtas (alínea "c") não deslocam o par de aspas: o texto fora das aspas não é acusado');
+  const longa = 'práticas agropecuárias ou sanitárias regulares envolvendo animais de produção '.repeat(4).trim();
+  ok(B.conferirCitacoes(`O texto passa a dizer: "${longa}". A cláusula de vigência é imediata. O relator fala em "prática reiterada".`, FONTE).length === 0, 'citação longa (mais de 200 caracteres) também não desloca o par');
+  ok(B.conferirCitacoes('O relator fala em "uso de animais de tração" e cita a alínea "c".', FONTE).some(x => x.startsWith('“uso de animais de tração”')), 'a citação inventada continua sendo acusada');
+  ok(B.conferirCitacoes('Trecho com aspas sem fechar: "uso de animais de tração e mais texto.', FONTE).length === 0, 'aspas retas em número ímpar no parágrafo: ambíguo, não confere');
+  ok(B.conferirCitacoes('Usa aspas curvas: “uso de animais de tração”, e a alínea “c”.', FONTE).some(x => x.startsWith('“uso de animais de tração”')), 'aspas curvas são pareadas pelo abre e fecha');
   // dados da pauta contam como fonte, mas só com o PDF lido
   const it = { sigla: 'REQ', numero: '3883', ano: '2026', ementa: 'Requer urgência', pareceresComissao: [{ comissao: 'Segurança Pública', posicao: 'aprovado', relator: 'Dep. Sargento Fahur (PSD-PR)' }],
     projetoUrgenciado: { sigla: 'PLP', numero: '42', ano: '2023' }, enriquecimento: {} };

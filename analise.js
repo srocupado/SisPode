@@ -2049,9 +2049,14 @@ async function buscarPareceresPlenario(idProp) {
   // da mesma comissão na data dele ou depois.
   for (const [chave, pc] of porComissao) {
     const daMesma = c => (c.comissao || (c.especial ? '__especial__' : null)) === chave;
-    const deliberacao = candidatos.find(c => daMesma(c) && (c.sigla === 'PAR' || c.sigla === 'SBT-A') && (!pc.data || !c.data || c.data >= pc.data));
+    // A data do PRL é a da APRESENTAÇÃO do parecer, não a da aprovação. CASOS REAIS (19/11/2026): PL 2559/2022
+    // (PRL de 20/03/2025, substitutivo adotado em 02/09/2025) e PL 2819/2020 (PRL de 03/10/2025, adotado em 2026):
+    // as notas disseram que a comissão "aprovou em" na data do PRL. Guarda-se a data da deliberação — a do PAR,
+    // de preferência; sem ele, a do SBT-A.
+    const posterior = c => daMesma(c) && (!pc.data || !c.data || c.data >= pc.data);
+    const deliberacao = candidatos.find(c => posterior(c) && c.sigla === 'PAR') || candidatos.find(c => posterior(c) && c.sigla === 'SBT-A');
     pc.votado = pc.sigla === 'PAR' || !!deliberacao;
-    if (deliberacao?.dataBR) pc.votadoEm = deliberacao.dataBR;
+    if (deliberacao?.dataBR) { pc.votadoEm = deliberacao.dataBR; pc.votadoPor = deliberacao.sigla; }
   }
   const comissoes = Array.from(porComissao.values())
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
@@ -3191,6 +3196,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       }
     }
 
+    markdown = padronizarNota(markdown);   // título solto, réguas e lista dentro de lista: fora, qualquer que seja o modelo
+
     // Última barreira antes de gravar: nota vazia NÃO é nota. O cliente de IA
     // já converte resposta sem texto em erro; isto cobre qualquer caminho que
     // chegue aqui com texto em branco, para não salvar no Firebase (e exportar
@@ -3356,7 +3363,7 @@ async function completarAnalise(it) {
       pdfBuffers,
     });
 
-    const markdownCompleto = costurarContinuacao(it.analise.markdown, cont.text);
+    const markdownCompleto = padronizarNota(costurarContinuacao(it.analise.markdown, cont.text));
     const dadosPauta = dadosDaPautaParaConferencia(it, docs);
     const refsSuspeitas = [
       ...await calcularRefsSuspeitas(markdownCompleto, pdfBuffers, dadosPauta),
@@ -3667,7 +3674,11 @@ async function escolherDocumentos(it) {
       const naoVotado = pc.votado === false;
       docs.push({
         tipo: 'PARECER_COMISSAO',
-        rotulo: naoVotado ? `Parecer do(a) relator(a) na ${nomeCom}${quando} — ainda não votado pela comissão` : `Parecer da ${nomeCom}${quando}`,
+        rotulo: naoVotado ? `Parecer do(a) relator(a) na ${nomeCom}${quando} — ainda não votado pela comissão`
+          // duas datas no rótulo quando diferem: a do parecer do(a) relator(a) e a da deliberação
+          : pc.votadoEm && pc.dataBR && pc.votadoEm !== pc.dataBR
+            ? `Parecer da ${nomeCom} — parecer do(a) relator(a) de ${pc.dataBR}; ${pc.votadoPor === 'SBT-A' ? 'substitutivo adotado pela comissão em' : 'aprovado pela comissão em'} ${pc.votadoEm}`
+            : `Parecer da ${nomeCom}${quando}`,
         url: pc.url,
         ...(naoVotado ? { naoVotado: true } : {}),
       });
@@ -3834,6 +3845,10 @@ function parecerKey(it) {
 // em discussão falava em "práticas agropecuárias com animais de produção". O raciocínio pode ser geral; os
 // fatos, não.
 const REGRA_ARGUMENTOS = 'Construa os argumentos a partir do que os documentos trazem (justificação, pareceres, votos, emendas e seus fundamentos). Os contrapontos que os documentos não trazem podem ser de ordem geral (custo, eficácia, proporcionalidade, segurança jurídica, impacto sobre quem é atingido), mas **não introduza fatos, exemplos, atividades, práticas, setores, grupos, casos, dados ou números que não apareçam nos documentos**: se o documento fala de uma categoria ("práticas agropecuárias", "pequenas empresas"), use a mesma categoria, sem acrescentar exemplos que ele não cita. Apresente cada argumento como ponderação, não como fato.';
+// Forma da nota (19/11/2026). Medido nas notas salvas: com o MESMO prompt, o gemini-3.1-flash-lite começava em "## Objetivo",
+// sem listas, com mediana de 4,5 mil caracteres; o claude-opus-5-5 punha título "# Nota Técnica: …" (8 de 11 notas),
+// mediana de 15 itens de lista por nota e 9,3 mil caracteres. O pedido de "parágrafos corridos" não bastava.
+const FORMATO_PADRAO_NOTA = 'FORMATO OBRIGATÓRIO — é o padrão das notas da Liderança; siga à risca, qualquer que seja o seu estilo habitual de resposta:\n- A resposta começa diretamente na linha da primeira seção ("## …"). Não escreva título geral (nenhuma linha com um só "#", nada como "Nota Técnica: PL …"), cabeçalho, saudação, introdução nem fecho.\n- Use só as seções pedidas, na ordem pedida, sem criar outras e sem subtítulos ("###").\n- O texto é em parágrafos corridos. Em regra, de um a três parágrafos por seção; não quebre o raciocínio em parágrafos de uma ou duas frases.\n- Lista só onde este enunciado autoriza, sempre em um único nível (nunca lista dentro de lista). Nunca use tabelas nem linhas divisórias ("---").\n- Negrito só onde este enunciado pede (os rótulos "Argumentos favoráveis:" e "Argumentos contrários:"); não use negrito para rotular itens de lista nem para destacar termos.\n- Seja sucinto: a nota é lida em poucos minutos e tem, em regra, de 600 a 900 palavras; passe disso só quando houver muitos dispositivos ou emendas a descrever. Não repita em uma seção o que já foi dito em outra.';
 
 function montarPrompt(it, docs = [], instrucoesExtra = '', extras = {}) {
   const enr = it.enriquecimento || {};
@@ -3997,7 +4012,7 @@ REGRAS RÍGIDAS:
   // compará-los entre si para isolar a contribuição de cada comissão.
   const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
   const secaoPareceresComissoes = docsComissao.length
-    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data. **O rótulo do documento diz se a comissão deliberou.** Documento "Parecer da Comissão ...": a comissão votou; use o formato "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>" — e só afirme que aprovou se o próprio documento registrar a deliberação; se ele trouxer só o relatório e o voto do(a) relator(a), escreva que o(a) relator(a) apresentou o parecer. Documento "Parecer do(a) relator(a) na Comissão ... — ainda não votado pela comissão": a comissão NÃO deliberou; use o formato "Na Comissão de <nome>, o(a) relator(a), Deputado(a) <nome>, apresentou em <data por extenso> parecer <pela aprovação | pela rejeição>, <com substitutivo que…>, ainda não votado pela comissão". Nesse caso, nunca escreva que a comissão "aprovou", "adotou" ou "rejeitou", nem chame de substitutivo "aprovado" ou "adotado" pela comissão o que só consta do voto do(a) relator(a). Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido; se o parecer não votado apenas recomenda a aprovação do texto recebido, diga isso. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
+    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data. **O rótulo do documento diz se a comissão deliberou.** Documento "Parecer da Comissão ...": a comissão votou; use o formato "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data da aprovação>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>" — e só afirme que aprovou se o próprio documento registrar a deliberação; se ele trouxer só o relatório e o voto do(a) relator(a), escreva que o(a) relator(a) apresentou o parecer. Documento "Parecer do(a) relator(a) na Comissão ... — ainda não votado pela comissão": a comissão NÃO deliberou; use o formato "Na Comissão de <nome>, o(a) relator(a), Deputado(a) <nome>, apresentou em <data> parecer <pela aprovação | pela rejeição>, <com substitutivo que…>, ainda não votado pela comissão". **Datas.** A data do parecer do(a) relator(a) é a da APRESENTAÇÃO, nunca a da aprovação. Quando o rótulo trouxer duas datas ("parecer do(a) relator(a) de … ; aprovado pela comissão em …" ou "substitutivo adotado pela comissão em …"), a aprovação é a SEGUNDA: escreva "o(a) relator(a) apresentou o parecer em <1ª data> e a comissão o aprovou em <2ª data>". Se o próprio documento da comissão registrar a data da reunião em que aprovou, use essa. Não fale em "redação final" de comissão. Escreva as datas no formato "20 de março de 2025" (dia e ano em algarismos), nunca com os números por extenso. No caso do parecer não votado, nunca escreva que a comissão "aprovou", "adotou" ou "rejeitou", nem chame de substitutivo "aprovado" ou "adotado" pela comissão o que só consta do voto do(a) relator(a). Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido; se o parecer não votado apenas recomenda a aprovação do texto recebido, diga isso. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
@@ -4033,7 +4048,7 @@ REGRAS RÍGIDAS:
 
   const naoVotados = docs.filter(d => d.tipo === 'PARECER_COMISSAO' && d.naoVotado);
   if (naoVotados.length) {
-    cenarioHint += ` ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: ${naoVotados.length === 1 ? 'o documento' : 'os documentos'} ${naoVotados.map(d => `"${d.rotulo}"`).join(' e ')} ${naoVotados.length === 1 ? 'é parecer apresentado' : 'são pareceres apresentados'} pelo(a) relator(a) e NÃO ${naoVotados.length === 1 ? 'foi votado' : 'foram votados'} pela comissão. Em toda a nota, escreva "o(a) relator(a), na Comissão de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou" nem "substitutivo aprovado (ou adotado) pela Comissão". O texto em votação continua sendo o indicado acima; o substitutivo do(a) relator(a) é proposta ainda não deliberada.`;
+    cenarioHint += ` ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: ${naoVotados.length === 1 ? 'o documento' : 'os documentos'} ${naoVotados.map(d => `"${d.rotulo}"`).join(' e ')} ${naoVotados.length === 1 ? 'é parecer apresentado' : 'são pareceres apresentados'} pelo(a) relator(a) e NÃO ${naoVotados.length === 1 ? 'foi votado' : 'foram votados'} pela comissão. Em toda a nota, escreva "o(a) relator(a), na Comissão de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou" nem "substitutivo aprovado (ou adotado) pela Comissão". O texto em votação continua sendo o indicado acima; o substitutivo do(a) relator(a) é proposta ainda não deliberada. NÃO MISTURE OS DOIS TEXTOS: nas seções "Objetivo", "Justificativa" e de principais disposições, descreva só o que está no texto em votação; o que só consta do parecer ou do substitutivo não votado (alcance maior ou menor, dispositivos novos, definições, prazos, sanções) não pode ser apresentado como conteúdo do projeto. Registre essas diferenças na seção "Pareceres das comissões", atribuídas ao(à) relator(a): "o substitutivo do(a) relator(a) estende…, acrescenta…, suprime…".`;
   }
 
   // Título da seção de disposições — adaptado ao que está efetivamente em
@@ -4111,6 +4126,8 @@ ${blocoDocs}
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
 ${blocoPareceres}
+${FORMATO_PADRAO_NOTA}
+
 Produza a nota técnica em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
 ## Objetivo
@@ -4226,6 +4243,8 @@ Um parágrafo sobre as implicações para a bancada.`;
   }
 
   const regras = `
+${FORMATO_PADRAO_NOTA}
+
 PRINCÍPIOS: clareza, objetividade, imparcialidade e fundamentação no próprio documento.
 REGRAS RÍGIDAS:
 - Use apenas informação contida nos documentos anexos. Não invente fatos — nem na seção "Argumentos favoráveis e contrários", em que só o raciocínio pode ser geral (veja a regra daquela seção).
@@ -4356,9 +4375,22 @@ function conferirCitacoes(markdown, textoFonte) {
     if (!new RegExp(`(?<!\\d)${num.split('').join('\\.?')}(?!\\d)`).test(textoFonte)) add(`${m[1]} ${m[2]}/${m[3]}`);
   }
   // 3) aspas: o que a nota põe entre aspas tem de estar assim na fonte
-  for (const m of md.matchAll(/[“"]([^”"\n]{6,200})[”"]/g)) {
-    const q = _planoTexto(m[1]).trim();
-    if (q.split(' ').length >= 2 && !F.includes(' ' + q + ' ')) add(`“${m[1].trim()}” (entre aspas, mas não está assim nos documentos)`);
+  // Pares de aspas na ordem em que aparecem, parágrafo a parágrafo. O padrão antigo exigia de 6 a 200
+  // caracteres DENTRO das aspas: pulava a citação curta (alínea "g") ou longa e casava o fecha-aspas de uma
+  // com o abre-aspas da seguinte, acusando como citação o texto que estava FORA das aspas (PL 294/2015,
+  // 19/11/2026). Parágrafo com número ímpar de aspas retas é ambíguo e não é conferido.
+  const entreAspas = texto => {
+    const achados = [];
+    for (const par of String(texto || '').split(/\n+/)) {
+      const semCurvas = par.replace(/“([^”]*)”/g, (_, q) => { achados.push(q); return ' '; });
+      const retas = semCurvas.split('"');
+      if (retas.length % 2 === 1) for (let i = 1; i < retas.length; i += 2) achados.push(retas[i]);
+    }
+    return achados.filter(q => q.length >= 6 && q.length <= 200);
+  };
+  for (const citado of entreAspas(md)) {
+    const q = _planoTexto(citado).trim();
+    if (q.split(' ').length >= 2 && !F.includes(' ' + q + ' ')) add(`“${citado.trim()}” (entre aspas, mas não está assim nos documentos)`);
   }
   // 4) sigla (3 a 8 maiúsculas) que a fonte não traz
   for (const s of new Set(md.match(/(?<![A-Za-zÀ-ÿ])[A-Z]{3,8}(?![A-Za-zÀ-ÿ])/g) || [])) {

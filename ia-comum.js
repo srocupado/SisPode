@@ -703,6 +703,39 @@ function htmlParaTexto(html) {
 
 // Remove de um HTML a seção cujo título casa o regex (até o próximo título).
 
+/**
+ * Padrão de FORMA da nota, aplicado à resposta do modelo antes de conferir e gravar (19/11/2026).
+ * O prompt pede a forma, mas cada modelo tem o seu jeito: o claude-opus-5-5 abria a nota com
+ * "# Nota Técnica: PL …" e usava lista dentro de lista. Aqui sai só o que é forma e não tira conteúdo:
+ * a cerca de código em volta, o título solto antes da primeira seção, as linhas divisórias, o
+ * segundo nível das listas (que passa ao primeiro), o negrito que rotula item de lista e as listas
+ * nas seções que o padrão quer em parágrafo (Objetivo, Justificativa e Argumentos), cujos itens
+ * viram um parágrafo. Texto sem seção "## " não é mexido no começo.
+ */
+function padronizarNota(md) {
+  let t = String(md || '').replace(/\r\n?/g, '\n').trim();
+  t = t.replace(/^```(?:markdown|md)?[ \t]*\n([\s\S]*?)\n```$/i, '$1').trim();
+  const ini = t.search(/^## /m);
+  if (ini > 0) {
+    const soTitulo = t.slice(0, ini).split('\n').every(l => {
+      const x = l.trim();
+      return !x || /^#\s/.test(x) || /^[-*_]{3,}$/.test(x) || /^\*\*[^*]{1,160}\*\*$/.test(x);
+    });
+    if (soTitulo) t = t.slice(ini);
+  }
+  t = t.replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm, '');
+  t = t.replace(/^[ \t]{2,}[-*+][ \t]+/gm, '- ');
+  t = t.replace(/^[*+][ \t]+/gm, '- ').replace(/^(- .+)\n\n+(?=- )/gm, '$1\n');   // um marcador só; itens sem linha em branco entre eles
+  // Rótulo em negrito no começo do item ("- **Maio de 2021:** …") vira texto simples.
+  t = t.replace(/^- \*\*([^*\n]{1,140})\*\*/gm, '- $1');
+  // Seções em que o padrão não admite lista: os itens viram um parágrafo corrido, sem perder texto.
+  const SEM_LISTA = /^##\s+(Objetivo|Justificativa|Argumentos favor[aá]veis e contr[aá]rios)\s*$/i;
+  t = t.split(/^(?=## )/m).map(sec => SEM_LISTA.test(sec.split('\n', 1)[0].trim())
+    ? sec.replace(/(?:^- .+(?:\n|$))+/gm, bloco => '\n' + bloco.trim().split('\n').map(l => l.replace(/^- /, '').trim()).join(' ') + '\n\n')
+    : sec).join('');
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
   // Encurta referências longas a proposições ("Projeto de Lei nº 1234-G, de 12

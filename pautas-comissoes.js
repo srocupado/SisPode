@@ -574,7 +574,7 @@ async function gerarAnaliseItem(reuniao, it, { forcar = false, instrucoes = '' }
       const prompt = promptComissao({ comissao, reuniao, item: it, docs: docsOk, instrucoesExtra: instrucoesTodas });
       if (btn) btn.innerHTML = '<span class="an-spinner"></span> analisando…';
       const r = await chamarIA({ provedorId: pid, apiKey, modelo: prov.modelo, prompt, pdfBuffers: buffers });
-      it.analise = { markdown: r.text, formato: 'markdown', truncada: !!r.truncated, provedor: PROVEDORES_META[pid]?.label || pid, modelo: prov.modelo || '', promptComissao: !!(cc.promptExtra && cc.promptExtra.trim()), promptUsuario: !!promptUsuario, documentos: docsOk.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })), geradoEm: new Date().toISOString(), geradoPor: cfg.nomeUsuario || 'equipe', analista: it.analista || '', instrucoes: instrucoes || '' };
+      it.analise = { markdown: padronizarNota(r.text), formato: 'markdown', truncada: !!r.truncated, provedor: PROVEDORES_META[pid]?.label || pid, modelo: prov.modelo || '', promptComissao: !!(cc.promptExtra && cc.promptExtra.trim()), promptUsuario: !!promptUsuario, documentos: docsOk.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })), geradoEm: new Date().toISOString(), geradoPor: cfg.nomeUsuario || 'equipe', analista: it.analista || '', instrucoes: instrucoes || '' };
     });
     await fbSalvarAnalise(reuniao, it).catch(e => mostrarToast('Nota gerada, mas não salva no Firebase: ' + e.message, 'aviso'));
     atualizarBadgesItem(it); atualizarPainelItem(it);

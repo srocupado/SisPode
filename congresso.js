@@ -918,10 +918,23 @@ function conferirTextoCN(texto, fonte, minFonte = 80) {
   }
   // 4) aspas: as palavras do trecho têm de estar na fonte. Não se exige a sequência exata — nos PDFs do
   // Congresso (colunas, quebra de página) a citação fiel sai partida: "ação “00X3 -" | cabeçalho | "Compensação…".
-  for (const m of t.matchAll(/[“"]([^”"\n]{6,200})[”"]/g)) {
-    const ws = _cnPlano(m[1]).trim().split(' ');
+  // Pares de aspas na ordem em que aparecem, parágrafo a parágrafo. O padrão antigo exigia de 6 a 200
+  // caracteres DENTRO das aspas: pulava a citação curta (alínea "g") ou longa e casava o fecha-aspas de uma
+  // com o abre-aspas da seguinte, acusando como citação o texto que estava FORA das aspas (PL 294/2015,
+  // 19/11/2026). Parágrafo com número ímpar de aspas retas é ambíguo e não é conferido.
+  const entreAspas = texto => {
+    const achados = [];
+    for (const par of String(texto || '').split(/\n+/)) {
+      const semCurvas = par.replace(/“([^”]*)”/g, (_, q) => { achados.push(q); return ' '; });
+      const retas = semCurvas.split('"');
+      if (retas.length % 2 === 1) for (let i = 1; i < retas.length; i += 2) achados.push(retas[i]);
+    }
+    return achados.filter(q => q.length >= 6 && q.length <= 200);
+  };
+  for (const citado of entreAspas(t)) {
+    const ws = _cnPlano(citado).trim().split(' ');
     const faltam = ws.filter(w => w.length >= 4 && !setFonte.has(w));
-    if (ws.length >= 2 && faltam.length) add(`“${m[1].trim()}” (entre aspas, com termo que não está na fonte: ${faltam.slice(0, 3).join(', ')})`);
+    if (ws.length >= 2 && faltam.length) add(`“${citado.trim()}” (entre aspas, com termo que não está na fonte: ${faltam.slice(0, 3).join(', ')})`);
   }
   // 5) sigla
   for (const s of new Set(t.match(/(?<![A-Za-zÀ-ÿ])[A-Z]{3,8}(?![A-Za-zÀ-ÿ])/g) || [])) {

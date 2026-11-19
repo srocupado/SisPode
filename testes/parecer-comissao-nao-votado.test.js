@@ -38,6 +38,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(de(reexame, 'CCJC').dataBR === '20/05/2026' && de(reexame, 'CCJC').votado === false, 'PRL novo, posterior ao PAR (reexame): o parecer em mãos ainda não foi votado');
   const comSbtA = await buscar(tabela(linha('PRL 2 CSAUDE', 'Parecer do Relator', '05/05/2026'), linha('SBT-A 1 CSAUDE', 'Substitutivo adotado', '12/05/2026')));
   ok(de(comSbtA, 'CSAUDE').votado === true, 'substitutivo adotado pela comissão (SBT-A) depois do PRL: votado');
+  // CASOS REAIS (PL 2559/2022 e PL 2819/2020): a data do PRL virou "a comissão aprovou em". Guarda-se a da deliberação.
+  const duasDatas = await buscar(tabela(linha('PRL 1 CDHMIR', 'Parecer do Relator', '20/03/2025'), linha('SBT-A 1 CDHMIR', 'Substitutivo adotado', '02/09/2025')));
+  ok(de(duasDatas, 'CDHMIR').dataBR === '20/03/2025' && de(duasDatas, 'CDHMIR').votadoEm === '02/09/2025' && de(duasDatas, 'CDHMIR').votadoPor === 'SBT-A', 'PRL de 20/03/2025 e substitutivo adotado em 02/09/2025: as duas datas ficam separadas');
+  const parEsbt = await buscar(tabela(linha('PRL 6 CDHMIR', 'Parecer do Relator', '03/10/2025'), linha('PAR 1 CDHMIR', 'Parecer de Comissão', '22/04/2026'), linha('SBT-A 1 CDHMIR', 'Substitutivo adotado', '28/04/2026')));
+  ok(de(parEsbt, 'CDHMIR').votadoEm === '22/04/2026' && de(parEsbt, 'CDHMIR').votadoPor === 'PAR', 'com PAR e SBT-A, a data da aprovação é a do parecer da comissão (PAR)');
   const soPar = await buscar(tabela(linha('PAR 1 CCJC', 'Parecer de Comissão', '18/03/2026')));
   ok(de(soPar, 'CCJC').votado === true, 'só o PAR na página: votado');
 
@@ -49,12 +54,16 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const dSim = rotular({ comissao: 'CCJC', dataBR: '18/03/2026', url: 'u', votado: true });
   ok(dSim.rotulo === 'Parecer da Comissão CCJC de 18/03/2026' && !('naoVotado' in dSim), 'votado: "Parecer da Comissão CCJC de 18/03/2026"');
   ok(rotular({ comissao: 'CCJC', dataBR: '18/03/2026', url: 'u' }).rotulo === 'Parecer da Comissão CCJC de 18/03/2026', 'enriquecimento antigo, sem o campo: rótulo de antes');
+  ok(rotular({ comissao: 'CDHMIR', dataBR: '20/03/2025', url: 'u', votado: true, votadoEm: '02/09/2025', votadoPor: 'SBT-A' }).rotulo === 'Parecer da Comissão CDHMIR — parecer do(a) relator(a) de 20/03/2025; substitutivo adotado pela comissão em 02/09/2025', 'votado em outra data: o rótulo traz a do parecer do relator e a da adoção do substitutivo');
+  ok(rotular({ comissao: 'CDHMIR', dataBR: '03/10/2025', url: 'u', votado: true, votadoEm: '22/04/2026', votadoPor: 'PAR' }).rotulo === 'Parecer da Comissão CDHMIR — parecer do(a) relator(a) de 03/10/2025; aprovado pela comissão em 22/04/2026', 'idem com o parecer da comissão (PAR)');
+  ok(rotular({ comissao: 'CCJC', dataBR: '18/03/2026', url: 'u', votado: true, votadoEm: '18/03/2026', votadoPor: 'PAR' }).rotulo === 'Parecer da Comissão CCJC de 18/03/2026', 'mesma data: rótulo simples');
   ok(rotular({ comissao: 'Comissão Especial', especial: true, dataBR: '01/06/2026', url: 'u', votado: false }).rotulo === 'Parecer do(a) relator(a) na Comissão Especial de 01/06/2026 — ainda não votado pela comissão', 'Comissão Especial não votada: mesmo padrão');
 
   console.log('\n== 3. prompt ==');
   const PR = new Function(`
     ${trecho(/const TIPOS_MPV = [^\n]+/)}
     ${trecho(/const REGRA_ARGUMENTOS = [^\n]+/)}
+    ${trecho(/const FORMATO_PADRAO_NOTA = [^\n]+/)}
     ${fn('tipoLabel')}
     ${fn('ehMPV')}
     ${fn('ehPDL')}
@@ -70,8 +79,13 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: os documentos "Parecer do\(a\) relator\(a\) na Comissão CSSF de 31\/08\/2021 — ainda não votado pela comissão" e "Parecer do\(a\) relator\(a\) na Comissão CPASF de 22\/04\/2026 — ainda não votado pela comissão" são pareceres apresentados pelo\(a\) relator\(a\) e NÃO foram votados pela comissão/.test(p), 'o cenário nomeia os pareceres não votados');
   ok(/nunca "a Comissão aprovou" nem "substitutivo aprovado \(ou adotado\) pela Comissão"/.test(p), 'a nota inteira não pode dizer "a Comissão aprovou" nem "substitutivo aprovado pela Comissão"');
   const sec = p.slice(p.indexOf('## Pareceres das comissões'));
-  ok(/"Na Comissão de <nome>, o\(a\) relator\(a\), Deputado\(a\) <nome>, apresentou em <data por extenso> parecer/.test(sec) && /a comissão NÃO deliberou/.test(sec), 'a seção "Pareceres das comissões" tem o formato próprio do parecer não votado');
+  ok(/"Na Comissão de <nome>, o\(a\) relator\(a\), Deputado\(a\) <nome>, apresentou em <data> parecer/.test(sec) && /a comissão NÃO deliberou/.test(sec), 'a seção "Pareceres das comissões" tem o formato próprio do parecer não votado');
   ok(/só afirme que aprovou se o próprio documento registrar a deliberação/.test(sec), 'mesmo no "Parecer da Comissão", só se afirma aprovação que o documento registrar');
+  ok(/A data do parecer do\(a\) relator\(a\) é a da APRESENTAÇÃO, nunca a da aprovação/.test(sec) && /a aprovação é a SEGUNDA/.test(sec), 'datas: a do parecer do relator é a da apresentação; com duas datas no rótulo, a aprovação é a segunda');
+  ok(/no formato "20 de março de 2025" \(dia e ano em algarismos\), nunca com os números por extenso/.test(sec) && !/data por extenso/.test(sec) && /Não fale em "redação final" de comissão/.test(sec), 'datas em algarismos (não "vinte de março de dois mil e vinte e cinco") e sem "redação final" de comissão');
+  // CASO REAL (PL 4887/2023, 19/11/2026): o Objetivo disse que o projeto abrange "desde a educação básica até o ensino
+  // superior"; isso só está no substitutivo da relatora na CPASF, não votado. O projeto fala em "estabelecimentos de ensino".
+  ok(/NÃO MISTURE OS DOIS TEXTOS: nas seções "Objetivo", "Justificativa" e de principais disposições, descreva só o que está no texto em votação/.test(p) && /não pode ser apresentado como conteúdo do projeto/.test(p), 'o que só consta do substitutivo não votado não entra no Objetivo nem nas disposições como conteúdo do projeto');
   const pVotado = PR.montarPrompt(pl, [inteiro, dSim]);
   ok(!/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO/.test(pVotado), 'com parecer votado, o aviso do cenário não aparece');
   const pdl = { sigla: 'PDL', numero: '10', ano: '2026', tipoCategoria: 'projeto', ementa: 'Aprova o texto do Acordo…', enriquecimento: {} };
