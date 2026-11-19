@@ -1,0 +1,85 @@
+// Plenário: parecer de relator em comissão que a comissão NÃO votou (19/11/2026).
+//
+// CASO REAL: PL 294/2015. Na CSSF (2021) e na CPASF (2026, retirado de pauta) só há PRL — o parecer que
+// o(a) relator(a) apresenta. O programa chamava os dois documentos de "Parecer da Comissão …" e o prompt
+// mandava escrever "A Comissão …, sob relatoria …, aprovou um substitutivo". A nota saiu dizendo que as
+// comissões aprovaram, e a verificação por IA apontou (com razão) três trechos sem respaldo.
+//
+// O que este teste trava:
+//   1. a leitura da página de pareceres marca `votado: false` quando só há PRL, e `votado: true` quando
+//      há PAR (parecer da comissão) ou SBT-A (substitutivo adotado) da mesma comissão, na data do PRL ou depois;
+//   2. o documento não votado recebe o rótulo "Parecer do(a) relator(a) na Comissão … — ainda não votado";
+//   3. o prompt diz que a comissão não deliberou e proíbe "a Comissão aprovou" nesse caso;
+//   4. o rótulo dos avisos (fundo claro) herda a cor do aviso: estava ilegível, em texto claro.
+// Uso: node testes/parecer-comissao-nao-votado.test.js
+const fs = require('fs'), path = require('path');
+const RAIZ = path.join(__dirname, '..');
+const { DOMParser } = require(path.join(RAIZ, 'bot', 'node_modules', 'linkedom'));
+const src = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
+const trecho = re => { const m = src.match(re); if (!m) throw new Error('trecho não encontrado: ' + re); return m[0]; };
+const fn = nome => trecho(new RegExp(`(?:async )?function ${nome}\\([\\s\\S]*?\\n}`));
+let falhas = 0;
+const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
+
+(async () => {
+  console.log('== 1. a comissão votou o parecer? ==');
+  const buscar = html => new Function('fetchHtmlCamara', 'DOMParser', `${fn('buscarPareceresPlenario')}\nreturn buscarPareceresPlenario;`)(async () => html, DOMParser)(1);
+  const real = await buscar(fs.readFileSync(path.join(__dirname, 'fixtures', 'camara', 'pareceres-pl294-2015.html'), 'utf8'));
+  const de = (r, c) => r.comissoes.find(x => x.comissao === c);
+  ok(real.comissoes.length === 2 && de(real, 'CSSF') && de(real, 'CPASF'), 'PL 294/2015: duas comissões com parecer (CSSF e CPASF)');
+  ok(de(real, 'CSSF').votado === false && de(real, 'CPASF').votado === false, 'só há PRL nas duas: nenhuma votou o parecer');
+  ok(de(real, 'CPASF').sigla === 'PRL' && de(real, 'CPASF').dataBR === '22/04/2026', 'na CPASF vale o PRL mais recente (22/04/2026)');
+  const linha = (sig, tipo, data) => `<tr><td>${sig} => PL 1/2026</td><td>${tipo}</td><td>${data}</td><td>Fulano</td><td><a href="prop_mostrarintegra?codteor=${Math.abs(sig.split('').reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 7))}">Inteiro teor</a></td></tr>`;
+  const tabela = (...l) => `<html><body><table>${l.join('')}</table></body></html>`;
+  const comPar = await buscar(tabela(linha('PRL 1 CCJC', 'Parecer do Relator', '10/03/2026'), linha('PAR 1 CCJC', 'Parecer de Comissão', '18/03/2026'), linha('PRL 1 CFT', 'Parecer do Relator', '02/04/2026')));
+  ok(de(comPar, 'CCJC').votado === true && de(comPar, 'CCJC').votadoEm === '18/03/2026', 'PRL seguido de PAR da mesma comissão: votado, com a data da deliberação');
+  ok(de(comPar, 'CFT').votado === false, 'a outra comissão, só com PRL, não votou');
+  const reexame = await buscar(tabela(linha('PRL 1 CCJC', 'Parecer do Relator', '10/03/2026'), linha('PAR 1 CCJC', 'Parecer de Comissão', '18/03/2026'), linha('PRL 2 CCJC', 'Parecer do Relator', '20/05/2026')));
+  ok(de(reexame, 'CCJC').dataBR === '20/05/2026' && de(reexame, 'CCJC').votado === false, 'PRL novo, posterior ao PAR (reexame): o parecer em mãos ainda não foi votado');
+  const comSbtA = await buscar(tabela(linha('PRL 2 CSAUDE', 'Parecer do Relator', '05/05/2026'), linha('SBT-A 1 CSAUDE', 'Substitutivo adotado', '12/05/2026')));
+  ok(de(comSbtA, 'CSAUDE').votado === true, 'substitutivo adotado pela comissão (SBT-A) depois do PRL: votado');
+  const soPar = await buscar(tabela(linha('PAR 1 CCJC', 'Parecer de Comissão', '18/03/2026')));
+  ok(de(soPar, 'CCJC').votado === true, 'só o PAR na página: votado');
+
+  console.log('\n== 2. rótulo do documento ==');
+  const bloco = trecho(/for \(const pc of comissoesCron\) \{[\s\S]*?\n    \}/);
+  const rotular = pc => { const docs = []; new Function('comissoesCron', 'docs', bloco)([pc], docs); return docs[0]; };
+  const dNao = rotular({ comissao: 'CPASF', dataBR: '22/04/2026', url: 'u', votado: false });
+  ok(dNao.rotulo === 'Parecer do(a) relator(a) na Comissão CPASF de 22/04/2026 — ainda não votado pela comissão' && dNao.naoVotado === true && dNao.tipo === 'PARECER_COMISSAO', 'não votado: "Parecer do(a) relator(a) na Comissão CPASF de 22/04/2026 — ainda não votado pela comissão"');
+  const dSim = rotular({ comissao: 'CCJC', dataBR: '18/03/2026', url: 'u', votado: true });
+  ok(dSim.rotulo === 'Parecer da Comissão CCJC de 18/03/2026' && !('naoVotado' in dSim), 'votado: "Parecer da Comissão CCJC de 18/03/2026"');
+  ok(rotular({ comissao: 'CCJC', dataBR: '18/03/2026', url: 'u' }).rotulo === 'Parecer da Comissão CCJC de 18/03/2026', 'enriquecimento antigo, sem o campo: rótulo de antes');
+  ok(rotular({ comissao: 'Comissão Especial', especial: true, dataBR: '01/06/2026', url: 'u', votado: false }).rotulo === 'Parecer do(a) relator(a) na Comissão Especial de 01/06/2026 — ainda não votado pela comissão', 'Comissão Especial não votada: mesmo padrão');
+
+  console.log('\n== 3. prompt ==');
+  const PR = new Function(`
+    ${trecho(/const TIPOS_MPV = [^\n]+/)}
+    ${trecho(/const REGRA_ARGUMENTOS = [^\n]+/)}
+    ${fn('tipoLabel')}
+    ${fn('ehMPV')}
+    ${fn('ehPDL')}
+    ${trecho(/const RE_SUSTACAO\s*=[^\n]+/)}
+    ${fn('subtipoPDL')}
+    ${fn('montarPrompt')}
+    ${fn('promptPDL')}
+    return { montarPrompt, promptPDL };
+  `)();
+  const pl = { sigla: 'PL', numero: '294', ano: '2015', tipoCategoria: 'projeto', ementa: 'Altera as Leis nos 8.212 e 8.213…', enriquecimento: {} };
+  const inteiro = { tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: 'u' };
+  const p = PR.montarPrompt(pl, [inteiro, { ...rotular({ comissao: 'CSSF', dataBR: '31/08/2021', url: 'u', votado: false }) }, dNao]);
+  ok(/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: os documentos "Parecer do\(a\) relator\(a\) na Comissão CSSF de 31\/08\/2021 — ainda não votado pela comissão" e "Parecer do\(a\) relator\(a\) na Comissão CPASF de 22\/04\/2026 — ainda não votado pela comissão" são pareceres apresentados pelo\(a\) relator\(a\) e NÃO foram votados pela comissão/.test(p), 'o cenário nomeia os pareceres não votados');
+  ok(/nunca "a Comissão aprovou" nem "substitutivo aprovado \(ou adotado\) pela Comissão"/.test(p), 'a nota inteira não pode dizer "a Comissão aprovou" nem "substitutivo aprovado pela Comissão"');
+  const sec = p.slice(p.indexOf('## Pareceres das comissões'));
+  ok(/"Na Comissão de <nome>, o\(a\) relator\(a\), Deputado\(a\) <nome>, apresentou em <data por extenso> parecer/.test(sec) && /a comissão NÃO deliberou/.test(sec), 'a seção "Pareceres das comissões" tem o formato próprio do parecer não votado');
+  ok(/só afirme que aprovou se o próprio documento registrar a deliberação/.test(sec), 'mesmo no "Parecer da Comissão", só se afirma aprovação que o documento registrar');
+  const pVotado = PR.montarPrompt(pl, [inteiro, dSim]);
+  ok(!/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO/.test(pVotado), 'com parecer votado, o aviso do cenário não aparece');
+  const pdl = { sigla: 'PDL', numero: '10', ano: '2026', tipoCategoria: 'projeto', ementa: 'Aprova o texto do Acordo…', enriquecimento: {} };
+  ok(/Documento com o rótulo "ainda não votado pela comissão" é parecer só apresentado/.test(PR.promptPDL(pdl, [inteiro, dNao])), 'PDL: o parágrafo por comissão também distingue o parecer só apresentado');
+
+  console.log('\n== 4. rótulo dos avisos legível ==');
+  ok(/<strong style="color:inherit">Verificação por IA\$\{mod\}:<\/strong>/.test(src) && /<strong style="color:inherit">Conferência automática de referências/.test(src), 'os dois avisos de fundo claro herdam a cor escura no rótulo em negrito');
+
+  console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
+  process.exit(falhas ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });
