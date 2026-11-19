@@ -26,10 +26,28 @@ const NOMES_TIPO = [
 function refDoTexto(texto) {
   const t = String(texto || '');
   const m = t.match(/\b(PLP|PEC|PDL|PRC|MPV|PL)\s*\.?\s*n?[º°.o]*\s*([\d.]{1,7})\s*(?:\/|,?\s*de\s+)\s*(\d{4}|\d{2})\b/i);
-  if (!m) return null;
-  let ano = parseInt(m[3], 10);
-  if (m[3].length === 2) ano += ano < 50 ? 2000 : 1900;
-  return { sigla: m[1].toUpperCase(), numero: parseInt(m[2].replace(/\./g, ''), 10), ano };
+  const anoDe = a => { let ano = parseInt(a, 10); if (a.length === 2) ano += ano < 50 ? 2000 : 1900; return ano; };
+  if (m) return { sigla: m[1].toUpperCase(), numero: parseInt(m[2].replace(/\./g, ''), 10), ano: anoDe(m[3]) };
+  // Por extenso, como a transcrição de voz costuma escrever: "projeto de lei complementar número 42 de 2023".
+  const x = t.match(/\b(projeto\s+de\s+lei\s+complementar|proposta\s+de\s+emenda\s+[àa]\s+constitui[çc][ãa]o|projeto\s+de\s+decreto\s+legislativo|projeto\s+de\s+resolu[çc][ãa]o|medida\s+provis[óo]ria|projeto\s+de\s+lei)\s*,?\s*(?:n[úu]mero|n\.?[º°o]?)?\s*([\d.]{1,7})\s*(?:\/|,?\s*de\s+)\s*(\d{4}|\d{2})\b/i);
+  if (!x) return null;
+  return { sigla: NOMES_TIPO.find(([re]) => re.test(x[1]))[1], numero: parseInt(x[2].replace(/\./g, ''), 10), ano: anoDe(x[3]) };
+}
+
+/**
+ * O servidor pediu, em texto livre ou por voz, uma nota AVULSA? ("Gerar uma nota avulsa do PLP 42 de 2023.")
+ * Em 19/11/2026 esse pedido foi parar na consulta à nota da pauta, que respondeu "não está na pauta em uso":
+ * a conversa com a IA não tinha a ação, e a palavra "avulsa" se perdia. Aqui o pedido é reconhecido pelo
+ * código, sem depender do modelo. Devolve null (não é pedido de avulsa) ou { entrada } — entrada pode ser
+ * null, quando a pessoa disse "avulsa" mas não a proposição.
+ */
+function pedidoDeAvulsa(texto) {
+  const t = String(texto || '');
+  if (!/\bavuls[ao]s?\b/i.test(t)) return null;
+  // "pauta avulsa", "sessão avulsa", "instruções avulsas": não é este comando.
+  if (!/\b(nota|an[áa]lise|parecer|estudo)\b/i.test(t) && !entradaDoTexto(t)) return null;
+  const e = entradaDoTexto(t);
+  return { entrada: e && !e.linkDesconhecido ? e : null };
 }
 
 /**
@@ -140,4 +158,4 @@ function resumoNotasExistentes(no) {
 const rotuloProp = p => `${p.sigla} ${p.numero}/${p.ano}`;
 const chaveProp = p => `${p.sigla}-${p.numero}-${p.ano}`;
 
-module.exports = { SIGLAS_AVULSA, CamaraForaDoAr, refDoTexto, entradaDoTexto, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp };
+module.exports = { SIGLAS_AVULSA, CamaraForaDoAr, refDoTexto, pedidoDeAvulsa, entradaDoTexto, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp };

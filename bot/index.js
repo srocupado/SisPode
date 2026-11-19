@@ -17,7 +17,7 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa } = require('./src/worker');
-const { entradaDoTexto, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp } = require('./src/avulsa');
+const { SIGLAS_AVULSA, entradaDoTexto, refDoTexto: refAvulsaDoTexto, pedidoDeAvulsa, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp } = require('./src/avulsa');
 const { fbGet, fbPut } = require('./src/firebase');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
 const { iniciarConvocacoes } = require('./src/convocacao');
@@ -76,7 +76,7 @@ const TEXTO_AJUDA =
   '/listar — lista os itens da pauta em uso\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
-  '/avulsa PL 1234/2025 — nota técnica de proposição FORA da pauta, em PDF institucional (sem índice), para conteúdo avulso ao parlamentar. Aceita o número, o link da Câmara, ou /avulsa e depois o PDF da proposição (no privado; na sua chave; pede confirmação)\n' +
+  '/avulsa PL 1234/2025 — nota técnica de proposição FORA da pauta, em PDF institucional (sem índice), para conteúdo avulso ao parlamentar. Aceita o número, o link da Câmara, ou /avulsa e depois o PDF da proposição; também entende o pedido por texto ou voz ("gerar uma nota avulsa do PLP 42 de 2023") (no privado; na sua chave; pede confirmação)\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/nota PL 1234/2026 — mostra a nota técnica COMO ESTÁ SALVA no painel (texto integral, sem a IA reprocessar)\n' +
@@ -776,7 +776,15 @@ async function fluxoNota(ctx, texto) {
   await ctx.replyWithChatAction('typing');
   try {
     const r = await mostrarNota({ userId: ctx.from.id, texto: (texto || '').trim() });
-    if (r.erro) return ctx.reply(r.erro);
+    if (r.erro) {
+      // Fora da pauta não quer dizer sem saída: a nota avulsa existe para isso (19/11/2026).
+      const ref = /não está na pauta em uso/.test(r.erro) ? refAvulsaDoTexto(texto) : null;
+      if (ref && SIGLAS_AVULSA.includes(ref.sigla) && ehPrivado(ctx)) {
+        return ctx.reply(`${r.erro}\n\nPosso gerar a nota técnica avulsa desta proposição, em PDF.`,
+          { reply_markup: new InlineKeyboard().text('📄 Gerar nota avulsa', `avq:${ref.sigla}:${ref.numero}:${ref.ano}`) });
+      }
+      return ctx.reply(r.erro);
+    }
     const cab = `📄 Nota técnica — ${r.itemLabel}${r.apelido ? ` · ${r.apelido}` : ''}\n(texto como salvo no SisPode)\n\n`;
     return responderLongo(ctx, cab + r.nota);
   } catch (e) {
@@ -1205,10 +1213,13 @@ async function oferecerAvulsa(ctx, entrada, origem) {
     { reply_markup: teclado });
 }
 
-async function cmdAvulsa(ctx) {
+// `pedido`: quando o pedido veio em texto livre ou por voz ("gerar uma nota avulsa do PLP 42 de 2023"),
+// a entrada já reconhecida — { entrada } de pedidoDeAvulsa. Sem ele, vale o que veio depois do /avulsa.
+async function cmdAvulsa(ctx, pedido = null) {
   if (!ehPrivado(ctx)) return ctx.reply('O /avulsa é no privado comigo (o PDF vem para você e a geração usa a sua chave).');
   if (!getPerfil(ctx.from.id)?.apiKey) return ctx.reply('O /avulsa gera a nota na SUA chave de IA — configure com /config.');
-  const arg = String(ctx.match || '').trim();
+  if (pedido?.entrada) { await ctx.replyWithChatAction('typing'); return oferecerAvulsa(ctx, pedido.entrada); }
+  const arg = pedido ? '' : String(ctx.match || '').trim();
   if (!arg) {
     avulsaAguardaPdf.set(ctx.from.id, Date.now());
     return ctx.reply('Mande agora o PDF da proposição (inteiro teor ou avulso da Câmara) — ou o número / link: /avulsa PL 1234/2025.');
@@ -1216,7 +1227,7 @@ async function cmdAvulsa(ctx) {
   await ctx.replyWithChatAction('typing');
   return oferecerAvulsa(ctx, entradaDoTexto(arg));
 }
-bot.command('avulsa', cmdAvulsa);
+bot.command('avulsa', ctx => cmdAvulsa(ctx));
 
 const FASES_AVULSA = {
   documentos: '🔎 Lendo a tramitação e escolhendo os documentos…',
@@ -1225,6 +1236,13 @@ const FASES_AVULSA = {
   verificando: '🧪 Conferindo a nota contra os documentos (verificação por IA)…',
   pdf: '📄 Montando o PDF…',
 };
+
+// Botão oferecido quando alguém pede a nota de uma proposição que não está na pauta em uso.
+bot.callbackQuery(/^avq:(PLP|PEC|PDL|PRC|MPV|PL):(\d{1,7}):(\d{4})$/, async ctx => {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+  return cmdAvulsa(ctx, { entrada: { sigla: ctx.match[1], numero: Number(ctx.match[2]), ano: Number(ctx.match[3]) } });
+});
 
 bot.callbackQuery(/^av:(ok|nova|no):([a-f0-9]+)$/, async ctx => {
   const [, acao, token] = ctx.match;
@@ -2054,6 +2072,7 @@ async function executarDecisao(ctx, decisao) {
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'resumo':             return cmdResumo(ctx, decisao.argumentos.pergunta || '');
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
+    case 'nota_avulsa':        return cmdAvulsa(ctx, { entrada: entradaDoTexto(String(decisao.argumentos.pergunta || '')) });   // idem
     case 'digest':             return cmdDigest(ctx);
     case 'exportar':           return cmdExportar(ctx);
     case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
@@ -2112,6 +2131,9 @@ function ferramentasDado(userId, perfil) {
 }
 
 async function tratarLinguagemNatural(ctx, texto) {
+  // Pedido de nota avulsa em texto livre ou por voz: reconhecido pelo código, antes da conversa com a IA.
+  const avulsa = pedidoDeAvulsa(texto);
+  if (avulsa) return cmdAvulsa(ctx, avulsa);
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) {
     return ctx.reply(
