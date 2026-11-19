@@ -255,6 +255,8 @@ Primeiro o exame formal (${comissao.sigla}) que o parecer faz, com fundamentos; 
 Os argumentos de mérito do parecer: o problema que a matéria enfrenta, por que o(a) relator(a) conclui como conclui, e o que o parecer diz sobre impactos, custos e quem é afetado. Só o que consta do documento.`;
 
   return `${cab}
+A resposta começa diretamente na linha "## Objetivo": não escreva título geral (nenhuma linha com um só "#", nada como "Nota Técnica: PL …"), cabeçalho, introdução nem fecho; não crie outras seções nem subtítulos; não use tabelas, linhas divisórias nem lista dentro de lista.
+
 Produza a nota técnica em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem bullets, salvo nas seções de emendas e de argumentos), com as seguintes seções, nesta ordem e com estes títulos exatos ("##"):
 
 ## Objetivo
