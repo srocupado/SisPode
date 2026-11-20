@@ -86,6 +86,15 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   // CASO REAL (PL 4887/2023, 19/11/2026): o Objetivo disse que o projeto abrange "desde a educação básica até o ensino
   // superior"; isso só está no substitutivo da relatora na CPASF, não votado. O projeto fala em "estabelecimentos de ensino".
   ok(/NÃO MISTURE OS DOIS TEXTOS: nas seções "Objetivo", "Justificativa" e de principais disposições, descreva só o que está no texto em votação/.test(p) && /não pode ser apresentado como conteúdo do projeto/.test(p), 'o que só consta do substitutivo não votado não entra no Objetivo nem nas disposições como conteúdo do projeto');
+  // CASO REAL (PL 4887/2023, 2ª vez): "O texto que está sendo votado, conforme o substitutivo da relatora" — a seção pedia
+  // "o conteúdo do parecer/substitutivo que está sendo votado" mesmo quando o que se vota é o projeto original.
+  const secPar = p.slice(p.indexOf('## Pareceres e substitutivos'), p.indexOf('## Argumentos favoráveis e contrários'));
+  ok(/diga que o texto em votação é o do projeto original \(documento "Inteiro teor da proposição"\)/.test(secPar) && /Nunca escreva que o texto em votação é um substitutivo, nem "conforme o substitutivo"/.test(secPar), 'só o projeto em votação: a seção de pareceres diz que o texto em votação é o projeto original');
+  ok(!/descreva diretamente o conteúdo do parecer\/substitutivo\/emendas que está sendo votado/.test(p) && !/o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto/.test(p), 'e o prompt não fala mais em "parecer/substitutivo que está sendo votado"');
+  ok(/Quais são os pontos centrais do projeto original \(documento "Inteiro teor da proposição"\), que é o texto em votação\? Descreva só o que está nesse documento\./.test(secPar), 'principais disposições: só o que está no projeto original');
+  ok(/registre que há parecer de relator\(a\) em comissão ainda não votado/.test(secPar) && /sempre como proposta do\(a\) relator\(a\)/.test(secPar), 'o substitutivo não votado entra como proposta do relator, com o que difere do projeto');
+  const pSbt = PR.montarPrompt(pl, [{ tipo: 'SBT_A', rotulo: 'Substitutivo adotado por comissão (SBT-A nº 1 — CDHMIR de 02/09/2025)', url: 'u' }, { tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: 'u' }, dSim]);
+  ok(/descreva diretamente o conteúdo do parecer\/substitutivo\/emendas que está sendo votado/.test(pSbt) && !/o texto em votação é o do projeto original/.test(pSbt), 'com substitutivo adotado, a instrução de antes continua valendo');
   const pVotado = PR.montarPrompt(pl, [inteiro, dSim]);
   ok(!/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO/.test(pVotado), 'com parecer votado, o aviso do cenário não aparece');
   const pdl = { sigla: 'PDL', numero: '10', ano: '2026', tipoCategoria: 'projeto', ementa: 'Aprova o texto do Acordo…', enriquecimento: {} };

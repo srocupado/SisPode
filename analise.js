@@ -4047,6 +4047,17 @@ REGRAS RÍGIDAS:
   }
 
   const naoVotados = docs.filter(d => d.tipo === 'PARECER_COMISSAO' && d.naoVotado);
+  // O que se vota é o PROJETO ORIGINAL: não há parecer de Plenário, substitutivo adotado, emenda do Senado nem
+  // subemenda. CASO REAL (PL 4887/2023, 19/11/2026): com o parecer não votado da relatora anexado, a seção pedia
+  // "o conteúdo do parecer/substitutivo que está sendo votado" e a nota escreveu "o texto que está sendo votado,
+  // conforme o substitutivo da relatora". Nesse caso as seções passam a nomear o projeto como o texto em votação.
+  const soProjeto = !hasMPV && !hasEMS && !hasSSP && !hasSBTA && !hasPRLP && !hasPRLE && !ehPEC && has('INTEIRO_TEOR') && !(it.sigla === 'REC' && it.tipoCategoria === 'requerimento');
+  const instrucaoPareceres = soProjeto
+    ? `Nesta seção, diga que o texto em votação é o do projeto original (documento "${rotuloDe('INTEIRO_TEOR')}") e que não há parecer de Plenário nem substitutivo adotado por comissão, e resuma em um parágrafo o que o projeto dispõe.${naoVotados.length ? ` Em seguida, registre que há parecer de relator(a) em comissão ainda não votado (${naoVotados.map(d => `"${d.rotulo}"`).join(' e ')}) e, se ele trouxer substitutivo, diga em que o substitutivo difere do projeto — sempre como proposta do(a) relator(a).` : ''} Nunca escreva que o texto em votação é um substitutivo, nem "conforme o substitutivo".`
+    : 'Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos.';
+  const perguntaDisposicoes = soProjeto
+    ? `Quais são os pontos centrais do projeto original (documento "${rotuloDe('INTEIRO_TEOR')}"), que é o texto em votação? Descreva só o que está nesse documento.`
+    : 'Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)?';
   if (naoVotados.length) {
     cenarioHint += ` ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO: ${naoVotados.length === 1 ? 'o documento' : 'os documentos'} ${naoVotados.map(d => `"${d.rotulo}"`).join(' e ')} ${naoVotados.length === 1 ? 'é parecer apresentado' : 'são pareceres apresentados'} pelo(a) relator(a) e NÃO ${naoVotados.length === 1 ? 'foi votado' : 'foram votados'} pela comissão. Em toda a nota, escreva "o(a) relator(a), na Comissão de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou" nem "substitutivo aprovado (ou adotado) pela Comissão". O texto em votação continua sendo o indicado acima; o substitutivo do(a) relator(a) é proposta ainda não deliberada. NÃO MISTURE OS DOIS TEXTOS: nas seções "Objetivo", "Justificativa" e de principais disposições, descreva só o que está no texto em votação; o que só consta do parecer ou do substitutivo não votado (alcance maior ou menor, dispositivos novos, definições, prazos, sanções) não pode ser apresentado como conteúdo do projeto. Registre essas diferenças na seção "Pareceres das comissões", atribuídas ao(à) relator(a): "o substitutivo do(a) relator(a) estende…, acrescenta…, suprime…".`;
   }
@@ -4139,10 +4150,10 @@ ${secaoRedacaoCamara}${secaoPareceresComissoes}
 ## Pareceres e substitutivos${anotacaoPareceres}
 [INSTRUÇÃO INTERNA — não reproduza este texto, não mencione "cenário" e não classifique a proposição na resposta: ${cenarioHint}]
 
-Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos. Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.${anotacaoPareceres ? ` Mantenha exatamente a anotação entre parênteses no título desta seção (${rotulosOperativos.join('; ')}), indicando qual(is) documento(s) embasou(aram) a análise.` : ''}
+${instrucaoPareceres} Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.${anotacaoPareceres ? ` Mantenha exatamente a anotação entre parênteses no título desta seção (${rotulosOperativos.join('; ')}), indicando qual(is) documento(s) embasou(aram) a análise.` : ''}
 
 ## ${tituloDisposicoes}
-O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)? ${temOriginal
+O que a proposição efetivamente muda ou cria? ${perguntaDisposicoes} ${temOriginal
   ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 ${secaoMPV}${secaoApensados}
