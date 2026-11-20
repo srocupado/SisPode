@@ -1032,13 +1032,13 @@ function avisosConferenciaHtml(x) {
   const refs = x.refsSuspeitas ? aArray(x.refsSuspeitas) : [];
   if (refs.length) partes.push(`<div class="cn-aviso-conf">⚠ <strong>Conferência automática:</strong> ${refs.length === 1 ? 'o item a seguir não foi localizado' : 'os itens a seguir não foram localizados'} na fonte que a IA recebeu. Confira antes de usar (heurística; pode haver falso positivo): ${refs.map(escapeHtml).join('; ')}.</div>`);
   const vf = x.verificacaoIA;
-  if (x._verificando) partes.push('<div class="cn-aviso-verif-info">Verificação por IA em andamento…</div>');
-  else if (vf && vf.falhou) partes.push(`<div class="cn-aviso-verif-info">Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''} não concluída: ${escapeHtml(vf.falhou)}. Gere de novo para tentar outra vez.</div>`);
+  if (x._verificando) partes.push('<div class="cn-aviso-verif-info">Agente revisor conferindo…</div>');
+  else if (vf && vf.falhou) partes.push(`<div class="cn-aviso-verif-info">Agente revisor${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}: revisão não concluída — ${escapeHtml(vf.falhou)}. Gere de novo para tentar outra vez.</div>`);
   else if (vf) {
     const itens = vf.itens ? aArray(vf.itens) : [];
     partes.push(itens.length
-      ? `<div class="cn-aviso-verif">⚠ <strong>Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}:</strong> ${itens.length === 1 ? 'trecho' : 'trechos'} sem respaldo na fonte, segundo o verificador. Confira antes de usar:<ul>${itens.map(i => `<li>${i.onde ? `<em>${escapeHtml(i.onde)}:</em> ` : ''}“${escapeHtml(i.trecho)}”${i.motivo ? ` — ${escapeHtml(i.motivo)}` : ''}</li>`).join('')}</ul></div>`
-      : `<div class="cn-aviso-verif-info">Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}: nenhum trecho sem respaldo apontado.</div>`);
+      ? `<div class="cn-aviso-verif">⚠ <strong>Agente revisor${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}:</strong> ${itens.length === 1 ? 'trecho' : 'trechos'} sem respaldo na fonte. Confira antes de usar:<ul>${itens.map(i => `<li>${i.onde ? `<em>${escapeHtml(i.onde)}:</em> ` : ''}“${escapeHtml(i.trecho)}”${i.motivo ? ` — ${escapeHtml(i.motivo)}` : ''}</li>`).join('')}</ul></div>`
+      : `<div class="cn-aviso-verif-info">Agente revisor${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}: nenhum trecho sem respaldo apontado.</div>`);
   }
   return partes.join('');
 }

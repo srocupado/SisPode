@@ -106,7 +106,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(/Documento com o rótulo "ainda não votado pela comissão" é parecer só apresentado/.test(PR.promptPDL(pdl, [inteiro, dNao])), 'PDL: o parágrafo por comissão também distingue o parecer só apresentado');
 
   console.log('\n== 4. rótulo dos avisos legível ==');
-  ok(/<strong style="color:inherit">Verificação por IA\$\{mod\}:<\/strong>/.test(src) && /<strong style="color:inherit">Conferência automática de referências/.test(src), 'os dois avisos de fundo claro herdam a cor escura no rótulo em negrito');
+  ok(/<strong style="color:inherit">\$\{quem\}:<\/strong>/.test(src) && /<strong style="color:inherit">Conferência automática de referências/.test(src), 'os dois avisos de fundo claro herdam a cor escura no rótulo em negrito');
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
