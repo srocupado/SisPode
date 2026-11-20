@@ -425,8 +425,65 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
   };
 }
 
+// ---------- JSON devolvido por modelo: leitura tolerante ----------
+// CASO REAL (PL 1969/2022, 20/11/2026): o agente revisor devolveu um "motivo" com aspas internas sem
+// escape e o JSON.parse parou em "Expected ',' or ']' after array element"; a revisão ficou "não
+// concluída". O defeito mais comum do JSON de modelo é esse — aspas dentro do valor —, seguido de
+// quebra de linha crua, vírgula sobrando e resposta cortada no meio.
+/** Conserta o que dá para consertar sem adivinhar conteúdo. */
+function repararJsonIA(t) {
+  const s = String(t || '');
+  let out = '', dentro = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (!dentro) {
+      if (ch === '"') { dentro = true; out += ch; continue; }
+      if (ch === ',') { const r = s.slice(i + 1).match(/^\s*([}\]])/); if (r) continue; }          // vírgula sobrando
+      if (ch === '}' && /^\s*\{/.test(s.slice(i + 1))) { out += '},'; continue; }                  // faltou a vírgula entre objetos
+      out += ch; continue;
+    }
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '\n') { out += '\\n'; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\t') { out += '\\t'; continue; }
+    if (ch === '"') {
+      // Fecha o valor só se o que vem depois é continuação válida de JSON: ":" (era chave), "}" / "]",
+      // fim do texto, ou "," seguida de nova chave ("x":), de outro objeto ou do fim da lista.
+      const resto = s.slice(i + 1);
+      const fecha = /^\s*(?::|[}\]]|$)/.test(resto) || /^\s*,\s*(?:"[^"\n]{0,80}"\s*:|[{\[]|[}\]]|$)/.test(resto);
+      if (fecha) { dentro = false; out += ch; } else out += '\\"';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * Lê o JSON da resposta de um modelo. Tenta, nesta ordem: o texto entre a primeira "{" e a última "}";
+ * o mesmo texto reparado; e, por fim, os objetos soltos que estiverem inteiros (resposta cortada no
+ * meio), devolvidos sob a chave `lista`. Lança erro se nada disso der objeto.
+ */
+function lerJsonIA(texto, lista = '') {
+  const t = String(texto || '').replace(/^\s*```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
+  if (ini < 0 || fim < ini) throw new Error('resposta sem JSON');
+  const corpo = t.slice(ini, fim + 1);
+  const tenta = x => { try { const j = JSON.parse(x); return j && typeof j === 'object' ? j : undefined; } catch (_) { return undefined; } };
+  let j = tenta(corpo); if (j !== undefined) return j;
+  j = tenta(repararJsonIA(corpo)); if (j !== undefined) return j;
+  if (lista) {
+    const dentro = t.slice(t.indexOf('[', ini) + 1 || ini + 1);
+    const soltos = (repararJsonIA(dentro).match(/\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*\}/g) || []).map(tenta).filter(Boolean);
+    if (soltos.length) return { [lista]: soltos };
+  }
+  throw new Error('resposta com JSON inválido');
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    repararJsonIA, lerJsonIA,
     faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
     promptApuracao, promptHistorico, promptFicha, promptComparada, promptExterno, descreverProcesso, carimboDoParecer,
   };

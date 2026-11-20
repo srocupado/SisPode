@@ -995,10 +995,7 @@ Se tudo tiver respaldo, responda {"itens":[]}.`;
 
 /** Lê a resposta do verificador; só ficam trechos que existem em algum dos textos conferidos. */
 function lerVerificacaoCN(texto, saidas) {
-  const t = String(texto || '');
-  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
-  if (ini < 0 || fim < ini) throw new Error('resposta do verificador sem JSON');
-  const j = JSON.parse(t.slice(ini, fim + 1));
+  const j = lerJsonIA(texto, 'itens');   // tolera aspas internas sem escape e resposta cortada (parecer.js)
   const planos = saidas.map(s => ({ onde: s.onde, p: ' ' + _cnPlano(s.texto) + ' ' }));
   return (Array.isArray(j.itens) ? j.itens : []).map(x => {
     const trecho = String(x?.trecho || '').trim().slice(0, 400), p = _cnPlano(trecho).trim();

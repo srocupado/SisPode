@@ -116,6 +116,8 @@ O Deputado Fulano Inventado lembra o PL 9.999/2024 e diz que a medida atinge o "
   let emVoo = 0, maxVoo = 0;
   const E = new Function('state', 'chamarIA', 'listarModelosDoProvedor', 'fbSalvarAnalise', 'renderAnaliseCard', 'isAbortError', 'escapeHtml', 'iaInFlightInc', 'iaInFlightDec', `
     ${trecho(/const _planoTexto = [\s\S]*?;\n/)}
+    ${fn('repararJsonIA', srcParecer)}
+    ${fn('lerJsonIA', srcParecer)}
     ${fn('promptVerificacao')}
     ${fn('lerVerificacao')}
     ${fn('promptCorrecao')}
@@ -247,6 +249,31 @@ O substitutivo altera o art. 2º e introduz uma definição de racismo instituci
   respostaIA = '{"itens":[]}';
   await E.verificarNotaComIA({ chave: 'I', analise: { markdown: NOTA_F } }, [], 'dados');
   ok(chamadas.length === 1, 'sem apontamentos, não há chamada de correção');
+
+  // ------------------------------------------------------------------ g: resposta do revisor com JSON defeituoso
+  // CASO REAL (PL 1969/2022, 20/11/2026): "revisão não concluída — Expected ',' or ']' after array element in JSON".
+  console.log('\n== g. JSON defeituoso do revisor ==');
+  const comAspas = '{"itens":[{"trecho":"o uso de animais de tração no campo","motivo":"O parecer fala em "animais de produção", e não em "tração"."}]}';
+  ok((() => { try { JSON.parse(comAspas); return false; } catch (_) { return true; } })(), 'o caso: aspas dentro do "motivo" quebram o JSON.parse');
+  const lg = E.lerVerificacao(comAspas, NOTA);
+  ok(lg.length === 1 && /"animais de produção", e não em "tração"/.test(lg[0].motivo), 'a leitura tolerante recupera o apontamento, com as aspas do motivo');
+  ok(E.lerVerificacao('{"itens":[{"trecho":"o uso de animais de tração no campo","motivo":"x"},]}', NOTA).length === 1, 'vírgula sobrando: lido');
+  ok(E.lerVerificacao('{"itens":[{"trecho":"o uso de animais de tração no campo","motivo":"x"},{"trecho":"encarecer a produção","motivo":"resposta cort', NOTA).length === 1, 'resposta cortada no meio: ficam os apontamentos inteiros');
+  chamadas = [];
+  const itJ = { chave: 'J', analise: { markdown: NOTA } };
+  filaIA = ['desculpe, não consegui montar a resposta', '{"itens":[]}'];
+  await E.verificarNotaComIA(itJ, [], 'dados');
+  ok(chamadas.length === 2 && /a sua resposta anterior não era JSON válido/.test(chamadas[1].prompt) && itJ.analise.verificacaoIA.itens.length === 0 && !itJ.analise.verificacaoIA.falhou, 'resposta ilegível: o revisor é chamado de novo, uma vez, e a revisão se conclui');
+  chamadas = [];
+  const itK = { chave: 'K', analise: { markdown: NOTA } };
+  filaIA = ['nada', 'nada de novo'];
+  await E.verificarNotaComIA(itK, [], 'dados');
+  ok(chamadas.length === 2 && /JSON/.test(itK.analise.verificacaoIA.falhou) && /revisão não concluída/.test(E.avisoVerificacaoHtml(itK)), 'duas respostas ilegíveis: aí sim a revisão fica como não concluída');
+  chamadas = []; filaIA = [];
+  falharIA = new Error('HTTP 429');
+  await E.verificarNotaComIA({ chave: 'L', analise: { markdown: NOTA } }, [], 'dados');
+  ok(chamadas.length === 1, 'erro do provedor (HTTP) não repete a chamada');
+  falharIA = null;
   globalThis.escolherModelo = undefined;
 
   // a geração dispara a verificação depois de salvar; "Completar" verifica de novo

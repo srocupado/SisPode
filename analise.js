@@ -4440,7 +4440,7 @@ NOTA:
 ${markdown}
 >>>
 
-Responda SOMENTE com JSON, sem cercas de código, no formato {"itens":[{"trecho":"...","motivo":"..."}]}:
+Responda SOMENTE com JSON válido, sem cercas de código, no formato {"itens":[{"trecho":"...","motivo":"..."}]} (dentro dos valores, escreva \\" no lugar de cada aspa dupla):
 - "trecho": copie LITERALMENTE da nota o trecho sem respaldo (de 3 a 25 palavras), sem alterar nada;
 - "motivo": até 25 palavras, dizendo o que falta ou o que diverge nos documentos.
 Se nada faltar respaldo, responda {"itens":[]}.`;
@@ -4448,10 +4448,7 @@ Se nada faltar respaldo, responda {"itens":[]}.`;
 
 /** Lê a resposta do verificador; só ficam trechos que existem na nota. */
 function lerVerificacao(texto, markdown) {
-  const t = String(texto || '');
-  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
-  if (ini < 0 || fim < ini) throw new Error('resposta do verificador sem JSON');
-  const j = JSON.parse(t.slice(ini, fim + 1));
+  const j = lerJsonIA(texto, 'itens');   // tolera aspas internas sem escape e resposta cortada (parecer.js)
   const nota = ' ' + _planoTexto(markdown) + ' ';
   return (Array.isArray(j.itens) ? j.itens : [])
     .map(x => ({ trecho: String(x?.trecho || '').trim().slice(0, 400), motivo: String(x?.motivo || '').trim().slice(0, 300) }))
@@ -4487,7 +4484,7 @@ ${markdown}
 TRECHOS APONTADOS:
 ${itens.map((x, i) => `${i + 1}. "${x.trecho}"${x.motivo ? ` — ${x.motivo}` : ''}`).join('\n')}
 
-Responda SOMENTE com JSON, sem cercas de código, no formato {"correcoes":[{"n":1,"frase":"...","nova":"..."}]}:
+Responda SOMENTE com JSON válido, sem cercas de código, no formato {"correcoes":[{"n":1,"frase":"...","nova":"..."}]} (dentro dos valores, escreva \\" no lugar de cada aspa dupla):
 - "n": o número do trecho;
 - "frase": a frase inteira da nota que contém o trecho, copiada LITERALMENTE, da primeira letra ao ponto final, sem quebra de linha;
 - "nova": a frase corrigida, em uma linha só.`;
@@ -4495,10 +4492,7 @@ Responda SOMENTE com JSON, sem cercas de código, no formato {"correcoes":[{"n":
 
 /** Lê a resposta da correção: [{ n, frase, nova }]. */
 function lerCorrecao(texto) {
-  const t = String(texto || '');
-  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
-  if (ini < 0 || fim < ini) throw new Error('resposta da correção sem JSON');
-  const j = JSON.parse(t.slice(ini, fim + 1));
+  const j = lerJsonIA(texto, 'correcoes');
   return (Array.isArray(j.correcoes) ? j.correcoes : [])
     .map(c => ({ n: parseInt(c?.n, 10), frase: String(c?.frase || '').trim(), nova: String(c?.nova ?? '').trim() }))
     .filter(c => c.n >= 1 && c.frase);
@@ -4547,9 +4541,16 @@ async function verificarNotaComIA(it, pdfBuffers, dados) {
   iaInFlightInc();   // o "Parar tudo" aparece e alcança a verificação
   try {
     modelo = await modeloDaVerificacao(pid, state.config.modelo);
-    const { text } = await chamarIA({ provedorId: pid, apiKey: state.config.apiKey, modelo,
-      prompt: promptVerificacao(markdown, dados), pdfBuffers, opcoes: { maxSaida: 4000 } });
-    v = { modelo, em: new Date().toISOString(), itens: lerVerificacao(text, markdown) };
+    const pedir = async sufixo => (await chamarIA({ provedorId: pid, apiKey: state.config.apiKey, modelo,
+      prompt: promptVerificacao(markdown, dados) + sufixo, pdfBuffers, opcoes: { maxSaida: 4000 } })).text;
+    let itens;
+    try { itens = lerVerificacao(await pedir(''), markdown); }
+    catch (e) {
+      // Resposta ilegível mesmo com a leitura tolerante: pede de novo, uma vez. Erro do provedor (HTTP) não repete.
+      if (isAbortError(e) || !/JSON/.test(String(e.message || e))) throw e;
+      itens = lerVerificacao(await pedir('\n\nATENÇÃO: a sua resposta anterior não era JSON válido. Responda só com o JSON, em uma linha por item, e escreva \\" no lugar de cada aspa dupla que aparecer dentro de um valor.'), markdown);
+    }
+    v = { modelo, em: new Date().toISOString(), itens };
   } catch (e) {
     if (isAbortError(e)) { it._verificando = false; renderAnaliseCard(it); return; }
     v = { modelo, em: new Date().toISOString(), falhou: String(e.message || e).slice(0, 200) };
