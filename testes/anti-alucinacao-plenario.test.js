@@ -111,20 +111,23 @@ O Deputado Fulano Inventado lembra o PL 9.999/2024 e diz que a medida atinge o "
 
   // ------------------------------------------------------------------ e: verificação por IA
   console.log('\n== e. verificação por IA ==');
-  let respostaIA = '', chamadas = [], salvos = [], renders = 0, falharIA = null, durante = null;
+  let respostaIA = '', chamadas = [], salvos = [], renders = 0, falharIA = null, durante = null, filaIA = [];
   const state = { config: { provedor: 'gemini', apiKey: 'k', modelo: 'gemini-3.1-flash-lite' } };
   let emVoo = 0, maxVoo = 0;
   const E = new Function('state', 'chamarIA', 'listarModelosDoProvedor', 'fbSalvarAnalise', 'renderAnaliseCard', 'isAbortError', 'escapeHtml', 'iaInFlightInc', 'iaInFlightDec', `
     ${trecho(/const _planoTexto = [\s\S]*?;\n/)}
     ${fn('promptVerificacao')}
     ${fn('lerVerificacao')}
+    ${fn('promptCorrecao')}
+    ${fn('lerCorrecao')}
+    ${fn('aplicarCorrecoes')}
     ${fn('modeloDaVerificacao')}
     ${fn('verificarNotaComIA')}
     ${fn('avisoVerificacaoHtml')}
-    return { promptVerificacao, lerVerificacao, verificarNotaComIA, avisoVerificacaoHtml };
+    return { promptVerificacao, lerVerificacao, verificarNotaComIA, avisoVerificacaoHtml, promptCorrecao, lerCorrecao, aplicarCorrecoes };
   `)(
     state,
-    async a => { chamadas.push(a); if (durante) durante(); if (falharIA) throw falharIA; return { text: respostaIA }; },
+    async a => { chamadas.push(a); if (durante) durante(); if (falharIA) throw falharIA; return { text: filaIA.length ? filaIA.shift() : respostaIA }; },
     async () => [{ id: 'gemini-3.1-flash-lite' }, { id: 'gemini-3.8-flash' }, { id: 'gemini-3-pro-image' }],
     async it => { salvos.push(JSON.parse(JSON.stringify(it.analise))); },
     () => { renders++; },
@@ -163,7 +166,7 @@ Argumentos contrários: a medida pode alcançar o uso de animais de tração no 
   ok(chamadas[0].modelo === 'gemini-3.8-flash' && chamadas[0].pdfBuffers.length === 1, 'verificador: modelo não econômico de versão mais alta (não o flash-lite da nota), com os mesmos PDFs');
   ok(item.analise.verificacaoIA.itens.length === 1 && salvos.at(-1).verificacaoIA.modelo === 'gemini-3.8-flash' && !item._verificando, 'resultado gravado na análise e salvo no Firebase');
   const html = E.avisoVerificacaoHtml(item);
-  ok(/Verificação por IA \(gemini-3\.8-flash\)/.test(html) && /uso de animais de tração no campo/.test(html), 'o card mostra o trecho apontado e o modelo');
+  ok(/Agente revisor \(gemini-3\.8-flash\):/.test(html) && !/Verificação por IA/.test(html) && /uso de animais de tração no campo/.test(html), 'o card atribui o apontamento ao "Agente revisor (<modelo de revisão>)" e mostra o trecho');
 
   respostaIA = '{"itens":[]}';
   await E.verificarNotaComIA(item, [], 'dados');
@@ -192,6 +195,59 @@ Argumentos contrários: a medida pode alcançar o uso de animais de tração no 
   chamadas = [];
   await E.verificarNotaComIA({ chave: 'Y', analise: { markdown: NOTA } }, [], '');
   ok(chamadas[0].modelo === 'gemini-3.1-flash-lite', 'sem o escolherModelo (página sem o parecer.js) ou sem lista: usa o modelo da configuração');
+
+  // ------------------------------------------------------------------ f: correção automática pelo agente revisor
+  console.log('\n== f. correção automática ==');
+  globalThis.escolherModelo = P;
+  const NOTA_F = `## Principais Disposições do último substitutivo apresentado
+O substitutivo altera o art. 2º e introduz uma definição de racismo institucional no texto. A pensão é mensal.
+
+## Argumentos favoráveis e contrários
+**Argumentos contrários:** a medida pode alcançar o uso de animais de tração no campo e encarecer a produção.`;
+  const ITENS_F = [{ trecho: 'introduz uma definição de racismo institucional', motivo: 'a definição já constava do art. 2º, § 2º, do projeto original' }, { trecho: 'o uso de animais de tração no campo', motivo: 'não consta dos documentos' }];
+  const pc = E.promptCorrecao(NOTA_F, ITENS_F, 'dados da pauta');
+  ok(pc.includes(NOTA_F) && /1\. "introduz uma definição de racismo institucional" — a definição já constava/.test(pc) && /2\. "o uso de animais de tração no campo"/.test(pc) && /copiada LITERALMENTE/.test(pc), 'o prompt da correção leva a nota, os dados e os trechos numerados com o motivo');
+  const FRASE1 = 'O substitutivo altera o art. 2º e introduz uma definição de racismo institucional no texto.';
+  const NOVA1 = 'O substitutivo altera o art. 2º e mantém a definição de racismo institucional que já constava do projeto original.';
+  const ac = E.aplicarCorrecoes(NOTA_F, ITENS_F, E.lerCorrecao(JSON.stringify({ correcoes: [{ n: 1, frase: FRASE1, nova: NOVA1 }, { n: 2, frase: 'frase que não existe na nota sobre o uso de animais de tração no campo.', nova: 'x' }] })));
+  ok(ac.markdown.includes(NOVA1) && !ac.markdown.includes(FRASE1) && ac.markdown.includes('A pensão é mensal.'), 'a frase apontada é trocada pela corrigida; o resto da nota fica igual');
+  ok(ac.corrigidos.length === 1 && ac.corrigidos[0].antes === FRASE1 && ac.corrigidos[0].depois === NOVA1 && /já constava/.test(ac.corrigidos[0].motivo), 'fica o registro do antes, do depois e do motivo');
+  ok(ac.pendentes.length === 1 && ac.pendentes[0].trecho === 'o uso de animais de tração no campo', 'frase devolvida que não existe literalmente na nota: não aplica, o apontamento continua pendente');
+  const naoMuda = (c, m) => ok(E.aplicarCorrecoes(NOTA_F, [ITENS_F[0]], [c]).corrigidos.length === 0, m);
+  naoMuda({ n: 1, frase: FRASE1, nova: 'O substitutivo introduz uma definição de racismo institucional, de fato.' }, 'frase nova que repete o trecho apontado: recusada');
+  naoMuda({ n: 1, frase: 'A pensão é mensal.', nova: 'A pensão é vitalícia.' }, 'frase que não contém o trecho apontado: recusada (o revisor não reescreve outra parte da nota)');
+  naoMuda({ n: 1, frase: FRASE1, nova: 'Linha um.\n## Nova seção' }, 'frase nova com quebra de linha ou título: recusada');
+  naoMuda({ n: 1, frase: '## Principais Disposições do último substitutivo apresentado', nova: '## Outro título' }, 'título de seção não é reescrito');
+  const sup = E.aplicarCorrecoes(NOTA_F, [ITENS_F[0]], [{ n: 1, frase: FRASE1, nova: '' }]);
+  ok(sup.corrigidos.length === 1 && sup.corrigidos[0].depois === '' && /apresentado\nA pensão é mensal\./.test(sup.markdown), 'frase nova vazia: a frase é suprimida');
+
+  // ponta a ponta: revisão aponta, correção aplica, tudo é gravado
+  chamadas = []; salvos = [];
+  const itF = { chave: 'PL-2819-2020', analise: { markdown: NOTA_F, geradoEm: 'g' } };
+  filaIA = [JSON.stringify({ itens: ITENS_F }), JSON.stringify({ correcoes: [{ n: 1, frase: FRASE1, nova: NOVA1 }] })];
+  await E.verificarNotaComIA(itF, [new ArrayBuffer(1)], 'dados');
+  ok(chamadas.length === 2 && chamadas[1].modelo === 'gemini-3.8-flash' && chamadas[1].pdfBuffers.length === 1 && /TRECHOS APONTADOS/.test(chamadas[1].prompt), 'com apontamentos, há uma chamada a mais: o mesmo modelo da revisão, com os mesmos PDFs');
+  ok(itF.analise.markdown.includes(NOVA1) && itF.analise.verificacaoIA.corrigidos.length === 1 && itF.analise.verificacaoIA.itens.length === 1 && !itF._verificando, 'a nota fica corrigida; um apontamento corrigido, um pendente');
+  ok(salvos.at(-1).markdown.includes(NOVA1) && salvos.at(-1).verificacaoIA.corrigidos[0].antes === FRASE1, 'a nota corrigida e o registro da correção vão para o Firebase');
+  const hF = E.avisoVerificacaoHtml(itF);
+  ok(/✔ <strong style="color:inherit">Agente revisor \(gemini-3\.8-flash\):<\/strong> encontrou um trecho sem respaldo nos documentos e corrigiu a frase/.test(hF) && hF.includes(FRASE1.replace(/</g, '&lt;')) && hF.includes(NOVA1), 'o card diz que o Agente revisor corrigiu e mostra o antes e o depois');
+  ok(/⚠ <strong style="color:inherit">Agente revisor \(gemini-3\.8-flash\):<\/strong> o trecho a seguir não tem respaldo nos documentos e não pôde ser corrigido automaticamente/.test(hF) && /uso de animais de tração no campo/.test(hF), 'o que não foi corrigido continua como aviso, atribuído ao Agente revisor');
+
+  chamadas = [];
+  const itG = { chave: 'G', analise: { markdown: NOTA_F, geradoEm: 'g' } };
+  filaIA = [JSON.stringify({ itens: [ITENS_F[0]] }), 'resposta sem json'];
+  await E.verificarNotaComIA(itG, [], 'dados');
+  ok(itG.analise.markdown === NOTA_F && itG.analise.verificacaoIA.itens.length === 1 && itG.analise.verificacaoIA.correcaoFalhou && /não pôde ser corrigido automaticamente/.test(E.avisoVerificacaoHtml(itG)), 'correção que falha não mexe na nota: o apontamento fica, como antes');
+  chamadas = [];
+  const itH = { chave: 'H', analise: { markdown: NOTA_F, formato: 'html', html: '<p>editada</p>' } };
+  filaIA = [JSON.stringify({ itens: [ITENS_F[0]] })];
+  await E.verificarNotaComIA(itH, [], 'dados');
+  ok(chamadas.length === 1 && itH.analise.markdown === NOTA_F, 'nota editada à mão não é corrigida automaticamente (só apontada)');
+  chamadas = []; filaIA = [];
+  respostaIA = '{"itens":[]}';
+  await E.verificarNotaComIA({ chave: 'I', analise: { markdown: NOTA_F } }, [], 'dados');
+  ok(chamadas.length === 1, 'sem apontamentos, não há chamada de correção');
+  globalThis.escolherModelo = undefined;
 
   // a geração dispara a verificação depois de salvar; "Completar" verifica de novo
   ok(/\.finally\(\(\) => verificarNotaComIA\(it, pdfBuffers, dadosPauta\)\)/.test(src), 'a geração verifica a nota depois de salvá-la');

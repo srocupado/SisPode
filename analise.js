@@ -4012,7 +4012,7 @@ REGRAS RÍGIDAS:
   // compará-los entre si para isolar a contribuição de cada comissão.
   const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
   const secaoPareceresComissoes = docsComissao.length
-    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data. **O rótulo do documento diz se a comissão deliberou.** Documento "Parecer da Comissão ...": a comissão votou; use o formato "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data da aprovação>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>" — e só afirme que aprovou se o próprio documento registrar a deliberação; se ele trouxer só o relatório e o voto do(a) relator(a), escreva que o(a) relator(a) apresentou o parecer. Documento "Parecer do(a) relator(a) na Comissão ... — ainda não votado pela comissão": a comissão NÃO deliberou; use o formato "Na Comissão de <nome>, o(a) relator(a), Deputado(a) <nome>, apresentou em <data> parecer <pela aprovação | pela rejeição>, <com substitutivo que…>, ainda não votado pela comissão". **Datas.** A data do parecer do(a) relator(a) é a da APRESENTAÇÃO, nunca a da aprovação. Quando o rótulo trouxer duas datas ("parecer do(a) relator(a) de … ; aprovado pela comissão em …" ou "substitutivo adotado pela comissão em …"), a aprovação é a SEGUNDA: escreva "o(a) relator(a) apresentou o parecer em <1ª data> e a comissão o aprovou em <2ª data>". Se o próprio documento da comissão registrar a data da reunião em que aprovou, use essa. Não fale em "redação final" de comissão. Escreva as datas no formato "20 de março de 2025" (dia e ano em algarismos), nunca com os números por extenso. No caso do parecer não votado, nunca escreva que a comissão "aprovou", "adotou" ou "rejeitou", nem chame de substitutivo "aprovado" ou "adotado" pela comissão o que só consta do voto do(a) relator(a). Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido; se o parecer não votado apenas recomenda a aprovação do texto recebido, diga isso. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
+    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." e "Parecer do(a) relator(a) na Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data. **O rótulo do documento diz se a comissão deliberou.** Documento "Parecer da Comissão ...": a comissão votou; use o formato "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data da aprovação>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>" — e só afirme que aprovou se o próprio documento registrar a deliberação; se ele trouxer só o relatório e o voto do(a) relator(a), escreva que o(a) relator(a) apresentou o parecer. Documento "Parecer do(a) relator(a) na Comissão ... — ainda não votado pela comissão": a comissão NÃO deliberou; use o formato "Na Comissão de <nome>, o(a) relator(a), Deputado(a) <nome>, apresentou em <data> parecer <pela aprovação | pela rejeição>, <com substitutivo que…>, ainda não votado pela comissão". **Datas.** A data do parecer do(a) relator(a) é a da APRESENTAÇÃO, nunca a da aprovação. Quando o rótulo trouxer duas datas ("parecer do(a) relator(a) de … ; aprovado pela comissão em …" ou "substitutivo adotado pela comissão em …"), a aprovação é a SEGUNDA: escreva "o(a) relator(a) apresentou o parecer em <1ª data> e a comissão o aprovou em <2ª data>". Se o próprio documento da comissão registrar a data da reunião em que aprovou, use essa. Não fale em "redação final" de comissão. Escreva as datas no formato "20 de março de 2025" (dia e ano em algarismos), nunca com os números por extenso. A data de cada parecer é a que está no rótulo do documento, inteira: não combine o dia e o mês de uma fonte com o ano de outra, e não acrescente observações sobre a data (como "data de referência documental"). No caso do parecer não votado, nunca escreva que a comissão "aprovou", "adotou" ou "rejeitou", nem chame de substitutivo "aprovado" ou "adotado" pela comissão o que só consta do voto do(a) relator(a). Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Só atribua à comissão ou ao substitutivo o que NÃO estava no texto que ela recebeu: regra que já constava do projeto original foi mantida, não introduzida. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido; se o parecer não votado apenas recomenda a aprovação do texto recebido, diga isso. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
@@ -4154,7 +4154,7 @@ ${instrucaoPareceres} Escreva a análise normalmente, sem fazer referência a es
 
 ## ${tituloDisposicoes}
 O que a proposição efetivamente muda ou cria? ${perguntaDisposicoes} ${temOriginal
-  ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
+  ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** Antes de escrever que o texto em votação "introduz", "cria", "acrescenta" ou "inclui" uma regra, localize o dispositivo correspondente na redação original: se a regra já está lá, escreva que o texto a MANTÉM (e diga o que mudou na redação, se mudou). Só chame de novo o que não existe na redação original. '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 ${secaoMPV}${secaoApensados}
 ## Argumentos favoráveis e contrários
@@ -4459,6 +4459,75 @@ function lerVerificacao(texto, markdown) {
     .slice(0, 10);
 }
 
+// ---------- Correção automática dos trechos apontados (3ª chamada, só quando há apontamento) ----------
+// O agente revisor aponta; o analista não deveria ter de reescrever à mão o que o próprio revisor consegue
+// corrigir com os documentos abertos (20/11/2026: as notas do gemini-3.1-flash-lite saíam com cotejo errado —
+// "o substitutivo introduz" o que já estava no projeto — e cada uma virava um aviso vermelho). O mesmo modelo
+// da revisão reescreve SÓ as frases apontadas. O programa aplica a troca apenas quando a frase devolvida
+// existe literalmente na nota, contém o trecho apontado e a frase nova já não o contém; o card mostra o
+// antes e o depois de cada uma. O que não puder ser corrigido assim continua como aviso.
+function promptCorrecao(markdown, itens, dados) {
+  return `Você é o(a) revisor(a) de notas técnicas legislativas. A NOTA abaixo foi conferida contra os documentos anexos (PDFs) e os DADOS DA PAUTA, e os TRECHOS numerados foram apontados como sem respaldo. Corrija cada um.
+
+Para cada trecho, reescreva a FRASE da nota que o contém, de acordo com os documentos:
+- se os documentos dizem outra coisa, escreva o que eles dizem;
+- se os documentos não tratam do assunto, reescreva a frase sem a afirmação — ou devolva "nova" vazia, para suprimir a frase;
+- mude só o necessário: mantenha o estilo, o tempo verbal e a marcação Markdown da frase; não acrescente informação que não esteja nos documentos; não inclua recomendação de voto;
+- a frase nova não pode repetir o trecho apontado;
+- se, ao conferir nos documentos, o trecho estiver correto, não o inclua na resposta.
+
+DADOS DA PAUTA:
+${(dados || '').slice(0, 6000)}
+
+NOTA:
+<<<
+${markdown}
+>>>
+
+TRECHOS APONTADOS:
+${itens.map((x, i) => `${i + 1}. "${x.trecho}"${x.motivo ? ` — ${x.motivo}` : ''}`).join('\n')}
+
+Responda SOMENTE com JSON, sem cercas de código, no formato {"correcoes":[{"n":1,"frase":"...","nova":"..."}]}:
+- "n": o número do trecho;
+- "frase": a frase inteira da nota que contém o trecho, copiada LITERALMENTE, da primeira letra ao ponto final, sem quebra de linha;
+- "nova": a frase corrigida, em uma linha só.`;
+}
+
+/** Lê a resposta da correção: [{ n, frase, nova }]. */
+function lerCorrecao(texto) {
+  const t = String(texto || '');
+  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
+  if (ini < 0 || fim < ini) throw new Error('resposta da correção sem JSON');
+  const j = JSON.parse(t.slice(ini, fim + 1));
+  return (Array.isArray(j.correcoes) ? j.correcoes : [])
+    .map(c => ({ n: parseInt(c?.n, 10), frase: String(c?.frase || '').trim(), nova: String(c?.nova ?? '').trim() }))
+    .filter(c => c.n >= 1 && c.frase);
+}
+
+/**
+ * Aplica as correções que passam na conferência do programa. Devolve a nota nova, o que foi corrigido
+ * (com antes e depois) e os apontamentos que ficaram pendentes.
+ */
+function aplicarCorrecoes(markdown, itens, correcoes) {
+  let md = String(markdown || '');
+  const corrigidos = [], pendentes = [];
+  (itens || []).forEach((item, i) => {
+    const c = (correcoes || []).find(x => x.n === i + 1);
+    const alvo = _planoTexto(item.trecho).trim();
+    const valida = c && c.frase !== c.nova
+      && c.frase.length <= 1500 && !/\n/.test(c.frase) && !/^#/.test(c.frase) && md.includes(c.frase)   // a frase existe na nota, como está
+      && (' ' + _planoTexto(c.frase) + ' ').includes(' ' + alvo + ' ')                                    // e é a que contém o trecho apontado
+      && !/\n/.test(c.nova) && !/^#/.test(c.nova) && c.nova.length <= Math.max(400, c.frase.length * 2)
+      && !(' ' + _planoTexto(c.nova) + ' ').includes(' ' + alvo + ' ');                                   // e a nova já não o contém
+    if (!valida) { pendentes.push(item); return; }
+    const pos = md.indexOf(c.frase);
+    const resto = md.slice(pos + c.frase.length);
+    md = (md.slice(0, pos) + c.nova + (c.nova ? resto : resto.replace(/^[ \t]+/, ''))).replace(/[ \t]{2,}/g, ' ').replace(/ +([.,;:])/g, '$1').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    corrigidos.push({ trecho: item.trecho, motivo: item.motivo || '', antes: c.frase.slice(0, 1500), depois: c.nova.slice(0, 1500) });
+  });
+  return { markdown: md.trim(), corrigidos, pendentes };
+}
+
 async function modeloDaVerificacao(pid, padrao) {
   try {
     const lista = await listarModelosDoProvedor(pid);
@@ -4485,24 +4554,57 @@ async function verificarNotaComIA(it, pdfBuffers, dados) {
     if (isAbortError(e)) { it._verificando = false; renderAnaliseCard(it); return; }
     v = { modelo, em: new Date().toISOString(), falhou: String(e.message || e).slice(0, 200) };
   } finally { iaInFlightDec(); }
+  // Há apontamentos: o mesmo agente revisor corrige as frases (nota editada à mão não é mexida).
+  let correcao = null;
+  if (v.itens && v.itens.length && it.analise?.markdown === markdown && it.analise.formato !== 'html') {
+    iaInFlightInc();
+    try {
+      const { text } = await chamarIA({ provedorId: pid, apiKey: state.config.apiKey, modelo,
+        prompt: promptCorrecao(markdown, v.itens, dados), pdfBuffers, opcoes: { maxSaida: 4000 } });
+      correcao = aplicarCorrecoes(markdown, v.itens, lerCorrecao(text));
+    } catch (e) {
+      if (isAbortError(e)) { it._verificando = false; renderAnaliseCard(it); return; }
+      v.correcaoFalhou = String(e.message || e).slice(0, 200);   // os apontamentos ficam, como antes
+    } finally { iaInFlightDec(); }
+  }
   it._verificando = false;
   // a nota foi regerada ou completada enquanto a verificação corria: o resultado é de outro texto
   if (!it.analise || it.analise.markdown !== markdown) return;
+  if (correcao && correcao.corrigidos.length) {
+    v.corrigidos = correcao.corrigidos;
+    v.itens = correcao.pendentes;
+    it.analise.markdown = correcao.markdown;
+    // a conferência de referências é do texto: refaz sobre a nota corrigida, sem perder os avisos de emendas
+    if (typeof calcularRefsSuspeitas === 'function') {
+      try {
+        const doTexto = await calcularRefsSuspeitas(markdown, pdfBuffers, dados);
+        const outras = (it.analise.refsSuspeitas || []).filter(r => !doTexto.includes(r));
+        it.analise.refsSuspeitas = [...await calcularRefsSuspeitas(correcao.markdown, pdfBuffers, dados), ...outras];
+      } catch (_) {}
+    }
+  }
   it.analise.verificacaoIA = v;
   renderAnaliseCard(it);
   fbSalvarAnalise(it).catch(e => console.warn('Firebase save (verificação) falhou:', e.message));
 }
 
-/** Avisos das duas camadas sobre a nota, no topo do card. */
+/** Avisos das duas camadas sobre a nota, no topo do card. Quem aponta e corrige é o "Agente revisor (<modelo>)". */
 function avisoVerificacaoHtml(it) {
-  if (it._verificando) return '<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888;font-style:italic">Verificação por IA em andamento…</div>';
+  if (it._verificando) return '<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888;font-style:italic">Agente revisor conferindo a nota…</div>';
   const vf = it.analise?.verificacaoIA;
   if (!vf) return '';
-  const mod = vf.modelo ? ` (${escapeHtml(vf.modelo)})` : '';
-  if (vf.falhou) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod} não concluída: ${escapeHtml(vf.falhou)}. Gere a análise de novo para tentar outra vez.</div>`;
-  const itens = vf.itens || [];
-  if (!itens.length) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod}: nenhum trecho sem respaldo apontado.</div>`;
-  return `<div class="an-aviso-verif" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #c0392b;background:#fdecea;border-radius:4px;font-size:13px;color:#611a15">⚠ <strong style="color:inherit">Verificação por IA${mod}:</strong> ${itens.length === 1 ? 'o trecho a seguir não tem' : 'os trechos a seguir não têm'} respaldo nos documentos, segundo o verificador. Confira antes de usar:<ul style="margin:6px 0 0 18px;padding:0">${itens.map(x => `<li>“${escapeHtml(x.trecho)}”${x.motivo ? ` — ${escapeHtml(x.motivo)}` : ''}</li>`).join('')}</ul></div>`;
+  const quem = `Agente revisor${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}`;
+  if (vf.falhou) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">${quem}: revisão não concluída — ${escapeHtml(vf.falhou)}. Gere a análise de novo para tentar outra vez.</div>`;
+  const itens = vf.itens || [], corrigidos = vf.corrigidos || [];
+  if (!itens.length && !corrigidos.length) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">${quem}: nenhum trecho sem respaldo apontado.</div>`;
+  let html = '';
+  if (corrigidos.length) {
+    html += `<div class="an-aviso-verif an-aviso-corrigido" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #2b6cb0;background:#eaf3fb;border-radius:4px;font-size:13px;color:#1a3a5c">✔ <strong style="color:inherit">${quem}:</strong> ${corrigidos.length === 1 ? 'encontrou um trecho sem respaldo nos documentos e corrigiu a frase' : `encontrou ${corrigidos.length} trechos sem respaldo nos documentos e corrigiu as frases`}. A nota abaixo já está corrigida; confira:<ul style="margin:6px 0 0 18px;padding:0">${corrigidos.map(x => `<li>${x.motivo ? `${escapeHtml(x.motivo)}<br>` : ''}<span style="text-decoration:line-through;opacity:.75">${escapeHtml(x.antes)}</span><br>${x.depois ? `<span>${escapeHtml(x.depois)}</span>` : '<em>(frase suprimida)</em>'}</li>`).join('')}</ul></div>`;
+  }
+  if (itens.length) {
+    html += `<div class="an-aviso-verif" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #c0392b;background:#fdecea;border-radius:4px;font-size:13px;color:#611a15">⚠ <strong style="color:inherit">${quem}:</strong> ${itens.length === 1 ? 'o trecho a seguir não tem' : 'os trechos a seguir não têm'} respaldo nos documentos${corrigidos.length || vf.correcaoFalhou ? ' e não pôde ser corrigido automaticamente' : ''}. Confira antes de usar:<ul style="margin:6px 0 0 18px;padding:0">${itens.map(x => `<li>“${escapeHtml(x.trecho)}”${x.motivo ? ` — ${escapeHtml(x.motivo)}` : ''}</li>`).join('')}</ul></div>`;
+  }
+  return html;
 }
 
 // ---------- MPV (8b): conferência das emendas citadas contra o parecer ----------

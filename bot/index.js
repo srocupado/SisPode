@@ -1272,10 +1272,17 @@ bot.callbackQuery(/^av:(ok|nova|no):([a-f0-9]+)$/, async ctx => {
     if (r.inconclusa) avisos.push('ℹ️ A nota da equipe foi aproveitada, mas a Câmara não respondeu na conferência de parecer novo — se a matéria andou nos últimos dias, use "Gerar nova".');
     if (r.refs.length) avisos.push(`⚠️ Conferência automática — não localizado nos documentos: ${r.refs.slice(0, 6).join('; ')}${r.refs.length > 6 ? '…' : ''}`);
     const vf = r.verificacao;
-    if (vf && vf.falhou) avisos.push(`ℹ️ Verificação por IA não concluída (${vf.falhou}).`);
-    else if (vf && (vf.itens || []).length) avisos.push(`⚠️ Verificação por IA (${vf.modelo}): ${(vf.itens || []).length} trecho(s) sem respaldo nos documentos — confira antes de enviar:\n` +
-      (vf.itens || []).slice(0, 5).map(x => `• "${String(x.trecho).slice(0, 140)}" — ${String(x.motivo || '').slice(0, 140)}`).join('\n'));
-    else if (vf) avisos.push(`✓ Verificação por IA (${vf.modelo}): nenhum trecho sem respaldo apontado.`);
+    // Quem aponta e corrige é o "Agente revisor (<modelo>)" — o mesmo nome do painel.
+    const revisor = vf ? `Agente revisor${vf.modelo ? ` (${vf.modelo})` : ''}` : '';
+    if (vf && vf.falhou) avisos.push(`ℹ️ ${revisor}: revisão não concluída (${vf.falhou}).`);
+    else if (vf) {
+      const corr = vf.corrigidos || [], pend = vf.itens || [];
+      if (corr.length) avisos.push(`✔️ ${revisor}: ${corr.length} trecho(s) sem respaldo nos documentos, já corrigido(s) na nota:\n` +
+        corr.slice(0, 5).map(x => `• "${String(x.trecho).slice(0, 140)}" — ${String(x.motivo || '').slice(0, 140)}`).join('\n'));
+      if (pend.length) avisos.push(`⚠️ ${revisor}: ${pend.length} trecho(s) sem respaldo nos documentos${corr.length ? ', não corrigido(s) automaticamente' : ''} — confira antes de enviar:\n` +
+        pend.slice(0, 5).map(x => `• "${String(x.trecho).slice(0, 140)}" — ${String(x.motivo || '').slice(0, 140)}`).join('\n'));
+      if (!corr.length && !pend.length) avisos.push(`✓ ${revisor}: nenhum trecho sem respaldo apontado.`);
+    }
     await ctx.replyWithChatAction('upload_document');
     await ctx.replyWithDocument(
       new InputFile(r.pdf, `Nota tecnica - ${rot.replace(/\//g, '-')}.pdf`),

@@ -95,13 +95,18 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(/registre que há parecer de relator\(a\) em comissão ainda não votado/.test(secPar) && /sempre como proposta do\(a\) relator\(a\)/.test(secPar), 'o substitutivo não votado entra como proposta do relator, com o que difere do projeto');
   const pSbt = PR.montarPrompt(pl, [{ tipo: 'SBT_A', rotulo: 'Substitutivo adotado por comissão (SBT-A nº 1 — CDHMIR de 02/09/2025)', url: 'u' }, { tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: 'u' }, dSim]);
   ok(/descreva diretamente o conteúdo do parecer\/substitutivo\/emendas que está sendo votado/.test(pSbt) && !/o texto em votação é o do projeto original/.test(pSbt), 'com substitutivo adotado, a instrução de antes continua valendo');
+  // CASOS REAIS (PL 2819/2020 e PL 1969/2022, 19/11/2026): a nota disse que o substitutivo "introduz" a definição de racismo
+  // institucional e a natureza personalíssima do benefício, que já estavam no projeto original; e escreveu
+  // "1 de junho de 2021 (data de referência documental)" para um parecer de 01/06/2022.
+  ok(/Antes de escrever que o texto em votação "introduz", "cria", "acrescenta" ou "inclui" uma regra, localize o dispositivo correspondente na redação original/.test(pSbt) && /Só chame de novo o que não existe na redação original/.test(pSbt), 'cotejo: o que já estava na redação original foi mantido, não introduzido');
+  ok(/regra que já constava do projeto original foi mantida, não introduzida/.test(pSbt) && /A data de cada parecer é a que está no rótulo do documento, inteira/.test(pSbt), 'pareceres das comissões: não atribuir ao substitutivo o que já era do projeto; data inteira do rótulo, sem observações');
   const pVotado = PR.montarPrompt(pl, [inteiro, dSim]);
   ok(!/ATENÇÃO À NATUREZA DO PARECER DE COMISSÃO/.test(pVotado), 'com parecer votado, o aviso do cenário não aparece');
   const pdl = { sigla: 'PDL', numero: '10', ano: '2026', tipoCategoria: 'projeto', ementa: 'Aprova o texto do Acordo…', enriquecimento: {} };
   ok(/Documento com o rótulo "ainda não votado pela comissão" é parecer só apresentado/.test(PR.promptPDL(pdl, [inteiro, dNao])), 'PDL: o parágrafo por comissão também distingue o parecer só apresentado');
 
   console.log('\n== 4. rótulo dos avisos legível ==');
-  ok(/<strong style="color:inherit">Verificação por IA\$\{mod\}:<\/strong>/.test(src) && /<strong style="color:inherit">Conferência automática de referências/.test(src), 'os dois avisos de fundo claro herdam a cor escura no rótulo em negrito');
+  ok(/<strong style="color:inherit">\$\{quem\}:<\/strong>/.test(src) && /<strong style="color:inherit">Conferência automática de referências/.test(src), 'os dois avisos de fundo claro herdam a cor escura no rótulo em negrito');
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);

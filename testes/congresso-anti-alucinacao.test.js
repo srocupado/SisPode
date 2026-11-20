@@ -124,7 +124,7 @@ Altera a Lei nº 15.346, de 14 de janeiro de 2026.`;
   ok(pedidos.filter(x => x.m === 'PUT' && /plns\/pln-23-2026/.test(x.url)).length === 2 && /verificacaoIA/.test(pedidos.filter(x => /plns\/pln-23-2026/.test(x.url)).at(-1).body), 'PLN: salvo com a análise e de novo com a verificação');
   ok(!JSON.parse(pedidos.filter(x => /plns\/pln-23-2026/.test(x.url)).at(-1).body)._verificando, 'o estado transitório (_verificando) não vai para o Firebase');
   ctx.__html = av('renderPlnCard(__p, "")');
-  ok(/Conferência automática/.test(ctx.__html) && /Verificação por IA \(gemini-3\.8-flash\)/.test(ctx.__html) && /185,55 bilhões/.test(ctx.__html) && /Parecer de Plenário \(PDF\)/.test(ctx.__html), 'card do PLN: os dois avisos e o rótulo do documento no link');
+  ok(/Conferência automática/.test(ctx.__html) && /Agente revisor \(gemini-3\.8-flash\)/.test(ctx.__html) && /185,55 bilhões/.test(ctx.__html) && /Parecer de Plenário \(PDF\)/.test(ctx.__html), 'card do PLN: os dois avisos e o rótulo do documento no link');
 
   ctx.__ia.falhar = new Error('HTTP 429');
   await av('resumirPLN(__p, { silencioso: true })');
