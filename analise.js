@@ -8768,8 +8768,8 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
             <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. O custo <b>${AVISO_PARECER.tokens}</b>.</li>
           </ul>
         </div>
-        ${apoioSenado.length ? `<div class="form-group" id="dlg-parecer-senado"><label>Documentos do Senado (lidos junto com os da Câmara)</label>
-          <div style="font-size:11.5px;color:var(--text-dim);margin:0 0 6px;line-height:1.5">A matéria passou pelo Senado. Estes documentos de lá dão à nota a comparação entre versões, as estimativas e o destino das emendas. Desmarque o que não quiser incluir; mais documentos, mais tempo e consumo.</div>
+        ${apoioSenado.length ? `<div class="form-group" id="dlg-parecer-senado"><label>Documentos de apoio (lidos junto com os da Câmara)</label>
+          <div style="font-size:11.5px;color:var(--text-dim);margin:0 0 6px;line-height:1.5">Documentos do Senado sobre a matéria e notas das consultorias de orçamento das duas Casas. Eles dão à nota a comparação entre versões, as estimativas e o destino das emendas. Desmarque o que não quiser incluir; mais documentos, mais tempo e consumo.</div>
           ${apoioSenado.map((d, i) => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;font-weight:400;margin:3px 0;cursor:pointer"><input type="checkbox" data-senado="${i}" checked style="margin-top:2px"><span>${escapeHtml(d.rotulo)}</span></label>`).join('')}</div>` : ''}
         <div class="form-group"><label>Provedor</label>
           <select id="dlg-parecer-provedor" class="form-input">${provedores.map(p => `<option value="${p}"${comChave.includes(p) ? '' : ' disabled'}>${escapeHtml(PROVEDORES_META[p].label)}${comChave.includes(p) ? '' : ' — sem chave cadastrada'}</option>`).join('')}</select></div>
@@ -8824,20 +8824,22 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
 
 async function gerarParecerEspecialista(it) {
   const cfg = state.config || {};
-  // --- documentos de apoio do Senado (matéria que passou por lá) -------------
+  // --- documentos de apoio: do Senado e das consultorias de orçamento ---------
   // A Câmara registra só o que recebeu (o autógrafo) e o que produziu; pareceres, primeira versão do relatório,
-  // texto inicial e emendas aprovadas estão no Senado. O programa os oferece no diálogo, já marcados. Não vale
-  // para documento anexado pelo(a) analista nem para a matéria ainda sem registro na Câmara (item provisório,
-  // que já usa os documentos do Senado). A consulta tem prazo curto: Senado lento não segura o diálogo.
+  // texto inicial e emendas aprovadas estão no Senado (senado-materia.js). As notas das consultorias de orçamento
+  // das duas Casas ficam nas páginas de estudos delas (notas-consultoria.js). O programa oferece tudo no diálogo,
+  // já marcado. Não vale para documento anexado pelo(a) analista; os documentos do Senado também não entram no
+  // item ainda sem registro na Câmara, que já os usa. As consultas têm prazo curto: site lento não segura o diálogo.
   let apoioSenado = [];
-  if (!docsProprios(it) && !it.provisorio && typeof senadoApoioDaMateria === 'function' && senadoTemSigla(it.sigla)) {
-    try {
-      const r = await Promise.race([
-        senadoApoioDaMateria({ sigla: it.sigla, numero: it.numero, ano: it.ano, ementa: it.ementa || '' }, fetchJson),
-        new Promise(ok => setTimeout(() => ok(null), 8000)),
-      ]);
-      apoioSenado = (r && r.documentos) || [];
-    } catch (e) { console.warn('NTA: documentos do Senado não consultados', e.message); }
+  if (!docsProprios(it)) {
+    const mat = { sigla: it.sigla, numero: it.numero, ano: it.ano, ementa: it.ementa || '' };
+    const comPrazo = p => Promise.race([p, new Promise(ok => setTimeout(() => ok(null), 8000))]).catch(e => { console.warn('NTA: documentos de apoio não consultados', e.message); return null; });
+    const textoDe = async u => { const r = await fetch(u, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.text(); };
+    const [sen, notas] = await Promise.all([
+      !it.provisorio && typeof senadoApoioDaMateria === 'function' && senadoTemSigla(it.sigla) ? comPrazo(senadoApoioDaMateria(mat, fetchJson)) : null,
+      typeof consultoriasBuscarNotas === 'function' ? comPrazo(consultoriasBuscarNotas(mat, textoDe)) : null,
+    ]);
+    apoioSenado = [...((sen && sen.documentos) || []), ...(notas || [])];
   }
   // --- provedor e modelo confirmados no diálogo ----------------------------
   const esc = await confirmarModeloParecer(it, { apoioSenado });
@@ -8870,7 +8872,7 @@ async function gerarParecerEspecialista(it) {
       abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar a Nota Técnica Analítica (NTA) sobre ele.');
       return;
     }
-    // Os documentos do Senado escolhidos no diálogo entram DEPOIS dos da Câmara: o texto em votação continua
+    // Os documentos de apoio escolhidos no diálogo (Senado e consultorias) entram DEPOIS dos da Câmara: o texto em votação continua
     // sendo o primeiro da lista. Não levam a marca doSenado, que é a do item sem registro na Câmara.
     for (const d of esc.apoioSenado || []) if (!docsMeta.some(x => x.url === d.url)) docsMeta.push(d);
     const docs = [];
