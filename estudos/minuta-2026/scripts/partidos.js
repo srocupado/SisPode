@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Linhagem dos partidos (fusões e incorporações registradas no TSE), para comparar eleições:
 // a sigla de um ano → a sigla sucessora no ano seguinte.

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes do parser da Pauta de Plenário (pauta-parser.js).
 //
 // Nasceu de um defeito real: na pauta de 12/08/2026 o módulo identificou 26 de

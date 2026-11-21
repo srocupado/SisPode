@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // SisPode — o que as telas de análise têm em comum: cliente de IA (Gemini,
 // OpenAI, Anthropic, com streaming e retry), cancelamento global, download de
 // PDF, markdown da nota, sanitização do HTML do editor, utilitários de tela e
@@ -5,6 +6,9 @@
 // Comissões passou a precisar do mesmo cliente; é script clássico e vive no
 // mesmo escopo global das páginas que o carregam (analise.html e
 // pautas-comissoes.html) — carregue-o ANTES do script da tela.
+
+const IA_REV = 'f4ae9448a321e1e97364ff634b802bb7953d8e2f1cc9d3bf4d0ae7d51f8b6494';
+if (typeof globalThis !== 'undefined') globalThis.__spRev = IA_REV;
 
 const PROVEDORES_META = {
   gemini: {

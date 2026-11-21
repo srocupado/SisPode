@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Labs · Mapa Territorial — NÚCLEO compartilhado entre a extensão (labs-mapa.js,
 // processamento manual no navegador) e o bot (bot/src/labsmapa.js, /labsmapa).

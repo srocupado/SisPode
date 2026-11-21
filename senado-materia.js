@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Matéria que está na pauta da Câmara e que a Câmara ainda não registrou: o que o Senado sabe dela.
 //
 // Nasceu em 17/11/2026, com o PLP 299/2026. A matéria entrou na pauta do Plenário da Câmara antes de o

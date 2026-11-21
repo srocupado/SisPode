@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Leitura das fontes das leis orçamentárias (cmo.js) — Senado + portal do
 // Congresso Nacional.
 //

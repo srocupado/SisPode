@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Sistemas Eleitorais — núcleo das simulações (proporcional, distritão, distritão misto).
 // O motor proporcional foi conferido com o resultado oficial: 2026 (servidor de
 // resultados, 27 UFs × Câmara e Assembleia) e 2022 (dados abertos) — os casos

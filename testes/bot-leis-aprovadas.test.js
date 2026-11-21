@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Coletor server-side do relatório "Deputados com projetos convertidos em lei"
 // (bot/src/leisaprovadas.js) — a parte que baixa e filtra os arquivos em massa
 // da Câmara e agrega o ranking. Nada aqui toca a rede real nem o Firebase real:

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Monitor de Sessão ao Vivo do Plenário.
 //   OCIOSO  → poll /eventos (60 s, janela útil) → sessão deliberativa Em Andamento

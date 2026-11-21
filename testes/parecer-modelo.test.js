@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — escolha de modelo por faixa e prompt de apuração.
 // Uso: node testes/parecer-modelo.test.js
 const path = require('path');

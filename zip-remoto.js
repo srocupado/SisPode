@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Leitura de um zip REMOTO por partes (HTTP Range), sem baixar o arquivo
 // inteiro: o índice (diretório central, com ZIP64) vem do fim do arquivo e cada

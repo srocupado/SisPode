@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Estudo 4 (aplicação): as prefeituras de 2028 que mais valem para o candidato de distrito do PODEMOS.
 // Valor esperado de uma prefeitura = efeito estimado (RD, por porte; zero acima de 50 mil votos, onde o

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Revisão do módulo Relatórios de 11/11/2026 — sistema eleitoral e demais relatórios.
 //
 // O que este teste trava (um bloco por achado da revisão):

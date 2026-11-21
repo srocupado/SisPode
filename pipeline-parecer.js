@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — o PIPELINE, independente da tela.
 //
 // Recebe o contexto da proposição e as funções de acesso (modelo, rede,

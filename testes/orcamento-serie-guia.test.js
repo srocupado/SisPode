@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Série histórica das cotas (serie.js) e guia de aplicação (guia-emendas.js).
 //
 // Os dois produtos que faltavam para a nota falar com o deputado, e não só com

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 const crypto = require('crypto');
 const { PAUTA_URL } = require('./config');

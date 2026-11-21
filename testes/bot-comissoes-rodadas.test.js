@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · varredura de comissões com a API fora e o portal limitando pedidos:
 // UMA mensagem, só com tudo coletado.
 //

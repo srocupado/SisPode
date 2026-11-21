@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Sustentação do posicionamento, para a aba "Como votou o deputado".
 //
 // Arquivo separado de resumos.js de propósito. Os dois chamam o mesmo provedor

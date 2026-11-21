@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Perfil dos CANDIDATOS a deputado (federal, estadual, distrital) para o
 // distrital misto do simulador: o vencedor simulado de um distrito pode ser

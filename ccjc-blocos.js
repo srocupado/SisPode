@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 
 // ── BLOCOS E NÚMEROS DOS ITENS DA PAUTA DA CCJC ─────────────────────────────

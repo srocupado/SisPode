@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Imagem do resultado de votação — o DESENHO (SVG), compartilhado entre o bot e
 // a extensão, para o print ser o mesmo nos dois:
 //  - bot (bot/src/imagem.js): rasteriza em PNG pelo sharp e manda no grupo;

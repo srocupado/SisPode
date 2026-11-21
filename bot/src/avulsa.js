@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // /avulsa — NOTA TÉCNICA de uma proposição FORA da pauta, pedida por um servidor para produzir conteúdo
 // técnico avulso para o parlamentar (pedido de 16/11/2026). A nota sai pelo MESMO caminho de um item de

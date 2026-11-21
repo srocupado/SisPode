@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Persistência LOCAL (bot/dados/, fora do git): perfis dos analistas — com as
 // chaves de API de cada um — e a allowlist dinâmica. Chave de API é segredo:

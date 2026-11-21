@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · aviso de CONVOCAÇÃO de sessão deliberativa e formato do WhatsApp.
 //
 // Pedido de 10/11/2026: quando o site publica a sessão deliberativa, o grupo

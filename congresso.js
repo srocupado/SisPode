@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
  *  MÓDULO: VETOS DO CONGRESSO NACIONAL
  *  - Lista os vetos em tramitação a partir do "Relatório Resumo de

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // A nota técnica que o módulo produz (orcamento-notas.js), montada sobre o
 // quadro REAL da matéria lida pelo cmo.js.
 //

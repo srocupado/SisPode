@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Sistemas eleitorais · PERFIL DOS DISTRITOS (distrital misto) — núcleo PURO
 // (sem DOM, sem rede). Exportado para os testes (Node); na extensão, global.

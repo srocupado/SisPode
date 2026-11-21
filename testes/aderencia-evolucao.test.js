@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // O gráfico "Evolução da Aderência" (aderencia.js).
 //
 // O defeito que o usuário viu em 15/09/2026, com PODE de 01/08 a 31/08/2026:

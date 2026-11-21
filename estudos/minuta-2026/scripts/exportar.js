@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Exporta, por UF, os dados do simulador na regra da Minuta (deputado federal e estadual):
 // si.dados[uf], o op do distrital e porUf[uf] (desenho, base, votos), afinado pelos locais de votação.
 // Uso: node exportar.js <perfil-dir> <saida-dir> UF[,UF...]

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // VERBETES DE PRECEDENTE das questões de ordem — GERADO, não editar à mão.
 // Refazer com: node scripts/extrair-qo.js && node scripts/gerar-precedentes.js

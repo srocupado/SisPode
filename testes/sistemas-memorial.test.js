@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Sistemas eleitorais — memorial de cálculo: as abas da planilha, as fórmulas e as conferências.
 // A planilha refaz cada conta por fórmula; aqui, o valor que acompanha cada fórmula
 // (calculado pelo memorial, independente do simulador) tem de conferir com o simulador.

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Baixa o INTEIRO TEOR das questões de ordem para dados/qordem-teor.json.
 //

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Notas das consultorias de orçamento da Câmara e do Senado, juntadas aos documentos da NTA (21/11/2026).
 // Uso: node testes/notas-consultoria.test.js
 const fs = require('fs'), path = require('path');

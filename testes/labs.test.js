@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Labs — Simulador de Negociação e Mapa Territorial.
 //
 // O que este teste trava:

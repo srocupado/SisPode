@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Repercussão pública da matéria, na aba "Como votou o deputado".
 //
 // Esta é a única camada do relatório cujo material não é da Câmara: vem da web

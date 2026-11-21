@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — a FICHA DO OBJETO. (arquivo ficha-objeto.js: o
 // módulo de Orçamento tem a sua própria ficha, de parâmetros, em ficha.js)
 //

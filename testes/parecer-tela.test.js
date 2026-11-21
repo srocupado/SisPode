@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista v3 — a página do Plenário carrega os módulos no
 // mesmo escopo, e o pipeline roda DENTRO desse escopo (modo navegador: sem
 // require, sem eval, referências pelo identificador) com um modelo falso.

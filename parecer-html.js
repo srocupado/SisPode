@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — o formato de impressão, compartilhado entre a
 // extensão (janela de impressão com paged.js) e a prova de conceito em Node.
 //

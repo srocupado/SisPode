@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Escolha do modelo de IA dentro do módulo de relatórios.
 //
 // O caso que originou isto: o analista tinha gemini-3.1-flash-lite nas

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Para cada UF: o desenho do simulador + M desenhos alternativos (multi-início aleatório: o mesmo
 // algoritmo do simulador sobre coordenadas perturbadas por município, depois as mesmas regras de

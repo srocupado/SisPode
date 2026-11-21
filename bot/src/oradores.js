@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // ORADORES da sessão do Plenário — quem falou / foi chamado / aguarda, por
 // lista (Breves Comunicações, Comunicações de Liderança, Discussão e

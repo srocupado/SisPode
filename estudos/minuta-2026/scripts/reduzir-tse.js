@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reduz os arquivos do TSE a JSON compactos por município (código TSE).
 //  partidos-<ano>.json: deputado federal (6) e estadual/distrital (7/8): { mun: { uf, nome, f: {SG: votos}, e: {SG: votos} } }
 //  municipais-<ano>.json: prefeito (11) e vereador (13): { mun: { uf, nome, pref: [{sg, votos, turno, eleito}], ver: {SG: {eleitos, votosEleitos, top3}} } }

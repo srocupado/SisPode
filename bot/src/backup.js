@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Rede de segurança contra perda de dados no Firebase (regras abertas: qualquer
 // aba/dispositivo pode sobrescrever/apagar). O bot roda 24h, então tira

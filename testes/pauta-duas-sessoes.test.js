@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Duas pautas no MESMO dia — a segunda importação não pode apagar a primeira.
 //
 // Relato de 02/09/2026: a Câmara pautou duas sessões deliberativas no mesmo

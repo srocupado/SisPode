@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    PAUTA-PARSER — extração e parsing da Pauta da Semana
    Módulo compartilhado entre os painéis Análise de Pauta (analise.js)

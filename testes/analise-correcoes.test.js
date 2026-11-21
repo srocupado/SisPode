@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções da varredura de 14/09/2026 — cada teste abaixo nasceu de um defeito
 // encontrado no código e confirmado lendo/executando o trecho. O teste reproduz
 // o CENÁRIO que produzia informação errada na mão do deputado, não a linha.

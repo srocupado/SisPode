@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Análise da pauta: o HTML da Câmara vai ao DOMParser sem atributos de evento.
 //
 // O caso (28/10/2026): a página de pareceres (prop_pareceres_substitutivos_votos)

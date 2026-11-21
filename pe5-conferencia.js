@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — A CONFERÊNCIA DO PROGRAMA.
 //
 // A conferência anterior media forma: seção presente, parágrafo com identificador, número "na base". Deu

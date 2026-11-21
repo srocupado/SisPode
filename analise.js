@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    ANÁLISE DA PAUTA – PODEMOS
    Painel que importa a Pauta da Semana (PDF), identifica projetos

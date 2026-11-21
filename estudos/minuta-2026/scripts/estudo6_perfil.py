@@ -1,3 +1,4 @@
+# SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 # Estudo 6 — O perfil dos municípios explica a votação do PODEMOS (deputado federal, 2026)?
 # Regressão logística fracionária (GLM binomial, pesos = votos válidos) da fatia do PODEMOS sobre os
 # indicadores do perfil (TSE + Censo 2022, padronizados) e efeitos fixos de UF, nos estados em que o

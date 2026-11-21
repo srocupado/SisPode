@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas de Comissões — a TELA, no escopo da página (vm + linkedom), com a
 // API da Câmara e o Firebase falsos: a página carrega, as abas aparecem (Semana
 // + 30 comissões), a semana lista as reuniões, o calendário de uma comissão

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aviso de tribuna FORA DE CONTEXTO (13/08/2026): a varredura de oradores
 // atrasou e o aviso "🎙 Na tribuna: ... — Discussão PL 1842/2025" caiu no meio
 // da apreciação do PL 5415/2005. Quem lê o grupo associa o orador ao item

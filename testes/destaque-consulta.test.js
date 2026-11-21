@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // O texto do destaque sobrevive à votação.
 //
 // O defeito: no instante em que a Câmara registrava "Aprovado", o destaque

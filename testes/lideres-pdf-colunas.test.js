@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reunião de Líderes · leitura do PDF com número de colunas VARIÁVEL e
 // conferência por IA do que a leitura não entregar.
 //

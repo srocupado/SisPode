@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Labs · Apuração 2026 — leitura dos arquivos de divulgação do TSE.
 // Formato conferido no arquivo real de SP (ele2026/6259, Deputado Federal) em 03/10/2026.
 // Uso: node testes/labs-apuracao.test.js

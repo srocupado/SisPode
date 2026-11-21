@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Camada de IA do módulo de orçamento (orcamento-ia.js).
 //
 // A regra do projeto é uma só: a IA lê e redige, o JS confere. Estes testes não

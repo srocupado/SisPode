@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Dossiê de dados do Parecer de Especialista — fases 3 a 6 por JS.
 //
 // O que estes testes travam, com os documentos REAIS do caso das blusinhas

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — O DOCUMENTO.
 //
 // Recebe o parecer estruturado (pe5-pipeline.js) e devolve o HTML de impressão, no padrão institucional.

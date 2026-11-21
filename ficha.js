@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    FICHA DE PARÂMETROS — os números operacionais de um exercício
 

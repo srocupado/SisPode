@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Gera o HTML do estudo (identidade visual da Liderança) e o PDF (Playwright, A4 deitado).
 const fs = require('fs'), path = require('path');

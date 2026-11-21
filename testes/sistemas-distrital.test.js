@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Sistemas eleitorais · distrital misto — malha, leitura, unidades, desenho dos distritos e eleição.
 // O desenho foi conferido com os dados reais de 2026 (TSE + IBGE): AC, DF, ES, SP, MG e RJ.
 // Uso: node testes/sistemas-distrital.test.js

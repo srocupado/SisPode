@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Apuração · De onde vieram os votos — para qualquer candidato a deputado
 // federal, estadual ou distrital (botão 📍 na linha do candidato).

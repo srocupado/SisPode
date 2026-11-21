@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Worker de painel — o bot sobe um Chromium invisível COM A EXTENSÃO SisPode
 // carregada e comanda o módulo "Análise de Pauta" por dentro (page.evaluate),

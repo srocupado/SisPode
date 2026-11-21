@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções do lote 4 da varredura (15/09/2026) — parser da pauta, gravação do
 // parecer, deflator do dossiê e validação de URL das fontes.
 //

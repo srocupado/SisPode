@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Configurações de IA do módulo de Relatórios: provedor, chave e modelo.
 //
 // Mesmo desenho das outras telas (pautas-comissoes, analise): engrenagem na

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pauta: o relator aparece como "Dep. Nome (PARTIDO-UF)", venha de onde vier.
 //
 // O caso (28/10/2026): a Ordem do Dia importada pelo bot (bot/src/odd.js)

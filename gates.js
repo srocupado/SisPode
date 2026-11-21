@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — GATES e RUBRICA DE MÁQUINA.
 //
 // Cada gate nasceu de um defeito visto numa rodada real:

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Pauta de COMISSÕES pelo PORTAL da Câmara — o caminho de reserva de comissoes.js
 // quando a API de Dados Abertos está fora do ar.

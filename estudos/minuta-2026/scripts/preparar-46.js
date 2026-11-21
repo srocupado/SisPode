@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Bases dos estudos 4 (prefeituras 2024 × votação para deputado federal) e 6 (perfil × votação do PODEMOS).
 const fs = require('fs'), path = require('path');

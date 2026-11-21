@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot: print das votações NOMINAIS da sessão do Congresso Nacional (12/11/2026).
 //
 // A sessão conjunta corre no Plenário da Câmara, com o painel de votação no mesmo portal, mas nos Dados

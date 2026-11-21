@@ -1,3 +1,4 @@
+# SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 # Estudo 4 — Efeito de governar a prefeitura (2024) sobre a votação do partido para deputado federal
 # (variação 2022→2026 da fatia do partido no município). Regressão descontínua (RD) pela margem da
 # disputa decisiva de 2024: cada município entra duas vezes (o partido que venceu, margem +m; o que

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — A COLETA DO PROGRAMA.
 //
 // Tudo o que é dado estruturado vem daqui, nunca do modelo: regime de tramitação, urgência, votações

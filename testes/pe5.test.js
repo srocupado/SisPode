@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista REFEITO (17/11/2026) — pe5-coleta, pe5-prompts, pe5-pipeline, pe5-conferencia, pe5-html.
 //
 // Por que foi refeito: três pareceres do formato anterior, medidos com a mesma régua (PDL 557/2026,

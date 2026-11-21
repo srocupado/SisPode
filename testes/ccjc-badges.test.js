@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Badges do Podemos na CCJC — autoria (etapa 1 do port vindo do Plenário).
 //
 // A CCJC já fazia a chamada certa e jogava o resultado fora: pegava os três

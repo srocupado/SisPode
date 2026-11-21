@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Notas das consultorias de orçamento da Câmara e do Senado sobre a matéria — para a Nota Técnica Analítica (NTA).
 //
 // Nasceu em 21/11/2026, com o PLP 299/2026. A crítica mais útil ao texto (estimativas não refeitas, simulação do

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Item provisório: proposição que está na pauta do Plenário e que a Câmara ainda não registrou.
 //

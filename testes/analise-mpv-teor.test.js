@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // MPV com parecer: o teor das emendas acolhidas que o parecer só cita por número.
 //
 // O caso (15/10/2026, MPV 1370/2026): o Relatório Legislativo da Comissão Mista

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista v3 — ficha, tese, contraditório, gates, rubrica e o
 // pipeline inteiro sem rede e com modelo falso.
 //

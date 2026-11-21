@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Labs · Mapa Territorial — mesma coleta do /labsmapa, fora do Telegram.
 // Não precisa de BOT_TOKEN: roda em qualquer máquina com Node e com os arquivos

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reenvio do Telegram: o que é falha transitória, o que é recusa definitiva.
 // Uso: node testes/bot-reenvio.test.js
 const path = require('path');

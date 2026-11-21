@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    EMENDAS DO FUNDO NACIONAL DE SAÚDE
    Monitora as propostas de emenda parlamentar à saúde (individuais, de

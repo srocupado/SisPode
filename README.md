@@ -998,3 +998,7 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 - Node.js LTS
 - Token de bot do Telegram (BotFather) e o ID do grupo da equipe
 - Chave de IA por usuário (`/config`) para conversa natural e geração de notas
+
+## Autoria
+
+Programa de autoria de **Vinicius Lara (VLQ)**, desenvolvido em 2025-2026. Cada arquivo do programa traz o aviso de autoria na primeira linha, e a declaração completa está no arquivo `AUTORIA`. As bibliotecas da pasta `libs/` são de terceiros e seguem as licenças dos respectivos autores.

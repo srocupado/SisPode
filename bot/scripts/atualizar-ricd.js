@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Regera src/ricd.js a partir do texto consolidado do LEGIN.
 // Rode SÓ quando uma nova Resolução alterar o Regimento — o arquivo embutido é

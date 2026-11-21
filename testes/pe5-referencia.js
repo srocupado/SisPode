@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista novo — o CASO DE REFERÊNCIA, sem API.
 //
 // O pipeline inteiro (pe5-pipeline.js) roda com o modelo trocado pelas respostas gravadas em

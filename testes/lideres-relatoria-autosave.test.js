@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reunião de Líderes · relatoria (designado × pedido) e salvamento automático.
 //
 // 10/11/2026, dois pedidos:

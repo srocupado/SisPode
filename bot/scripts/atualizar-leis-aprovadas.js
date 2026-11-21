@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Popula/atualiza o relatório "Deputados com projetos convertidos em lei" no
 // Firebase. Baixa os arquivos em massa da Câmara (server-side — sem a barreira

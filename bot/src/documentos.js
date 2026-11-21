@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Seletor de documentos da tramitação — porte de analise.js
 // (listarDocumentosDisponiveis / listarDocsPareceres / listarEmendas /

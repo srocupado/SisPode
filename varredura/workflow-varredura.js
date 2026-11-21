@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 export const meta = {
   name: 'varredura-sispode-lote',
   description: 'Varre um lote de áreas do SisPode em busca de defeitos que produzam informação errada, perda de dado ou vazamento de chave',

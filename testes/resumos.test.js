@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Resumo de cada item votado, na aba "Como votou o deputado".
 //
 // A tramitação diz que se votou "DTQ 3: Bloco UNIÃO (SD): Emenda de Plenário

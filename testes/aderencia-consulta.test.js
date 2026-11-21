@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aba "Como votou o deputado" do módulo Relatórios (antes: Aderência ao Governo).
 //
 // A primeira aba responde "quanto o partido X aderiu ao governo no período".

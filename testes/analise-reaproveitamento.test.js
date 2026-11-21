@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reaproveitamento da análise entre o requerimento de urgência e o projeto.
 //
 // A pauta traz, com frequência, o requerimento de urgência de um projeto e o

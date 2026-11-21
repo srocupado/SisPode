@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // ESPIÃO do Plenário ao vivo (cosev/ws-plenario) — modo calibração.
 //

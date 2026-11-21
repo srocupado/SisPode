@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Imagem do resultado de votação — equivalente server-side do generateImage
 // da extensão. O desenho (SVG) está em imagem-svg.js, compartilhado com a

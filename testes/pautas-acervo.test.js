@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Acervo de regressão das pautas de Plenário: o texto REAL de cada pauta que
 // já deu problema, como a extensão o extrai do PDF, com o resultado esperado.
 //

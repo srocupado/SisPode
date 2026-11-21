@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    MPV — documentos de Medida Provisória no Senado/Congresso e na Câmara
    Compartilhado entre Destaques (panel.js) e Análise de Pauta (analise.js).

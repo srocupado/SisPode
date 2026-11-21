@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Cópia dos dados do IBGE no Firebase (malhas, municípios, população do Censo 2022).
 //

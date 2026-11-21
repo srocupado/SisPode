@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // MEDIDOR da busca de questões de ordem. Toda mudança na busca passa por aqui
 // antes de ir para o main — foi a falta disto que deixou passar as regressões

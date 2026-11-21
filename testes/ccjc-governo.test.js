@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas CCJC · posição do governo (ccjc-governo.js): o sumário do PDF
 // "Liderança Digital" da Liderança do Governo na CD, lido sem IA.
 // Fixture: o texto do sumário da pauta de 03/11/2026, como a extensão o extrai

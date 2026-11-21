@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    PAUTAS CCJC – PODEMOS
    Módulo de análise de projetos da CCJC com suporte a múltiplos

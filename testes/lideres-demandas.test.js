@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes dos sistemas 2 (Demandas de Deputados) e 3 (E-mail de Demandas) do
 // módulo Reunião de Líderes.
 //

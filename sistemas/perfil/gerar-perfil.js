@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Gera o PERFIL de cada local de votação para o distrital misto do simulador:
 //  · TSE — perfil do eleitorado por seção (escolaridade, faixa etária,

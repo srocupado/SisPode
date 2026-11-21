@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Monitor do bot: o resumo da sessão espera o despacho de destino.
 //
 // O caso (28/10/2026): fim da ODD às 16:52:29, resumo às 16:53:08 sem o

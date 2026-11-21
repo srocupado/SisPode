@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Dados de votações nominais do Plenário — porte de votacao.js da extensão
 // (loadEvent + loadVotes + a preparação de dados do buildVotingHTML).

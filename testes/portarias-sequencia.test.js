@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Orçamento · Comparador de Portarias — a SEQUÊNCIA (limpeza e relações, sem IA).
 //
 // Amostras no formato dos atos reais da equipe (impressos do gov.br/Transferegov):

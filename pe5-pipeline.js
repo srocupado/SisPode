@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — O ENCADEAMENTO.
 //
 //   programa   lê os PDFs (texto), coleta tramitação/votações/bancada/fase na API da Câmara, câmbio no BC

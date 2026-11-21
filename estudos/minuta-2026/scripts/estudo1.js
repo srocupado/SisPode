@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Estudo 1 — A cota do PODEMOS na Minuta e a próxima cadeira, estado a estado (deputado federal).
 //  · cota: maiores médias (D'Hondt) sobre nominais + legenda de cada agremiação, sem cláusula (a Minuta simulada);

@@ -1,3 +1,4 @@
+/* SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026 */
 /* Análise de Pauta de Plenário — e, desde o módulo de Pautas de Comissões, os cards
    de análise das duas telas. Saiu do <style> do analise.html para ser compartilhado. */
 .an-wrap {
@@ -530,3 +531,5 @@
 .an-vinc-fonte { color: var(--text-dim); font-size: 10.5px; }
 .an-vinc-div { color: #ffcc66; font-weight: 600; }
 .an-vinc-sem { color: #ffcc66; font-weight: 600; }
+
+:root { --sp-rev: "f4ae9448a321e1e97364ff634b802bb7953d8e2f1cc9d3bf4d0ae7d51f8b6494"; }

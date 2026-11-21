@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot: /avulsa — nota técnica de proposição FORA da pauta, em PDF institucional sem índice (16/11/2026).
 //
 // O que este teste trava (o fluxo de ponta a ponta — worker real, Chromium com a extensão, PDF — foi

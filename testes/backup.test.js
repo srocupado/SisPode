@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes do backup/restauração do bot.
 //
 // É o código cujo defeito só aparece no pior dia possível — então aqui ele roda

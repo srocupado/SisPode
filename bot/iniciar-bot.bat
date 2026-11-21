@@ -1,4 +1,5 @@
 @echo off
+REM SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 chcp 65001 >nul
 REM Sobe o SisPode Bot em LOOP: se o processo encerrar (crash ou /update),
 REM ele volta sozinho com o codigo novo. Rode ESTE arquivo em vez de

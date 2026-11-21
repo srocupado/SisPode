@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções do lote 6 da varredura (15/09/2026) — situação dos destaques e a
 // corrida entre pautas que tenham a mesma proposição.
 //

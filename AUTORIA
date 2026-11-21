@@ -1,0 +1,12 @@
+SisPode — Sistemas Legislativos
+
+Autor: Vinicius Lara (VLQ)
+Período de desenvolvimento: 2025-2026
+
+Este programa (a extensão, o bot, os módulos de análise, os estudos e os testes que os
+acompanham) é de autoria de Vinicius Lara. Cada arquivo do programa traz, na primeira
+linha, o aviso de autoria. O histórico deste repositório registra, com data, cada
+alteração feita pelo autor.
+
+As bibliotecas da pasta libs/ são de terceiros e seguem as licenças dos respectivos
+autores; não fazem parte desta declaração.
