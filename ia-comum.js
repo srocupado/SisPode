@@ -333,6 +333,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
     // 'medium' só existe na linha flash; nos demais o degrau abaixo de 'high' é 'low'.
     else if (nivelPensar && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: nivelPensar === 'medio' && /flash/.test(m) ? 'medium' : 'low' };
+    // No streaming, pede os resumos do raciocínio: sem eles o Gemini fica em silêncio enquanto pensa, e a
+    // conexão cai antes do primeiro byte. Medido em 21/11/2026 (Gemini 4 Carbon, redação da NTA do PLP
+    // 299/2026): mais de 5 minutos sem resposta, quatro tentativas perdidas. As partes de raciocínio chegam
+    // marcadas com `thought` e são descartadas abaixo; o texto da resposta não muda.
+    if (emStream && body.generationConfig.thinkingConfig) body.generationConfig.thinkingConfig.includeThoughts = true;
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
     if (emStream) {
@@ -487,6 +492,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
  * (rate limit) e 5xx transitórios. Tentativas: 1 inicial + 3 retries em
  * intervalos de 5s, 15s e 30s.
  */
+// Queda de conexão DEPOIS de muito tempo no ar não é reenviada: o provedor já estava processando (e
+// cobrando) o pedido, e reenviar três vezes multiplica o custo de uma chamada cara. Queda rápida (rede
+// instável, DNS) continua sendo tentada de novo.
+const IA_SEM_REENVIO_MS = 90000;
+function erroConexaoLonga(ini) {
+  return new Error(`A conexão com o provedor de IA caiu depois de ${Math.round((Date.now() - ini) / 1000)} segundos sem resposta. O pedido não foi reenviado, para não ser cobrado de novo; tente outra vez.`);
+}
+
 async function fetchIA(url, init) {
   const delays = [0, 5000, 15000, 30000];
   let ultimaErro = null;
@@ -494,11 +507,12 @@ async function fetchIA(url, init) {
   for (let i = 0; i < delays.length; i++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (delays[i] > 0) await sleep(delays[i], signal);
-    let res;
+    let res; const ini = Date.now();
     try {
       res = await fetch(url, { ...init, signal });
     } catch (e) {
       if (isAbortError(e)) throw e;
+      if (Date.now() - ini > IA_SEM_REENVIO_MS) throw erroConexaoLonga(ini);
       ultimaErro = e;
       continue; // erro de rede → retry
     }
@@ -550,9 +564,9 @@ async function fetchIASse(url, init) {
   for (let i = 0; i < delays.length; i++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (delays[i] > 0) await sleep(delays[i], signal);
-    let res;
+    let res; const ini = Date.now();
     try { res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Accept: 'text/event-stream' }, signal }); }
-    catch (e) { if (isAbortError(e)) throw e; ultimaErro = e; continue; }
+    catch (e) { if (isAbortError(e)) throw e; if (Date.now() - ini > IA_SEM_REENVIO_MS) throw erroConexaoLonga(ini); ultimaErro = e; continue; }
     if (res.ok) {
       let texto = '';
       if (res.body && res.body.getReader) {

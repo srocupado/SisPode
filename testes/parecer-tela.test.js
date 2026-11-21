@@ -88,6 +88,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     const c = av('__corpos');
     ok(c[0].generationConfig.maxOutputTokens === 64000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 64000 (o raciocínio conta no teto) e thinkingLevel high');
+    ok(c[0].generationConfig.thinkingConfig.includeThoughts === true, 'Gemini 3 em streaming: pede os resumos do raciocínio (includeThoughts), para a conexão não ficar muda e cair antes do primeiro byte');
     ok(c[1].generationConfig.thinkingConfig === undefined && c[1].generationConfig.temperature === undefined, 'Gemini 2.5: sem thinkingBudget nem temperature (deprecados pelo Google); raciocínio padrão do modelo');
     ok(c[2].max_tokens === 96000 && c[5].max_tokens === 48000 && c[2].thinking?.type === 'adaptive' && c[2].thinking.budget_tokens === undefined && c[2].output_config?.effort === 'high' && c[2].temperature === undefined, 'Anthropic opus-5: thinking adaptive + effort high, sem budget_tokens nem temperature; folga larga de saída (o raciocínio adaptativo não tem orçamento e cortava a resposta), e a folga antiga nos modelos com budget_tokens');
     ok(c[5].thinking?.type === 'enabled' && c[5].thinking.budget_tokens === 16000 && c[5].output_config === undefined, 'Anthropic haiku-4.5: ainda budget_tokens, sem output_config');
