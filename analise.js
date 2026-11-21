@@ -8749,7 +8749,7 @@ const AVISO_PARECER = { tempo: 'de 25 a 45 minutos', chamadas: '12 chamadas ao m
  * do modelo aparece no momento em que custa — reverte, só aqui, a regra
  * "sem confirmação" do início.
  */
-function confirmarModeloParecer(it) {
+function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
   return new Promise(resolve => {
     const cfg = state.config || {};
     const provedores = Object.keys(PROVEDORES_META);
@@ -8768,6 +8768,9 @@ function confirmarModeloParecer(it) {
             <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. O custo <b>${AVISO_PARECER.tokens}</b>.</li>
           </ul>
         </div>
+        ${apoioSenado.length ? `<div class="form-group" id="dlg-parecer-senado"><label>Documentos do Senado (lidos junto com os da Câmara)</label>
+          <div style="font-size:11.5px;color:var(--text-dim);margin:0 0 6px;line-height:1.5">A matéria passou pelo Senado. Estes documentos de lá dão à nota a comparação entre versões, as estimativas e o destino das emendas. Desmarque o que não quiser incluir; mais documentos, mais tempo e consumo.</div>
+          ${apoioSenado.map((d, i) => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;font-weight:400;margin:3px 0;cursor:pointer"><input type="checkbox" data-senado="${i}" checked style="margin-top:2px"><span>${escapeHtml(d.rotulo)}</span></label>`).join('')}</div>` : ''}
         <div class="form-group"><label>Provedor</label>
           <select id="dlg-parecer-provedor" class="form-input">${provedores.map(p => `<option value="${p}"${comChave.includes(p) ? '' : ' disabled'}>${escapeHtml(PROVEDORES_META[p].label)}${comChave.includes(p) ? '' : ' — sem chave cadastrada'}</option>`).join('')}</select></div>
         <div class="form-group"><label>Modelo</label>
@@ -8811,6 +8814,7 @@ function confirmarModeloParecer(it) {
       const f = pontaDoModelo(modelo) ? 'superior' : faixaDoModelo(modelo);
       const proprio = modelo !== escolhaAuto?.modelo;
       fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
+        apoioSenado: apoioSenado.filter((_, i) => ov.querySelector(`[data-senado="${i}"]`)?.checked),
         motivo: proprio ? `Escolhido pelo usuário no diálogo (${modelo}, faixa ${f}).` : escolhaAuto.motivo,
         ressalva: proprio ? (f === 'superior' ? null : `O modelo ${modelo} é de faixa ${ROTULO_FAIXA[f].replace('faixa ', '')}; escolha do usuário. Esta ressalva fica registrada no relatório de conferência.`) : escolhaAuto.ressalva });
     });
@@ -8820,8 +8824,23 @@ function confirmarModeloParecer(it) {
 
 async function gerarParecerEspecialista(it) {
   const cfg = state.config || {};
+  // --- documentos de apoio do Senado (matéria que passou por lá) -------------
+  // A Câmara registra só o que recebeu (o autógrafo) e o que produziu; pareceres, primeira versão do relatório,
+  // texto inicial e emendas aprovadas estão no Senado. O programa os oferece no diálogo, já marcados. Não vale
+  // para documento anexado pelo(a) analista nem para a matéria ainda sem registro na Câmara (item provisório,
+  // que já usa os documentos do Senado). A consulta tem prazo curto: Senado lento não segura o diálogo.
+  let apoioSenado = [];
+  if (!docsProprios(it) && !it.provisorio && typeof senadoApoioDaMateria === 'function' && senadoTemSigla(it.sigla)) {
+    try {
+      const r = await Promise.race([
+        senadoApoioDaMateria({ sigla: it.sigla, numero: it.numero, ano: it.ano, ementa: it.ementa || '' }, fetchJson),
+        new Promise(ok => setTimeout(() => ok(null), 8000)),
+      ]);
+      apoioSenado = (r && r.documentos) || [];
+    } catch (e) { console.warn('NTA: documentos do Senado não consultados', e.message); }
+  }
   // --- provedor e modelo confirmados no diálogo ----------------------------
-  const esc = await confirmarModeloParecer(it);
+  const esc = await confirmarModeloParecer(it, { apoioSenado });
   if (!esc) return;
   const pid = esc.pid;
 
@@ -8851,6 +8870,9 @@ async function gerarParecerEspecialista(it) {
       abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar a Nota Técnica Analítica (NTA) sobre ele.');
       return;
     }
+    // Os documentos do Senado escolhidos no diálogo entram DEPOIS dos da Câmara: o texto em votação continua
+    // sendo o primeiro da lista. Não levam a marca doSenado, que é a do item sem registro na Câmara.
+    for (const d of esc.apoioSenado || []) if (!docsMeta.some(x => x.url === d.url)) docsMeta.push(d);
     const docs = [];
     for (const d of docsMeta) {
       try { docs.push({ rotulo: d.rotulo, url: d.url, buffer: d.buffer ? d.buffer.slice(0) : await baixarPdf(d.url) }); }

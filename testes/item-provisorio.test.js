@@ -225,6 +225,38 @@ const EMENTA = 'Altera a Lei Complementar nº 200, de 30 de agosto de 2023, para
     await b.close(); srv.close();
   }
 
+  console.log('\n== documentos de apoio do Senado para a NTA (21/11/2026) ==');
+  const u = n => `http://legis.senado.gov.br/sdleg-getter/documento/${n}`;
+  const listaSen = [
+    { siglaTipo: 'PARECER', identificacao: 'P.S 223/2026 - PLEN', dataDocumento: '2026-11-18', autoria: 'Senador Eduardo Braga (MDB/AM)', urlDocumento: u('p223') },
+    { siglaTipo: 'PARECER', identificacao: 'P.S 221/2026 - PLEN', dataDocumento: '2026-11-12', autoria: 'Senador Eduardo Braga (MDB/AM)', urlDocumento: u('p221') },
+    { siglaTipo: 'RELATORIO', identificacao: 'Relatório Legislativo - 3', dataDocumento: '2026-11-12', autoria: 'Senador Eduardo Braga (MDB/AM)', urlDocumento: u('r3') },
+    { siglaTipo: 'RELATORIO', identificacao: 'Relatório Legislativo - 1', dataDocumento: '2026-11-11', autoria: 'Senador Eduardo Braga (MDB/AM)', urlDocumento: u('r1') },
+    { siglaTipo: 'PROJETO_LEI_COMPLEMENTAR', identificacao: 'Autógrafo - PLP 299/2026', dataDocumento: '2026-11-19', autoria: 'Senado Federal', urlDocumento: u('autografo') },
+    { siglaTipo: 'PROJETO_LEI_COMPLEMENTAR', identificacao: 'PLP 299/2026', dataDocumento: '2026-11-11', autoria: 'Senador Jaques Wagner (PT/BA)', urlDocumento: u('inicial') },
+    { siglaTipo: 'AVULSO_EMENDAS', identificacao: 'Avulso de emendas', dataDocumento: '2026-11-12', autoria: 'Senado Federal', urlDocumento: u('avulso') },
+    { siglaTipo: 'REQUERIMENTO', identificacao: 'RQS 770/2026', dataDocumento: '2026-11-11', autoria: 'Líderes', urlDocumento: u('req') },
+    { siglaTipo: 'LISTAGEM_RELATORIO', descricao: '1ª votação. Emenda nº 40 do projeto.', dataDocumento: '2026-11-18', urlDocumento: u('l1') },
+    { siglaTipo: 'LISTAGEM_RELATORIO', descricao: '4ª votação. Aprovadas as Emendas nºs 90, 91 e 92, a Emenda nº 83, com subemenda, e adequações redacionais, em turno suplementar, e rejeitadas as demais emendas.', dataDocumento: '2026-11-18', urlDocumento: u('l4') },
+    { siglaTipo: 'EMENDA', identificacao: 'EMENDA 75 PLEN - PLP 299/2026', descricao: 'Emenda nº 75 (Substitutivo)', dataDocumento: '2026-11-12', autoria: 'Senador Eduardo Braga (MDB/AM)', urlDocumento: u('e75') },
+    { siglaTipo: 'EMENDA', identificacao: 'EMENDA 40 PLEN - PLP 299/2026', descricao: 'Emenda ao PLP', autoria: 'Senador Fulano (PL/DF)', urlDocumento: u('e40') },
+    { siglaTipo: 'EMENDA', identificacao: 'EMENDA 83 PLEN - PLP 299/2026', descricao: 'Emenda ao Substitutivo', autoria: 'Senadora Tereza Cristina (PP/MS)', urlDocumento: u('e83') },
+    { siglaTipo: 'EMENDA', identificacao: 'EMENDA 90 PLEN - PLP 299/2026', descricao: 'Emenda ao Substitutivo', autoria: 'Senador Alessandro Vieira (MDB/SE)', urlDocumento: u('e90') },
+    { siglaTipo: 'EMENDA', identificacao: 'EMENDA 91 PLEN - PLP 299/2026', descricao: 'Emenda ao Substitutivo', autoria: 'Senador Alessandro Vieira (MDB/SE)', urlDocumento: u('e91') },
+  ];
+  const ap = S.senadoDocumentosDeApoio(listaSen), fim = ap.map(d => d.url.split('/').pop());
+  ok(fim.join() === 'p223,p221,r1,inicial,e75,e83,e90,e91', `apoio: pareceres (mais recente primeiro), primeira versão do relatório, texto inicial, emenda do relator e emendas aprovadas — veio ${fim.join()}`);
+  ok(ap.every(d => d.apoioSenado && !d.doSenado && /^https:\/\/legis\.senado\.leg\.br\//.test(d.url)) && /^Parecer no Senado \(P\.S 223\/2026 - PLEN, Senador Eduardo Braga \(MDB\/AM\), de 18\/11\/2026\)$/.test(ap[0].rotulo) && /primeira versão/.test(ap[2].rotulo) && /^Texto inicial no Senado \(Senador Jaques Wagner/.test(ap[3].rotulo) && /Emenda nº 75 \(Substitutivo\)/.test(ap[4].rotulo) && /^Emenda nº 83 aprovada no Senado \(Senadora Tereza Cristina/.test(ap[5].rotulo), 'apoio: rótulos dizem o que é cada documento; não levam a marca de matéria sem registro na Câmara');
+  ok(!fim.includes('autografo') && !fim.includes('avulso') && !fim.includes('req') && !fim.includes('e40') && !fim.includes('l4') && !fim.includes('r3'), 'apoio: ficam de fora o autógrafo (a Câmara já o tem), o avulso de emendas, requerimentos, listagens, versões intermediárias do relatório e emendas rejeitadas');
+  ok(S.senadoDocumentosDeApoio(listaSen.filter(d => d.siglaTipo !== 'PARECER'))[0].rotulo.startsWith('Relatório do relator no Senado (') && S.senadoDocumentosDeApoio([]).length === 0 && S.senadoDocumentosDeApoio(listaSen, { max: 3 }).length === 3, 'apoio: sem parecer, vale o relatório; lista vazia e limite respeitados');
+  const pedidosAp = [];
+  const fjs = async url => { pedidosAp.push(url); if (/\/processo\?sigla=PLP&numero=299&ano=2026/.test(url)) return [{ id: 9127383, codigoMateria: 176328, identificacao: 'PLP 299/2026', ementa: EMENTA, casaIdentificadora: 'SF' }]; if (/\/processo\/documento\?idProcesso=9127383/.test(url)) return listaSen; throw new Error('inesperado: ' + url); };
+  const am = await S.senadoApoioDaMateria({ sigla: 'PLP', numero: 299, ano: 2026, ementa: EMENTA }, fjs);
+  ok(am && am.documentos.length === 8 && /materia\/176328$/.test(am.url) && pedidosAp.length === 2, 'consulta: duas chamadas ao Senado (a matéria e a lista de documentos)');
+  ok(await S.senadoApoioDaMateria({ sigla: 'PLP', numero: 299, ano: 2026, ementa: 'Institui o Dia Nacional do Ciclista e dispõe sobre campanhas educativas nas escolas públicas' }, fjs) === null && await S.senadoApoioDaMateria({ sigla: 'REQ', numero: 1, ano: 2026 }, fjs) === null, 'consulta: ementa sem relação ou sigla sem numeração única não trazem documento');
+  const telaNta = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
+  ok(/senadoApoioDaMateria\(\{ sigla: it\.sigla, numero: it\.numero, ano: it\.ano, ementa: it\.ementa \|\| '' \}, fetchJson\)/.test(telaNta) && /!docsProprios\(it\) && !it\.provisorio/.test(telaNta) && /confirmarModeloParecer\(it, \{ apoioSenado \}\)/.test(telaNta) && /data-senado="\$\{i\}" checked/.test(telaNta) && /for \(const d of esc\.apoioSenado \|\| \[\]\) if \(!docsMeta\.some\(x => x\.url === d\.url\)\) docsMeta\.push\(d\);/.test(telaNta), 'tela da NTA: consulta o Senado antes do diálogo, oferece os documentos já marcados e junta os escolhidos depois dos da Câmara');
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.log('ERRO', e.stack); process.exit(1); });
