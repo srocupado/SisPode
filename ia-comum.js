@@ -330,7 +330,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     };
     // Gemini 3: thinkingLevel. O Google deprecou thinkingBudget e os parâmetros de amostragem
     // (temperature/topP/topK) no Gemini — os 2.5 ficam com o raciocínio padrão deles.
-    if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
+    // Linha Gemini 4: raciocínio e resposta dividem 65.536 tokens por resposta (acima disso só pela API nova,
+    // em várias etapas). Medido em 21/11/2026 no Gemini 4 Carbon, em quatro chamadas da NTA do PLP 299/2026: no
+    // nível alto o raciocínio usa de 41 a 45 mil tokens e sobram cerca de 20 mil para a resposta, que veio
+    // cortada todas as vezes em que precisava de mais. Quando quem chama pede resposta longa, o nível é o
+    // médio (o padrão do Carbon), que deixa espaço para ela.
+    const gemini4 = /gemini-4/.test(m);
+    if (gemini4 && (pensarAlto || nivelPensar)) body.generationConfig.maxOutputTokens = 65536;
+    if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: gemini4 && maxSaida > 20000 ? 'medium' : 'high' };
     // 'medium' só existe na linha flash; nos demais o degrau abaixo de 'high' é 'low'.
     else if (nivelPensar && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: nivelPensar === 'medio' && /flash/.test(m) ? 'medium' : 'low' };
     // No streaming, pede os resumos do raciocínio: sem eles o Gemini fica em silêncio enquanto pensa, e a

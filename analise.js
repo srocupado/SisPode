@@ -8736,7 +8736,7 @@ async function listarModelosDoProvedor(pid) {
 // geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
 // documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
 // isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
-const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '12 chamadas ao modelo, cinco delas com busca na internet', tokens: 'varia com o modelo e com o número de documentos; o consumo real desta geração fica registrado na conferência' };
+const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '12 chamadas ao modelo, cinco delas com busca na internet', tokens: 'varia com o modelo e com o número de documentos; o consumo real desta geração fica registrado no relatório de conferência' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
@@ -8765,7 +8765,7 @@ function confirmarModeloParecer(it) {
         <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> A NTA não é uma resposta rápida: o modelo lê os documentos, pesquisa na internet o debate, a experiência de outros países e o contexto jurídico, redige e revisa o próprio texto.
           <ul>
             <li><b>Tempo:</b> ${AVISO_PARECER.tempo}. Mantenha esta aba aberta.</li>
-            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. Custo <b>${AVISO_PARECER.tokens}</b>, no formato anterior; o consumo real desta geração fica registrado no relatório de conferência.</li>
+            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. O custo <b>${AVISO_PARECER.tokens}</b>.</li>
           </ul>
         </div>
         <div class="form-group"><label>Provedor</label>
