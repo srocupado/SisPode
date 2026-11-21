@@ -113,14 +113,35 @@ const ORDEM_FAIXA = { superior: 3, nao_identificada: 2, intermediaria: 1, econom
  * vêm antes; o de faixa não identificada só é escolhido quando não há outro.
  * Dentro de cada grupo, a regra de 05/09 continua: a versão decide.
  */
-function ranquearModelos(lista = []) {
+// MODELO DE PONTA — só para a NTA (decisão da Liderança, 21/11/2026).
+// Em 2026 os provedores passaram a dar nome próprio aos modelos mais capazes, sem marca de faixa: Claude Fable
+// e Mythos (acima do Opus) e a linha Gemini 4 (Carbon, o de raciocínio mais forte; depois Neon e Argon). Pela
+// regra geral, o Gemini 4 Carbon cai em "faixa não identificada" e perde para o Gemini 3.1 Pro. A NTA é o
+// documento mais caro e mais lido: nela, e só nela, o modelo de ponta do provedor vem primeiro. A nota de
+// Plenário e a verificação por IA continuam na regra de 16/11/2026 (faixa conhecida primeiro).
+// A lista é de nomes, e nome envelhece: quando o provedor trocar a linha, o modelo novo volta a cair na regra
+// geral até alguém atualizar aqui — nada quebra.
+const MODELOS_DE_PONTA = [
+  [/(^|[-_. ])(fable|mythos)([-_. ]|$)/i, 3], [/(^|[-_. ])carbon([-_. ]|$)/i, 3],
+  [/(^|[-_. ])opus([-_. ]|$)/i, 2], [/(^|[-_. ])neon([-_. ]|$)/i, 2],
+  [/(^|[-_. ])argon([-_. ]|$)/i, 1],
+];
+/** 0 = não é modelo de ponta conhecido; 3 = o mais capaz do provedor. Modelo de outra modalidade ou econômico nunca é de ponta. */
+function pontaDoModelo(id) {
+  const s = String(id || '');
+  if (!s || MARCA_OUTRA_MODALIDADE.test(s) || MARCA_ECONOMICA.test(s)) return 0;
+  const m = MODELOS_DE_PONTA.find(([re]) => re.test(s));
+  return m ? m[1] : 0;
+}
+
+function ranquearModelos(lista = [], { ponta = false } = {}) {
   const ids = (lista || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
   return ids
-    .map(id => ({ id, faixa: faixaDoModelo(id), versao: versaoDoModelo(id), preview: /preview|exp/i.test(id) ? 1 : 0 }))
+    .map(id => { const pt = ponta ? pontaDoModelo(id) : 0; return { id, faixa: pt ? 'superior' : faixaDoModelo(id), versao: versaoDoModelo(id), preview: /preview|exp/i.test(id) ? 1 : 0, ponta: pt }; })
     .filter(m => m.faixa !== 'outra_modalidade')
     .map(m => ({ ...m, elegivel: m.faixa !== 'economica', conhecida: m.faixa === 'superior' || m.faixa === 'intermediaria' ? 1 : 0,
       motivoInelegivel: m.faixa === 'economica' ? 'faixa econômica: o parecer exige faixa mínima intermediária' : null }))
-    .sort((a, b) => (b.elegivel - a.elegivel) || (b.conhecida - a.conhecida) || (b.versao - a.versao) || (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (a.preview - b.preview));
+    .sort((a, b) => (b.elegivel - a.elegivel) || (b.ponta - a.ponta) || (b.conhecida - a.conhecida) || (b.versao - a.versao) || (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (a.preview - b.preview));
 }
 
 /**
@@ -134,12 +155,12 @@ function ranquearModelos(lista = []) {
  * um parecer, escrito por um modelo que preenche lacuna, é pior que não
  * entregar.
  */
-function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = {}) {
+function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null, ponta = false } = {}) {
   const ids = (lista || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
   if (!ids.length) {
     return { erro: 'Não foi possível listar os modelos do provedor. Sem a lista ao vivo o parecer não escolhe modelo — e não usa o padrão da tela, que pode ser de faixa econômica.' };
   }
-  const ranqueados = ranquearModelos(ids);
+  const ranqueados = ranquearModelos(ids, { ponta });
   if (!ranqueados.length) {
     return { erro: `Os ${ids.length} modelos listados são todos de outra modalidade (imagem, voz, vídeo) — nenhum redige texto.` };
   }
@@ -160,6 +181,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = 
     modelo: alvo.id, faixa: alvo.faixa, ressalva,
     motivo: fix
       ? `Modelo fixado pelo usuário na configuração do parecer (${alvo.id}, faixa ${alvo.faixa}).`
+      : alvo.ponta ? `Escolhido automaticamente para a NTA: o modelo de ponta do provedor (${alvo.id}).`
       : `Escolhido automaticamente: versão mais alta entre os modelos ${alvo.conhecida ? 'de faixa conhecida (superior ou intermediária)' : 'não econômicos — nenhum de faixa conhecida disponível'} do provedor (${alvo.id}, faixa ${alvo.faixa})${padraoDoUsuario && padraoDoUsuario !== alvo.id ? `; o padrão da nota comum (${padraoDoUsuario}) não é usado no parecer` : ''}.`,
   };
 }
@@ -484,7 +506,7 @@ function lerJsonIA(texto, lista = '') {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     repararJsonIA, lerJsonIA,
-    faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
+    faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos, pontaDoModelo,
     promptApuracao, promptHistorico, promptFicha, promptComparada, promptExterno, descreverProcesso, carimboDoParecer,
   };
 }

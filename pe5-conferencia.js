@@ -294,6 +294,9 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Cada posição e cada decisão têm data e fonte', !semData.length && !semFonte.length && !temporarios,
     [semData.length ? `Sem data: ${semData.slice(0, 4).join('; ')}.` : '', semFonte.length ? `Sem fonte: ${semFonte.slice(0, 4).join('; ')}.` : '', temporarios ? `${temporarios} link(s) de redirecionamento temporário, sem o endereço final.` : ''].filter(Boolean).join(' '));
   add('Tudo o que a pesquisa trouxe foi usado no texto', !naoUsados.length, naoUsados.length ? `Coletado e não usado: ${naoUsados.slice(0, 10).join(', ')}.` : '');
+  // Tamanho: nota longa demais ninguém lê. O alvo é de até 20 mil palavras (perto de 60 páginas).
+  const palavras = blocos.reduce((n, b) => n + (String(b.texto || '').match(/\S+/g) || []).length, 0);
+  add('Tamanho da nota', palavras <= 24000, palavras > 24000 ? `A nota tem cerca de ${Math.round(palavras / 1000)} mil palavras; o alvo é de até 20 mil (perto de 60 páginas). Há repetição a cortar.` : `${Math.round(palavras / 100) / 10} mil palavras.`);
   // Cobertura da LEITURA: ponto grave, estimativa, diferença entre versões e argumento dos documentos que não
   // aparecem em bloco nenhum da nota. A NTA do PLP 299/2026 feita pelo programa em 21/11/2026 deixou de fora
   // um ponto que a leitura tinha (o adiamento da Lei Kandir sem correção do valor).

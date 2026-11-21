@@ -31,6 +31,7 @@ const PE5_ESTILO = `COMO ESCREVER
 - Não escreva identificadores (B1, Q7, W2…) dentro do texto. Eles vão apenas no campo "ev".
 - Não use termos internos: "cenário", "lente", "achado", "base", "evidência".
 - Sigla só depois do nome por extenso, na primeira vez em que aparece em cada seção: "Fundo Constitucional do Distrito Federal (FCDF)". Sigla que só o especialista conhece não se usa sozinha: escreva "relatório bimestral de avaliação de receitas e despesas", "Consultoria de Orçamentos do Senado", "termos de execução descentralizada".
+- Tamanho: a nota inteira deve ficar perto de 60 páginas, e cada chamada tem um teto de palavras (bloco TAMANHO, no fim). Cumpra o teto cortando REPETIÇÃO e explicação que já está em outra seção — nunca cortando fato, número, nome, data ou argumento. O que é secundário entra como aposto ou em enumeração, na frase de um ponto vizinho. A NTA do PLP 299/2026 saiu com 108 páginas porque o mesmo mecanismo foi explicado de novo em cada seção.
 - Profundidade: explique o MECANISMO (o que dispara a regra, quem decide, quanto, até quando, o que acontece depois) e a consequência prática para quem é atingido. Frase curta não é texto raso: prefira mais frases curtas a menos informação.
 - Aspas só para citação literal curta que esteja na base.
 - O documento que você escreve se chama Nota Técnica Analítica (NTA). Para se referir a ele, escreva "esta nota"; nunca "este parecer". A palavra "parecer" fica reservada aos pareceres da tramitação (do relator, de comissão, de entidade).`;
@@ -418,7 +419,7 @@ function pe5Cobertura(L, grupos) {
     if (g === 'achados' && !/alta|m[ée]dia/i.test(x.gravidade || '')) continue;
     linhas.push(`  ${x.id} — ${curto(g === 'achados' ? x.questao : g === 'estimativas' ? `${x.o_que}: ${x.valor}${/^n[ãa]o/i.test(x.refeita || '') ? ' (NÃO refeita para o texto em votação)' : ''}` : g === 'versoes' ? x.tema : g === 'justificativa' ? `${x.quem ? x.quem + ': ' : ''}${x.objetivo}` : x.questao || x.o_que || x.rotulo || '')}`);
   }
-  return linhas.length ? `COBERTURA OBRIGATÓRIA (o programa confere): cada identificador abaixo tem de constar no "ev" de pelo menos um bloco desta metade, com o conteúdo dele EXPLICADO no texto. Não é para listar os itens: é para nenhum ficar de fora.\n${linhas.join('\n')}` : '';
+  return linhas.length ? `COBERTURA OBRIGATÓRIA (o programa confere): cada identificador abaixo tem de constar no "ev" de pelo menos um bloco desta metade, com o conteúdo dele tratado no texto (para o que é secundário, uma frase ou um aposto bastam). Não é para listar os itens nem para dar um parágrafo a cada um: é para nenhum ficar de fora. Vários identificadores podem sustentar o mesmo bloco.\n${linhas.join('\n')}` : '';
 }
 
 const PE5_REGRA_EV = 'Cada bloco tem o campo "ev": a lista dos identificadores da base que sustentam o que o bloco afirma (por exemplo ["B2","T5"], ou ["G"] para dado de tramitação). Bloco sem "ev" é tratado como sem base. Não invente identificador.';
@@ -428,10 +429,18 @@ const PE5_REGRA_EV = 'Cada bloco tem o campo "ev": a lista dos identificadores d
 // metade veio cortada (PLP 299/2026, 21/11/2026). O prompt é o mesmo; a função abaixo deixa, no formato de
 // resposta e nas orientações, só as seções da parte pedida.
 const PE5_PARTES_REDACAO = {
-  materia: { chaves: ['materia'], campos: ['faz', 'origem', 'documentos', 'historico', 'versoes'], diz: 'A MATÉRIA (o que o texto faz, de onde vem, o que mudou entre as versões, os documentos, o contexto e o histórico)' },
-  debate: { chaves: ['debate', 'internacional'], campos: ['controversias', 'posicoes', 'lados', 'da_analise', 'jurisdicoes', 'comparativo', 'licoes'], diz: 'O DEBATE e A EXPERIÊNCIA INTERNACIONAL' },
-  analise: { chaves: ['analise'], campos: ['lentes', 'jurisprudencia', 'judicializacao', 'impacto'], diz: 'A ANÁLISE TÉCNICA' },
-  caminhos: { chaves: ['caminhos', 'abertura'], campos: ['opcoes', 'emendas', 'partido', 'perguntas', 'abertura', 'alcancados', 'pontos'], diz: 'OS CAMINHOS e A ABERTURA (o resumo da primeira página)' },
+  materia: { chaves: ['materia'], campos: ['faz', 'origem', 'documentos', 'historico', 'versoes'],
+    tamanho: 'Teto desta chamada: cerca de 4.000 palavras. "faz": até 130 palavras por bloco. "origem": até 5 parágrafos de até 130 palavras. "versoes": cada campo em até 35 palavras; mudanças pequenas do mesmo artigo vão na mesma linha. "documentos": "o_que_e" em até 45 palavras. "contexto": até 4 blocos de até 110 palavras. "historico": cada campo em até 30 palavras.',
+    diz: 'A MATÉRIA (o que o texto faz, de onde vem, o que mudou entre as versões, os documentos, o contexto e o histórico)' },
+  debate: { chaves: ['debate', 'internacional'], campos: ['controversias', 'posicoes', 'lados', 'da_analise', 'jurisdicoes', 'comparativo', 'licoes'],
+    tamanho: 'Teto desta chamada: cerca de 5.000 palavras. "posicoes": até 110 palavras por ator; argumento igual ao de ator já descrito não se repete ("no mesmo sentido de …", e só o que ele acrescenta); atores do mesmo grupo com a mesma posição e os mesmos argumentos dividem um parágrafo, com todos os nomes. "controversias": de 5 a 9, as que decidem o voto; cada argumento em até 35 palavras; pergunta parecida com outra se junta a ela. "lados": até 150 palavras por parágrafo. "jurisdicoes": cada campo em até 60 palavras. "licoes" e "limites": até 5 itens cada.',
+    diz: 'O DEBATE e A EXPERIÊNCIA INTERNACIONAL' },
+  analise: { chaves: ['analise'], campos: ['lentes', 'jurisprudencia', 'judicializacao', 'impacto'],
+    tamanho: 'Teto desta chamada: cerca de 5.500 palavras. "lentes": ponto de gravidade alta com exame de até 150 palavras; média, até 60; baixa, uma frase. Não reexplique o mecanismo que a primeira metade já explicou: refira-se a ele pelo artigo. "judicializacao": cada campo em até 50 palavras. "impacto": até 6 parágrafos de até 120 palavras.',
+    diz: 'A ANÁLISE TÉCNICA' },
+  caminhos: { chaves: ['caminhos', 'abertura'], campos: ['opcoes', 'emendas', 'partido', 'perguntas', 'abertura', 'alcancados', 'pontos'],
+    tamanho: 'Teto desta chamada: cerca de 3.000 palavras. "opcoes": consequências em até 70 palavras cada. "emendas": de 2 a 5. "perguntas": de 5 a 8, as que destravam o que falta saber. "abertura": "decide" em até 230 palavras; "muda" em até 10 itens de até 55 palavras.',
+    diz: 'OS CAMINHOS e A ABERTURA (o resumo da primeira página)' },
 };
 function pe5RecortarRedacao(prompt, parte) {
   const P = PE5_PARTES_REDACAO[parte]; if (!P) return prompt;
@@ -443,7 +452,9 @@ function pe5RecortarRedacao(prompt, parte) {
   // orientações: as linhas '- "campo"' da parte e as gerais (que não começam por campo)
   const [cab, ...linhas] = prompt.slice(ori).split('\n');
   const fica = linhas.filter(l => { const m = l.match(/^- "([a-z_]+)"/); return !m || P.campos.includes(m[1]); });
-  return `${prompt.slice(0, ini)}NESTA CHAMADA escreva SÓ ${P.diz}. As demais seções são escritas em outra chamada: não as devolva.\n\n${formato}${cab}\n${fica.join('\n')}`;
+  const resto = fica.join('\n'), fim = resto.lastIndexOf(PE5_SO_JSON);
+  const corpoOri = fim >= 0 ? resto.slice(0, fim).trimEnd() : resto.trimEnd();
+  return `${prompt.slice(0, ini)}NESTA CHAMADA escreva SÓ ${P.diz}. As demais seções são escritas em outra chamada: não as devolva.\n\n${formato}${cab}\n${corpoOri}\n\nTAMANHO\n${P.tamanho}\n\n${PE5_SO_JSON}`;
 }
 
 function pe5PromptRedacao1(ctx) {
@@ -565,7 +576,7 @@ O QUE DEVOLVER
 }
 
 ORIENTAÇÕES POR SEÇÃO
-- "lentes": um ponto por achado relevante da leitura (ids T), agrupado por campo, do mais grave ao menos grave. Achado de gravidade alta ou média não se funde com outro para encurtar: cada um tem o seu ponto. Quando o parecer do relator responde ao ponto, a resposta dele vai em "objecao"; quando não responde, diga isso em "exame". Em "exame", explique; em "objecao", dê o melhor contra-argumento, inclusive regra parecida que já exista na lei vigente; em "saida", o que resolveria. Ponto que está regular (iniciativa, competência) entra uma vez, curto, com "objecao" e "saida" vazios. NÃO escreva sobre o que não se aplica: liste em "sem_achado".
+- "lentes": um ponto por achado relevante da leitura (ids T), agrupado por campo, do mais grave ao menos grave. Achados sobre o MESMO dispositivo e o mesmo problema viram UM ponto, com os identificadores de todos no "ev": a cobertura é conferida pelo "ev", não pelo número de pontos. O detalhe acompanha a gravidade — alta: exame completo, objeção e saída; média: exame em até 60 palavras, objeção e saída em uma frase cada; baixa: uma frase no exame, com "objecao" e "saida" vazios. Quando o parecer do relator responde ao ponto, a resposta dele vai em "objecao"; quando não responde, diga isso em "exame". Em "exame", explique; em "objecao", dê o melhor contra-argumento, inclusive regra parecida que já exista na lei vigente; em "saida", o que resolveria. Ponto que está regular (iniciativa, competência) entra uma vez, curto, com "objecao" e "saida" vazios. NÃO escreva sobre o que não se aplica: liste em "sem_achado".
 - "jurisprudencia": só decisões que estão na pesquisa de contexto. Repita o que ela decidiu e o limite da analogia; não amplie o alcance da decisão.
 - "judicializacao": de 0 a 6 itens. Um item para cada dispositivo que a análise apontou com gravidade alta ou média em matéria constitucional, de iniciativa, de competência, federativa ou orçamentária, e um para cada sinal da pesquisa (ids L). É exame de RISCO, não de mérito: diga onde a lei pode ser questionada depois de aprovada, por quem e com que argumento. NUNCA escreva que o dispositivo "é inconstitucional", "viola" ou "ofende" a Constituição: escreva "pode ser questionado com base em…", "a tese contrária é…". Em "quem", só legitimado do art. 103 da Constituição, parte diretamente atingida ou quem a pesquisa registra; não suponha intenção. Se não há ponto com esse perfil, devolva a lista vazia.
 - "impacto": fiscal (CADA estimativa da leitura, ids S, com quem a produziu, para qual versão do texto e se foi refeita; a ausência de estimativa e a quem pedir; o que depende de ato facultativo do Executivo), econômico (quem paga, quem ganha, com os números da base e quem os produziu), implementação.

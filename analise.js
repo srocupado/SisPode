@@ -8789,8 +8789,9 @@ function confirmarModeloParecer(it) {
       let lista = [];
       try { lista = await listarModelosDoProvedor(pid); } catch (e) { st.textContent = `Não consegui listar os modelos: ${e.message}`; return; }
       if (selP.value !== pid) return;
-      const rk = ranquearModelos(lista.map(m => m.id));
-      escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null });
+      // Só na NTA o modelo de ponta do provedor vem primeiro (parecer.js, MODELOS_DE_PONTA).
+      const rk = ranquearModelos(lista.map(m => m.id), { ponta: true });
+      escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null, ponta: true });
       if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }
       selM.innerHTML = rk.map(m => `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para a NTA)'}</option>`).join('');
       selM.value = escolhaAuto.modelo;
@@ -8799,7 +8800,7 @@ function confirmarModeloParecer(it) {
     }
     selP.addEventListener('change', carregar);
     selM.addEventListener('change', () => {
-      const id = selM.value; const f = faixaDoModelo(id);
+      const id = selM.value; const f = pontaDoModelo(id) ? 'superior' : faixaDoModelo(id);
       st.textContent = id === escolhaAuto?.modelo ? escolhaAuto.motivo : `Escolhido pelo usuário no diálogo (${id}, ${ROTULO_FAIXA[f]}).`;
     });
     ov.querySelector('#dlg-parecer-fechar').addEventListener('click', () => fechar(null));
@@ -8807,7 +8808,7 @@ function confirmarModeloParecer(it) {
     btnG.addEventListener('click', () => {
       const pid = selP.value, modelo = selM.value;
       if (!modelo) return;
-      const f = faixaDoModelo(modelo);
+      const f = pontaDoModelo(modelo) ? 'superior' : faixaDoModelo(modelo);
       const proprio = modelo !== escolhaAuto?.modelo;
       fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
         motivo: proprio ? `Escolhido pelo usuário no diálogo (${modelo}, faixa ${f}).` : escolhaAuto.motivo,

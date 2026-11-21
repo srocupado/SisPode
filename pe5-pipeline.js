@@ -380,7 +380,7 @@ async function gerarParecerPE5(ctx, io) {
   const j6 = obj(r6);
   if (!j6) return falhou(r6, 'A redação da análise');
   passo('redigindo os caminhos e a abertura…');
-  const r6b = await chamar('redacao-2b', R.pe5PromptRedacao2({ ...baseRed, parte1, analise: j6.analise || {}, leiIntegral, parte: 'caminhos' }), { pensar: 'alto' });
+  const r6b = await chamar('redacao-2b', R.pe5PromptRedacao2({ ...baseRed, parte1, analise: j6.analise || {}, parte: 'caminhos' }), { pensar: 'alto' });
   const j6b = obj(r6b);
   if (!j6b) return falhou(r6b, 'A redação dos caminhos e da abertura');
   const parte2 = { analise: j6.analise || {}, caminhos: j6b.caminhos || {}, abertura: j6b.abertura || {} };
