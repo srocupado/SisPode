@@ -34,16 +34,16 @@ ok(soArgon.modelo === 'gemini-4-argon' && /nenhum de faixa conhecida/.test(soArg
 ok(P.escolherModelo(['gpt-5', 'gpt-5-pro', 'gpt-5-mini'], {}).modelo === 'gpt-5-pro', 'OpenAI: gpt-5-pro (superior) antes do gpt-5 (sem marca)');
 ok(P.escolherModelo(['gpt-5', 'gpt-5-mini'], {}).modelo === 'gpt-5', 'OpenAI só com gpt-5 e mini: gpt-5 (não econômico) segue elegível');
 ok(P.escolherModelo(comArgon, { fixado: 'gemini-4-argon' }).modelo === 'gemini-4-argon', 'fixado pelo usuário: vale mesmo sem faixa conhecida');
-console.log('== modelo de ponta, só para a NTA (21/11/2026) ==');
+console.log('== modelo da NTA: Claude Opus e Gemini 4 Argon (21/11/2026) ==');
 const g = ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-4-argon', 'gemini-4-neon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-3-pro-image'];
 const nta = P.escolherModelo(g, { ponta: true });
-ok(nta.modelo === 'gemini-4-carbon' && nta.faixa === 'superior' && !nta.ressalva && /modelo de ponta do provedor/.test(nta.motivo), 'NTA no Gemini: o Gemini 4 Carbon (raciocínio mais forte), sem ressalva de faixa');
-ok(P.escolherModelo(g, {}).modelo === 'gemini-3.8-flash' && P.faixaDoModelo('gemini-4-carbon') === 'nao_identificada', 'fora da NTA nada muda: a nota de Plenário e a verificação seguem a regra de faixa conhecida');
+ok(nta.modelo === 'gemini-4-argon' && nta.faixa === 'superior' && !nta.ressalva && /definido pela Liderança/.test(nta.motivo), 'NTA no Gemini: o Gemini 4 Argon, sem ressalva de faixa');
+ok(P.escolherModelo(g, {}).modelo === 'gemini-3.8-flash' && P.faixaDoModelo('gemini-4-argon') === 'nao_identificada', 'fora da NTA nada muda: a nota de Plenário e a verificação seguem a regra de faixa conhecida');
 const rkN = P.ranquearModelos(g, { ponta: true }).map(m => m.id);
-ok(rkN.slice(0, 3).join() === 'gemini-4-carbon,gemini-4-neon,gemini-4-argon' && rkN.indexOf('gemini-3.1-flash-lite') > rkN.indexOf('gemini-4-hydrogen') && !rkN.includes('gemini-3-pro-image'), 'ordem na NTA: Carbon, Neon, Argon; depois a regra geral; econômico por último; imagem fora');
+ok(rkN[0] === 'gemini-4-argon' && rkN[1] === 'gemini-3.8-flash' && rkN.indexOf('gemini-4-carbon') > rkN.indexOf('gemini-3.1-pro-preview') && rkN.indexOf('gemini-3.1-flash-lite') > rkN.indexOf('gemini-4-carbon') && !rkN.includes('gemini-3-pro-image'), 'ordem na NTA: Argon primeiro; depois a regra geral (Carbon e Neon ficam com os de faixa não identificada); econômico por último; imagem fora');
 const a = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-2', 'claude-fable-5-1'];
-ok(P.escolherModelo(a, { ponta: true }).modelo === 'claude-fable-5-2' && P.ranquearModelos(a, { ponta: true })[2].id === 'claude-opus-5-5', 'NTA na Anthropic: Fable mais recente; depois o Opus mais recente');
-ok(P.escolherModelo(a, { ponta: true, fixado: 'claude-opus-5-5' }).modelo === 'claude-opus-5-5' && P.pontaDoModelo('gemini-4-carbon-image') === 0 && P.pontaDoModelo('claude-haiku-5-5') === 0 && P.escolherModelo(['gpt-5', 'gpt-5-pro', 'gpt-5-mini'], { ponta: true }).modelo === 'gpt-5-pro', 'modelo fixado pelo usuário continua valendo; provedor sem modelo de ponta listado cai na regra geral');
+ok(P.escolherModelo(a, { ponta: true }).modelo === 'claude-opus-5-5' && P.ranquearModelos(a, { ponta: true })[1].id === 'claude-opus-5' && P.pontaDoModelo('claude-fable-5-2') === 0, 'NTA na Anthropic: o Opus mais recente (o Fable não é o padrão)');
+ok(P.escolherModelo(a, { ponta: true, fixado: 'claude-fable-5-2' }).modelo === 'claude-fable-5-2' && P.pontaDoModelo('gemini-4-argon-image') === 0 && P.pontaDoModelo('claude-haiku-5-5') === 0 && P.escolherModelo(['gpt-5', 'gpt-5-pro', 'gpt-5-mini'], { ponta: true }).modelo === 'gpt-5-pro', 'modelo fixado pelo usuário continua valendo; provedor sem modelo preferido cai na regra geral');
 const so = P.escolherModelo(['gemini-3.1-flash-lite', 'gpt-5-mini'], { padraoDoUsuario: 'gpt-5-mini' });
 ok(!!so.erro, 'só econômicos → recusa com erro: ' + so.erro);
 

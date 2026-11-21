@@ -8789,7 +8789,7 @@ function confirmarModeloParecer(it) {
       let lista = [];
       try { lista = await listarModelosDoProvedor(pid); } catch (e) { st.textContent = `Não consegui listar os modelos: ${e.message}`; return; }
       if (selP.value !== pid) return;
-      // Só na NTA o modelo de ponta do provedor vem primeiro (parecer.js, MODELOS_DE_PONTA).
+      // Só na NTA vale a preferência da Liderança: Claude Opus e Gemini 4 Argon (parecer.js, MODELOS_DE_PONTA).
       const rk = ranquearModelos(lista.map(m => m.id), { ponta: true });
       escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null, ponta: true });
       if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }

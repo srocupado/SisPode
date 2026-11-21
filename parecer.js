@@ -113,20 +113,20 @@ const ORDEM_FAIXA = { superior: 3, nao_identificada: 2, intermediaria: 1, econom
  * vêm antes; o de faixa não identificada só é escolhido quando não há outro.
  * Dentro de cada grupo, a regra de 05/09 continua: a versão decide.
  */
-// MODELO DE PONTA — só para a NTA (decisão da Liderança, 21/11/2026).
-// Em 2026 os provedores passaram a dar nome próprio aos modelos mais capazes, sem marca de faixa: Claude Fable
-// e Mythos (acima do Opus) e a linha Gemini 4 (Carbon, o de raciocínio mais forte; depois Neon e Argon). Pela
-// regra geral, o Gemini 4 Carbon cai em "faixa não identificada" e perde para o Gemini 3.1 Pro. A NTA é o
-// documento mais caro e mais lido: nela, e só nela, o modelo de ponta do provedor vem primeiro. A nota de
-// Plenário e a verificação por IA continuam na regra de 16/11/2026 (faixa conhecida primeiro).
-// A lista é de nomes, e nome envelhece: quando o provedor trocar a linha, o modelo novo volta a cair na regra
-// geral até alguém atualizar aqui — nada quebra.
+// MODELO DA NTA — só para a NTA (decisão da Liderança, 21/11/2026).
+// Em 2026 os provedores passaram a dar nome próprio a parte dos modelos, sem marca de faixa: a linha Gemini 4
+// (Carbon, Neon, Argon, Hydrogen) e, na Anthropic, Fable e Mythos, acima do Opus. Pela regra geral, um Gemini 4
+// cai em "faixa não identificada" e perde para o Gemini 3.1 Pro. Depois da simulação com o PLP 299/2026, a
+// Liderança fixou o modelo da NTA em cada provedor: o Claude OPUS mais recente e o Gemini 4 ARGON (o modelo
+// de raciocínio de fronteira com menor gasto por resposta; o Carbon ficou de fora pelo custo, e o Fable custa
+// o dobro do Opus). Só a NTA usa esta preferência: a nota de Plenário e a verificação por IA continuam na
+// regra de 16/11/2026 (faixa conhecida primeiro). No diálogo, o usuário ainda pode escolher outro modelo.
+// A lista é de nomes, e nome envelhece: quando o provedor trocar a linha, o modelo novo cai na regra geral
+// até alguém atualizar aqui — nada quebra.
 const MODELOS_DE_PONTA = [
-  [/(^|[-_. ])(fable|mythos)([-_. ]|$)/i, 3], [/(^|[-_. ])carbon([-_. ]|$)/i, 3],
-  [/(^|[-_. ])opus([-_. ]|$)/i, 2], [/(^|[-_. ])neon([-_. ]|$)/i, 2],
-  [/(^|[-_. ])argon([-_. ]|$)/i, 1],
+  [/(^|[-_. ])opus([-_. ]|$)/i, 3], [/(^|[-_. ])argon([-_. ]|$)/i, 3],
 ];
-/** 0 = não é modelo de ponta conhecido; 3 = o mais capaz do provedor. Modelo de outra modalidade ou econômico nunca é de ponta. */
+/** 0 = não é o modelo preferido da NTA; 3 = é. Modelo de outra modalidade ou econômico nunca é. */
 function pontaDoModelo(id) {
   const s = String(id || '');
   if (!s || MARCA_OUTRA_MODALIDADE.test(s) || MARCA_ECONOMICA.test(s)) return 0;
@@ -181,7 +181,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null, pon
     modelo: alvo.id, faixa: alvo.faixa, ressalva,
     motivo: fix
       ? `Modelo fixado pelo usuário na configuração do parecer (${alvo.id}, faixa ${alvo.faixa}).`
-      : alvo.ponta ? `Escolhido automaticamente para a NTA: o modelo de ponta do provedor (${alvo.id}).`
+      : alvo.ponta ? `Escolhido automaticamente para a NTA: o modelo definido pela Liderança para este provedor (${alvo.id}).`
       : `Escolhido automaticamente: versão mais alta entre os modelos ${alvo.conhecida ? 'de faixa conhecida (superior ou intermediária)' : 'não econômicos — nenhum de faixa conhecida disponível'} do provedor (${alvo.id}, faixa ${alvo.faixa})${padraoDoUsuario && padraoDoUsuario !== alvo.id ? `; o padrão da nota comum (${padraoDoUsuario}) não é usado no parecer` : ''}.`,
   };
 }
