@@ -496,7 +496,10 @@ function pe5ArtigosAlterados(alteracoes = []) {
   const out = [];
   for (const a of alteracoes) {
     const d = String(a.dispositivo || '');
-    const norma = d.match(/(Lei Complementar|Decreto-Lei|Lei)\s+n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s+(?:\d{1,2}[ºo°]?\s+de\s+[a-zçãé]+\s+de\s+)?)(\d{4})/i);
+    // "LC nº 235/2026" e "LCP 235/2026" valem como "Lei Complementar": na NTA do PLP 299/2026 de 21/11/2026 a
+    // leitura abreviou o nome da lei e seis linhas da tabela "o que muda" ficaram sem o texto vigente.
+    const bruto = d.match(/(Lei Complementar|LCP?|Decreto-Lei|Lei)\s+n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s+(?:\d{1,2}[ºo°]?\s+de\s+[a-zçãé]+\s+de\s+)?)(\d{4})/i);
+    const norma = bruto && /^LCP?$/i.test(bruto[1]) ? [bruto[0], 'Lei Complementar', bruto[2], bruto[3]] : bruto;
     const arts = d.match(/\barts?\.?\s*([^,;]*?(?:\d{1,4}\s*[ºo°]?(?:\s*-\s*[A-Z]{1,2})?(?:\s*(?:,|e|a)\s*)?)+)/i);
     if (!norma) continue;
     const tipo = /complementar/i.test(norma[1]) ? 'lcp' : /decreto/i.test(norma[1]) ? 'del' : 'lei';

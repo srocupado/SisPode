@@ -113,7 +113,7 @@ const PE5_LEITURA_CAMPOS = {
 };
 const PE5_LEITURA_ORIENTA = {
   blocos: `- "blocos": cubra o texto em votação INTEIRO, agrupado por tema (de 6 a 16 blocos). Um bloco por tema: não junte temas diferentes para encurtar. Quem lê os blocos tem de saber tudo o que o texto faz, com cada valor, percentual, prazo e exceção.`,
-  alteracoes: `- "alteracoes": uma entrada por artigo ou grupo contíguo de artigos de lei em vigor que o texto altera, acrescenta ou revoga. Escreva o dispositivo com o número e o ano da lei.`,
+  alteracoes: `- "alteracoes": uma entrada por artigo ou grupo contíguo de artigos de lei em vigor que o texto altera, acrescenta ou revoga. Escreva o dispositivo com o nome da lei por extenso, o número e o ano ("art. 14 da Lei Complementar nº 235/2026", nunca "LC 235/2026"): o programa usa esse nome para buscar o texto vigente. Uma lei por entrada.`,
   versoes: `- "versoes": só se houver mais de uma versão entre os documentos (original e substitutivo, texto da Câmara e do Senado). Uma entrada por diferença relevante, inclusive a exceção que ficou mais estreita ou mais larga do que a emenda que a originou. Se o texto novo criou algo que não existia, deixe "trecho_antes" vazio.`,
   achados: `- "achados": percorra as lentes abaixo. Registre o que merece exame E TAMBÉM o que está regular quando isso for relevante para quem decide (por exemplo, iniciativa correta). Não registre pergunta que não se aplica à matéria. Um mesmo problema entra uma vez, na lente mais apropriada. Não há número máximo: não deixe um ponto de fora para encurtar a resposta.
 - Em todo texto, examine também, e registre como achado quando ocorrer:
