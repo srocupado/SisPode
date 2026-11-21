@@ -455,7 +455,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       else { body.thinking = { type: 'enabled', budget_tokens: orc }; body.max_tokens = maxSaida + orc; }
     }
     // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
-    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 }];
+    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: Math.min(20, Math.max(1, opcoes.maxBuscas || 5)) }];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
     if (emStream) {
       body.stream = true;

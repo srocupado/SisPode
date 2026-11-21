@@ -1,13 +1,16 @@
 // Parecer de Especialista (refeito em 17/11/2026) — OS PROMPTS.
 //
-// Oito chamadas, cada uma com um trabalho só e saída em JSON:
-//   leitura        lê os documentos e devolve o que eles dizem, com trecho literal de cada item
-//   debate         pesquisa quem se posicionou e o que argumenta (internet)
+// Doze chamadas (eram oito até 21/11/2026), cada uma com um trabalho só e saída em JSON:
+//   leitura        duas, em paralelo: o texto em votação (o que faz, o que muda, os achados) e os documentos de
+//                  apoio (argumentos, estimativas, emendas, o que ficou sem resposta), com trecho literal de cada item
+//   debate         duas, uma para cada lado: quem defende e quem critica, e o que argumentam (internet)
 //   internacional  pesquisa o que outros países fizeram e o que aconteceu (internet)
 //   contexto       pesquisa decisões judiciais, normas existentes, dados e proposições correlatas (internet)
 //   congresso      pesquisa o histórico do tema no Congresso e os sinais de judicialização (internet)
-//   redacao 1 e 2  escreve o documento, em blocos por seção, só com o que está na base
-//   revisao        lê o documento pronto como adversário e devolve correções pontuais
+//   redacao        quatro: a matéria e o debate (em paralelo), a análise, os caminhos e a abertura — em blocos
+//                  por seção, só com o que está na base
+//   revisao        recebe o que a conferência do programa apontou, lê o documento como adversário e devolve
+//                  correções e acréscimos pontuais
 //
 // O que o modelo NÃO faz: tramitação, votações, voto da bancada, fase, texto da lei vigente, câmbio e
 // lista de fontes — isso é do programa (pe5-coleta.js) e chega pronto.
@@ -27,6 +30,8 @@ const PE5_ESTILO = `COMO ESCREVER
 - Cite o dispositivo (art. 47-C, § 2º) quando falar de regra do texto. Só cite artigo que esteja na base.
 - Não escreva identificadores (B1, Q7, W2…) dentro do texto. Eles vão apenas no campo "ev".
 - Não use termos internos: "cenário", "lente", "achado", "base", "evidência".
+- Sigla só depois do nome por extenso, na primeira vez em que aparece em cada seção: "Fundo Constitucional do Distrito Federal (FCDF)". Sigla que só o especialista conhece não se usa sozinha: escreva "relatório bimestral de avaliação de receitas e despesas", "Consultoria de Orçamentos do Senado", "termos de execução descentralizada".
+- Profundidade: explique o MECANISMO (o que dispara a regra, quem decide, quanto, até quando, o que acontece depois) e a consequência prática para quem é atingido. Frase curta não é texto raso: prefira mais frases curtas a menos informação.
 - Aspas só para citação literal curta que esteja na base.
 - O documento que você escreve se chama Nota Técnica Analítica (NTA). Para se referir a ele, escreva "esta nota"; nunca "este parecer". A palavra "parecer" fica reservada aos pareceres da tramitação (do relator, de comissão, de entidade).`;
 
@@ -40,7 +45,14 @@ function pe5ResumoColeta(G) {
   L.push(`Fase: ${G.fase?.descricao || '?'}`);
   L.push(`Situação registrada em ${G.status?.data || '?'}: ${G.status?.situacao || '?'} (${G.status?.orgao || '?'}). ${G.status?.despacho || ''}`);
   const u = G.urgencia || {};
-  L.push(u.tem ? `Regime: ${u.tipo}${u.aprovadaEm ? `, aprovada em ${u.aprovadaEm}` : ''}. ${u.requerimento || ''}` : `Regime: ${u.regime || 'sem urgência'}.`);
+  L.push(u.tem ? `Regime: ${u.tipo}${u.aprovadaEm ? `, aprovada em ${u.aprovadaEm}` : ''}. ${u.requerimento || ''}` : `Regime: sem urgência aprovada (${u.regime || 'regime não informado'}).${u.pedidaEm ? ` Requerimento de urgência apresentado em ${u.pedidaEm} e ainda não votado: ${u.requerimento || ''}` : ''}`);
+  const S = G.senado;
+  if (S) {
+    L.push(`NO SENADO FEDERAL (dados abertos do Senado, lidos pelo programa; são fatos): ${S.identificacao}${S.autor ? `, de ${S.autor}` : ''}${S.casaIniciadora ? `; Casa iniciadora: ${S.casaIniciadora}` : ''}. Situação: ${S.situacao || '?'}${S.dataSituacao ? ` (${S.dataSituacao})` : ''}.${S.deliberacao ? ` Deliberação: ${S.deliberacao.tipo}, em ${S.deliberacao.data}${S.deliberacao.destino ? ` — ${S.deliberacao.destino}` : ''}.` : ''}`);
+    if ((S.relatores || []).length) L.push(`  Relator(es) no Senado: ${S.relatores.map(r => `${r.nome} (${r.partido}-${r.uf})${r.colegiado ? `, ${r.colegiado}` : ''}${r.designadoEm ? `, designado em ${r.designadoEm}` : ''}`).join('; ')}.`);
+    for (const v of S.votacoes || []) L.push(`  Votação nominal no Senado em ${v.data}: ${v.descricao} Resultado: ${v.resultado}. Placar: ${v.sim} sim, ${v.nao} não${v.abstencao ? `, ${v.abstencao} abstenção(ões)` : ''}.`);
+    if ((S.andamentos || []).length) L.push('  Andamentos no Senado:\n' + S.andamentos.map(a => `    ${a.data}${a.orgao ? ` ${a.orgao}` : ''} — ${a.texto}`).join('\n'));
+  }
   for (const v of (G.votacoes || []).filter(x => x.nominal)) {
     const b = v.bancada || {};
     L.push(`Votação nominal de ${v.data} (${v.orgao}): ${v.descricao} Placar ${v.sim} a ${v.nao}. Podemos: ${(b.sim || []).length} sim, ${(b.nao || []).length} não${(b.nao || []).length ? ` (não: ${b.nao.join(', ')})` : ''}. Por partido: ${(v.partidos || []).slice(0, 12).map(p => `${p.partido} ${p.sim}×${p.nao}`).join(', ')}.`);
@@ -78,23 +90,82 @@ function pe5ResumoColeta(G) {
 // ------------------------------------------------------------------------------------------------
 // 1. LEITURA
 // ------------------------------------------------------------------------------------------------
-function pe5PromptLeitura({ identificacao, ementa, documentos = [], coleta = null, lentes = [], catalogo = [], textoEmVotacao = '' }) {
-  const blocoLentes = lentes.map(l => {
-    const e = catalogo.find(x => x.chave === l.chave) || {};
-    return `LENTE "${l.ordem}" — ${l.rotulo}
+// A leitura pode ir em UMA chamada (matéria com um documento só) ou em DUAS, em paralelo (pe5-pipeline.js):
+//   parte 'texto'  — o texto em votação: blocos, lei alterada, diferenças entre versões, achados das lentes;
+//   parte 'apoio'  — pareceres, relatórios, notas e emendas: argumentos, estimativas, o que ficou sem resposta.
+// Medido em 21/11/2026 no PLP 299/2026 (nove documentos, 193 mil caracteres): numa chamada só, o Gemini 4
+// Carbon devolveu 7 blocos e 4 argumentos e deixou de fora as estimativas não refeitas e quase tudo o que o
+// relator na Câmara sustenta; o raciocínio consumiu 40 mil dos 64 mil tokens de saída.
+const PE5_LEITURA_CAMPOS = {
+  resumo: ` "resumo": "uma frase: o que o texto em votação faz, em linguagem comum",`,
+  blocos: ` "blocos": [ { "id": "B1", "titulo": "tema do bloco", "dispositivos": "arts. …", "documento": "…", "explica": "o que esse conjunto de artigos faz, em 3 a 8 frases, cobrindo regras, valores, percentuais, prazos, quem decide, o que fica para ato do Executivo e as exceções", "trecho": "…" } ],`,
+  alteracoes: ` "alteracoes": [ { "id": "A1", "dispositivo": "art. 9º da Lei nº 12.529/2011", "tipo": "altera | acrescenta | revoga", "documento": "…", "muda": "o que muda, em 1 a 2 frases", "trecho": "…" } ],`,
+  versoes: ` "versoes": [ { "id": "V1", "tema": "…", "antes": "como era no texto anterior", "depois": "como ficou no texto em votação", "trecho_antes": "…", "documento_antes": "…", "trecho_depois": "…", "documento_depois": "…" } ],`,
+  emendas: ` "emendas": [ { "id": "E1", "rotulo": "…", "autor": "…", "muda": "…", "destino": "acolhida | rejeitada | parcialmente acolhida | sem deliberação", "documento": "…", "trecho": "…" } ],`,
+  justificativa: ` "justificativa": [ { "id": "J1", "quem": "autor | relator (diga de qual Casa ou comissão) | consultoria | outro", "objetivo": "o que essa pessoa ou órgão diz que a proposta pretende, o argumento que usa ou a resposta que dá a uma crítica", "responde_a": "a crítica ou dúvida a que responde; omita se não responde a nenhuma", "documento": "…", "trecho": "…" } ],`,
+  estimativas: ` "estimativas": [ { "id": "S1", "o_que": "impacto, custo, renúncia, economia, número de afetados", "valor": "como está no documento", "versao": "para qual versão do texto o número foi calculado (documento e data)", "refeita": "sim | não | não se aplica — o texto mudou, depois dessa conta, nos dispositivos a que o número se refere, e a conta foi refeita?", "depende_de": "efeito automático da lei | depende de ato facultativo do Executivo | depende de regulamento | não informado", "documento": "…", "trecho": "…" } ],`,
+  controversias: ` "controversias": [ { "id": "C1", "questao": "ambiguidade, contradição interna ou ponto que o próprio documento registra como disputado", "explica": "…", "documento": "…", "trecho": "…" } ],`,
+  achados: ` "achados": [ { "id": "T1", "lente": "número da lente", "questao": "o ponto, em uma frase", "dispositivo": "art. …", "porque": "por que merece exame, em 1 a 3 frases, só com o que está no texto", "documento": "…", "trecho": "…", "gravidade": "alta | media | baixa" } ],`,
+  referencias: ` "referencias": [ { "id": "U1", "nome": "nome COMPLETO do documento, como está escrito (consulta pública, estudo, relatório, nota técnica, exposição de motivos, parecer, acórdão, tratado)", "o_que_e": "o que é e para que o texto o invoca, em 1 a 2 frases", "documento": "…", "trecho": "…" } ],`,
+  ausencias: ` "ausencias": [ { "id": "X1", "o_que": "o que se esperaria encontrar e não está", "onde_procurou": "em quais documentos" } ],`,
+  vigencia: ` "vigencia": { "clausula": "quando entra em vigor", "documento": "…", "trecho": "…" },`,
+  termos_de_busca: ` "termos_de_busca": [ "de 3 a 5 termos de UMA palavra cada (substantivo específico do assunto, sem artigo nem preposição), com que a Câmara indexaria outras proposições sobre o mesmo tema" ]`,
+};
+const PE5_LEITURA_ORIENTA = {
+  blocos: `- "blocos": cubra o texto em votação INTEIRO, agrupado por tema (de 6 a 16 blocos). Um bloco por tema: não junte temas diferentes para encurtar. Quem lê os blocos tem de saber tudo o que o texto faz, com cada valor, percentual, prazo e exceção.`,
+  alteracoes: `- "alteracoes": uma entrada por artigo ou grupo contíguo de artigos de lei em vigor que o texto altera, acrescenta ou revoga. Escreva o dispositivo com o número e o ano da lei.`,
+  versoes: `- "versoes": só se houver mais de uma versão entre os documentos (original e substitutivo, texto da Câmara e do Senado). Uma entrada por diferença relevante, inclusive a exceção que ficou mais estreita ou mais larga do que a emenda que a originou. Se o texto novo criou algo que não existia, deixe "trecho_antes" vazio.`,
+  achados: `- "achados": percorra as lentes abaixo. Registre o que merece exame E TAMBÉM o que está regular quando isso for relevante para quem decide (por exemplo, iniciativa correta). Não registre pergunta que não se aplica à matéria. Um mesmo problema entra uma vez, na lente mais apropriada. Não há número máximo: não deixe um ponto de fora para encurtar a resposta.
+- Em todo texto, examine também, e registre como achado quando ocorrer:
+  (a) o que o texto deixa para ato do Executivo ("poderá", "ato do Poder Executivo", "regulamento"): diga o que fica fora da lei (percentual, prazo, critério, quem escolhe, destino do dinheiro ou do crédito);
+  (b) efeito que depende de decisão facultativa: se a regra é opção e não obrigação, o resultado anunciado depende de ela ser usada;
+  (c) em cada limite, teto, adiamento ou corte: o que o texto NÃO diz e que decide o efeito — quando começa, quando termina, se o valor é corrigido, o que acontece com o que passar do limite;
+  (d) falha de redação ou de remissão (dispositivo que remete a outro que não existe, parágrafo sem sentido completo, ementa que não cobre o conteúdo): lente 0, gravidade baixa.`,
+  emendas: `- "emendas": as que os documentos descrevem, com o destino que o relator deu a cada uma. Emendas iguais podem ir juntas, com os números de todas no rótulo.`,
+  justificativa: `- "justificativa": para CADA documento que seja justificativa, relatório, parecer, voto ou nota técnica, registre os argumentos distintos que ele traz (em geral de 3 a 8 por documento), cada um com o trecho. O parecer MAIS RECENTE tem prioridade: registre cada resposta que ele dá a uma crítica, com "responde_a".`,
+  estimativas: `- "estimativas": TODO número de impacto, custo, renúncia, economia ou alcance que os documentos trazem. Em "versao" e "refeita", confira as datas: número calculado para uma versão anterior, quando o texto mudou depois nos dispositivos a que ele se refere, é estimativa NÃO refeita. Em "depende_de", diga se o efeito é automático ou depende de ato facultativo.`,
+  controversias: `- "controversias": o que os próprios documentos registram como disputado — crítica de consultoria ou de nota técnica, emenda rejeitada com justificativa, voto vencido, ressalva do relator.`,
+  achadosApoio: `- "achados" (sobre os DOCUMENTOS DE APOIO; use o número da lente da lista abaixo, e ids a partir de T101):
+  (a) estimativa feita para versão anterior e não refeita depois de o texto mudar;
+  (b) ganho, economia ou efeito anunciado em parecer ou justificativa sem dispositivo que o sustente no texto em votação;
+  (c) crítica, dúvida ou lacuna registrada em um documento (nota técnica, emenda, voto) que o parecer MAIS RECENTE não responde — o trecho é a passagem desse parecer mais próxima do assunto;
+  (d) afirmação de parecer ou de justificativa que o texto em votação não confirma.`,
+  referencias: `- "referencias": TODO documento que a justificativa, a exposição de motivos, o relatório ou o voto invocam como base da proposta: consulta pública, tomada de subsídios, estudo, relatório de órgão, nota técnica, grupo de trabalho, decisão, norma estrangeira usada como modelo. Copie o nome e o número exatamente como aparecem. Se o texto citar "um estudo" sem dar o título, registre assim mesmo e diga que o título não consta: a pesquisa vai procurá-lo. Inclua a própria exposição de motivos, com o número.`,
+  ausencias: `- "ausencias": estimativa de impacto, relatório ou voto do relator, estudo que a justificativa cita e não anexa, definição de termo central, resposta do parecer mais recente a uma crítica registrada. Diga sempre onde procurou.`,
+};
+const PE5_LEITURA_PARTES = {
+  // uma chamada só: tudo
+  '': { campos: ['resumo', 'blocos', 'alteracoes', 'versoes', 'emendas', 'justificativa', 'estimativas', 'controversias', 'achados', 'referencias', 'ausencias', 'vigencia', 'termos_de_busca'],
+    orienta: ['blocos', 'alteracoes', 'versoes', 'achados', 'emendas', 'justificativa', 'estimativas', 'controversias', 'referencias', 'ausencias'], lentes: 'completas',
+    abre: 'Você vai ler os documentos de uma proposição legislativa e devolver, em JSON, o que eles dizem.' },
+  texto: { campos: ['resumo', 'blocos', 'alteracoes', 'versoes', 'controversias', 'achados', 'ausencias', 'vigencia', 'termos_de_busca'],
+    orienta: ['blocos', 'alteracoes', 'versoes', 'achados', 'ausencias'], lentes: 'completas',
+    abre: 'Você vai ler os documentos de uma proposição legislativa e devolver, em JSON, o que o TEXTO EM VOTAÇÃO faz, o que ele muda na lei e em relação às versões anteriores, e os pontos que merecem exame. Outra leitura, em paralelo, cuida dos argumentos, das estimativas e das emendas: não os registre aqui.' },
+  apoio: { campos: ['emendas', 'justificativa', 'estimativas', 'controversias', 'achados', 'referencias', 'ausencias'],
+    orienta: ['emendas', 'justificativa', 'estimativas', 'controversias', 'achadosApoio', 'referencias', 'ausencias'], lentes: 'lista',
+    abre: 'Você vai ler os documentos de uma proposição legislativa e devolver, em JSON, o que os DOCUMENTOS DE APOIO dizem — justificativa, relatórios, pareceres, votos, notas técnicas e emendas: quem argumenta o quê, que números apresentam, o que respondem e o que deixam sem resposta. Outra leitura, em paralelo, descreve o texto em votação artigo por artigo: não o descreva aqui. Use ids a partir de C101 nas controvérsias, T101 nos achados e X101 nas ausências.' },
+};
+function pe5PromptLeitura({ identificacao, ementa, documentos = [], coleta = null, lentes = [], catalogo = [], textoEmVotacao = '', parte = '' }) {
+  const P = PE5_LEITURA_PARTES[parte] || PE5_LEITURA_PARTES[''];
+  const blocoLentes = P.lentes === 'lista'
+    ? lentes.map(l => `LENTE "${l.ordem}" — ${l.rotulo}`).join('\n')
+    : lentes.map(l => {
+      const e = catalogo.find(x => x.chave === l.chave) || {};
+      return `LENTE "${l.ordem}" — ${l.rotulo}
   Perguntas de conferência (use como roteiro; registre SÓ o que tiver resposta relevante no texto):
 ${(e.perguntas || []).map((p, i) => `    ${i + 1}. ${p}`).join('\n')}
   Armadilhas do campo:
 ${(e.armadilhas || []).map(a => `    - ${a}`).join('\n')}`;
-  }).join('\n\n');
+    }).join('\n\n');
   const docs = documentos.map((d, i) => `<<<DOCUMENTO ${i + 1}: ${d.rotulo}>>>\n${d.texto}\n<<<FIM DO DOCUMENTO ${i + 1}>>>`).join('\n\n');
-  return `Você vai ler os documentos de uma proposição legislativa e devolver, em JSON, o que eles dizem. Esta etapa é só leitura: não opine, não pesquise, não use o que sabe de memória sobre a matéria.
+  const campos = P.campos.map(c => PE5_LEITURA_CAMPOS[c]).join('\n').replace(/,\s*$/, '');
+  return `${P.abre} Esta etapa é só leitura: não opine, não pesquise, não use o que sabe de memória sobre a matéria.
 
 MATÉRIA: ${identificacao}
 EMENTA: ${ementa || '(sem ementa)'}
 TEXTO EM VOTAÇÃO (é ele que se analisa; os demais documentos servem para comparar): ${textoEmVotacao || documentos[0]?.rotulo || ''}
 
-DADOS DE TRAMITAÇÃO (do sistema da Câmara; são fatos, não os contradiga):
+DADOS DE TRAMITAÇÃO (do sistema da Câmara${coleta && coleta.senado ? ' e do Senado' : ''}; são fatos, não os contradiga):
 ${pe5ResumoColeta(coleta)}
 
 REGRA DO TRECHO LITERAL
@@ -102,29 +173,13 @@ Todo item tem o campo "trecho": de 6 a 30 palavras CONSECUTIVAS copiadas do docu
 
 O QUE DEVOLVER
 {
- "resumo": "uma frase: o que o texto em votação faz, em linguagem comum",
- "blocos": [ { "id": "B1", "titulo": "tema do bloco", "dispositivos": "arts. …", "documento": "…", "explica": "o que esse conjunto de artigos faz, em 2 a 6 frases, cobrindo regras, prazos, valores e quem decide", "trecho": "…" } ],
- "alteracoes": [ { "id": "A1", "dispositivo": "art. 9º da Lei nº 12.529/2011", "tipo": "altera | acrescenta | revoga", "documento": "…", "muda": "o que muda, em 1 a 2 frases", "trecho": "…" } ],
- "versoes": [ { "id": "V1", "tema": "…", "antes": "como era no texto anterior", "depois": "como ficou no texto em votação", "trecho_antes": "…", "documento_antes": "…", "trecho_depois": "…", "documento_depois": "…" } ],
- "emendas": [ { "id": "E1", "rotulo": "…", "autor": "…", "muda": "…", "destino": "acolhida | rejeitada | parcialmente acolhida | sem deliberação", "documento": "…", "trecho": "…" } ],
- "justificativa": [ { "id": "J1", "objetivo": "o que o autor ou o relator diz que a proposta pretende, ou o argumento que usa", "documento": "…", "trecho": "…" } ],
- "estimativas": [ { "id": "S1", "o_que": "impacto, custo, renúncia, número de afetados", "valor": "como está no documento", "documento": "…", "trecho": "…" } ],
- "controversias": [ { "id": "C1", "questao": "ambiguidade, contradição interna ou ponto que o próprio documento registra como disputado", "explica": "…", "documento": "…", "trecho": "…" } ],
- "achados": [ { "id": "T1", "lente": "número da lente", "questao": "o ponto, em uma frase", "dispositivo": "art. …", "porque": "por que merece exame, em 1 a 3 frases, só com o que está no texto", "documento": "…", "trecho": "…", "gravidade": "alta | media | baixa" } ],
- "referencias": [ { "id": "U1", "nome": "nome COMPLETO do documento, como está escrito (consulta pública, estudo, relatório, nota técnica, exposição de motivos, parecer, acórdão, tratado)", "o_que_e": "o que é e para que o texto o invoca, em 1 a 2 frases", "documento": "…", "trecho": "…" } ],
- "ausencias": [ { "id": "X1", "o_que": "o que se esperaria encontrar e não está", "onde_procurou": "em quais documentos" } ],
- "vigencia": { "clausula": "quando entra em vigor", "documento": "…", "trecho": "…" },
- "termos_de_busca": [ "de 3 a 5 termos de UMA palavra cada (substantivo específico do assunto, sem artigo nem preposição), com que a Câmara indexaria outras proposições sobre o mesmo tema" ]
+${campos}
 }
 
 ORIENTAÇÕES
-- "blocos": cubra o texto em votação INTEIRO, agrupado por tema (de 4 a 12 blocos). Quem lê os blocos tem de saber tudo o que o texto faz.
-- "alteracoes": uma entrada por artigo ou grupo contíguo de artigos de lei em vigor que o texto altera, acrescenta ou revoga. Escreva o dispositivo com o número e o ano da lei.
-- "versoes": só se houver mais de uma versão entre os documentos (original e substitutivo, texto da Câmara e do Senado). Uma entrada por diferença relevante. Se o texto novo criou algo que não existia, deixe "trecho_antes" vazio.
-- "achados": percorra as lentes abaixo. Registre o que merece exame E TAMBÉM o que está regular quando isso for relevante para quem decide (por exemplo, iniciativa correta). Não registre pergunta que não se aplica à matéria. Um mesmo problema entra uma vez, na lente mais apropriada.
-- "referencias": TODO documento que a justificativa, a exposição de motivos, o relatório ou o voto invocam como base da proposta: consulta pública, tomada de subsídios, estudo, relatório de órgão, nota técnica, grupo de trabalho, decisão, norma estrangeira usada como modelo. Copie o nome e o número exatamente como aparecem. Se o texto citar "um estudo" sem dar o título, registre assim mesmo e diga que o título não consta: a pesquisa vai procurá-lo. Inclua a própria exposição de motivos, com o número.
-- "ausencias": estimativa de impacto, relatório ou voto do relator, estudo que a justificativa cita e não anexa, definição de termo central. Diga sempre onde procurou.
+${P.orienta.map(o => PE5_LEITURA_ORIENTA[o]).join('\n')}
 - Se um documento estiver ilegível ou incompleto, registre em "ausencias".
+- Profundidade vale mais que brevidade: esta leitura é a única vez em que os documentos são lidos; o que não for registrado aqui não chega à nota.
 
 LENTES
 ${blocoLentes}
@@ -152,9 +207,20 @@ const PE5_REGRAS_PESQUISA = `REGRAS DA PESQUISA
 - Prefira fonte primária. Quando só houver imprensa, use a mais recente.
 - Toda informação tem data ("dd/mm/aaaa" ou "mês de aaaa"). Sem data conhecida, escreva "sem data".
 - Se uma fonte disser algo que contradiz os FATOS DO TEXTO abaixo (um prazo, um valor, o regime de tramitação), não corrija a fonte em silêncio: registre a divergência em "avisos".
-- Em "avisos", diga também o que procurou e não encontrou.`;
+- Em "avisos", diga também o que procurou e não encontrou.
+- Uma busca só não basta. Faça VÁRIAS buscas, com termos diferentes: pelo número da matéria; pelo nome que a imprensa lhe dá; por cada grupo de atores ou de fontes pedido abaixo; por cada ponto sensível listado. Só pare quando as buscas novas deixarem de trazer nome ou fato novo.`;
 
-function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje }) {
+/** Os pontos que a leitura marcou como graves: a pesquisa procura quem falou de cada um. */
+function pe5PontosSensiveis(L) {
+  const a = (L?.achados || []).filter(x => /alta|m[ée]dia/i.test(x.gravidade || '')).slice(0, 14);
+  return a.length ? a.map(x => `- ${x.questao}${x.dispositivo ? ` (${x.dispositivo})` : ''}`).join('\n') : '(a leitura não marcou ponto de gravidade alta ou média)';
+}
+const PE5_FOCO_DEBATE = {
+  apoio: 'FOCO DESTA BUSCA: QUEM DEFENDE o texto e quem dele se beneficia — o governo e seus ministros, o autor, os relatores nas duas Casas, os líderes e parlamentares que apoiam, os setores beneficiados, os analistas e instituições que veem a medida como necessária. Registre também como cada um RESPONDE às críticas. Outra busca, em paralelo, cobre os críticos: não gaste buscas com eles.',
+  criticas: 'FOCO DESTA BUSCA: QUEM CRITICA o texto e quem arca com ele — a oposição e seus líderes, as empresas e setores atingidos e as confederações e associações que os representam, os Estados e Municípios e suas entidades, os conselhos e organizações da sociedade civil, os tributaristas, economistas e consultorias que apontam problema, os órgãos públicos que fizeram ressalva. Outra busca, em paralelo, cobre os defensores: não gaste buscas com eles.',
+};
+
+function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje, foco = '' }) {
   return `Pesquise na internet QUEM SE POSICIONOU sobre a proposição abaixo e O QUE CADA UM ARGUMENTA. O objetivo é montar o mapa do debate para um assessor parlamentar: os dois lados, com os argumentos e a evidência que cada um apresenta.
 
 MATÉRIA: ${identificacao}
@@ -167,6 +233,9 @@ ${pe5FatosDoTexto(leitura)}
 TRAMITAÇÃO:
 ${pe5ResumoColeta(coleta)}
 
+PONTOS SENSÍVEIS DO TEXTO (apontados na leitura; procure quem se manifestou sobre cada um):
+${pe5PontosSensiveis(leitura)}
+${PE5_FOCO_DEBATE[foco] ? `\n${PE5_FOCO_DEBATE[foco]}\n` : ''}
 O QUE PROCURAR
 - Governo, relator e autor: o que defendem e como respondem às críticas.
 - Empresas e setores diretamente afetados, e as entidades que os representam. Diga quem a entidade representa (associados, setor).
@@ -188,7 +257,7 @@ O QUE DEVOLVER
  "controversias": [ { "id": "D1", "questao": "a pergunta em disputa, em uma frase", "favor": ["Q1"], "contra": ["Q7"] } ],
  "avisos": [ "divergência entre fonte e texto; ator relevante sem manifestação localizada; documento citado e não encontrado" ]
 }
-De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.
+${foco ? 'De 8 a 16 atores deste lado, cada um com TODOS os argumentos que a fonte traz. De 3 a 8 controvérsias: a pergunta em disputa e os atores desta busca que argumentam de um lado e de outro (o outro lado pode ficar vazio; o programa junta com a outra busca).' : 'De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.'}
 
 ${PE5_SO_JSON}`;
 }
@@ -289,6 +358,9 @@ ${pe5ResumoColeta(coleta)}
 PONTOS JURÍDICOS QUE A LEITURA DESTACOU (procure se alguém já os contesta em juízo ou anuncia que contestará):
 ${pontos || '(nenhum)'}
 
+PONTOS SENSÍVEIS DO TEXTO (apontados na leitura; para a judicialização, procure ação em curso, anúncio ou parecer sobre cada um):
+${pe5PontosSensiveis(leitura)}
+
 O QUE PROCURAR
 - "historico": as tentativas ANTERIORES de legislar sobre o mesmo assunto, na Câmara e no Senado: projetos arquivados, rejeitados, vetados, medidas provisórias que perderam a eficácia, textos aprovados em uma Casa e parados na outra, comissões especiais e CPIs que trataram do tema. Para cada uma: a proposição com número e ano, o autor, o que propunha em relação ao texto atual, o desfecho e — o mais importante — POR QUE não avançou ou como terminou, segundo a fonte. Inclua as proposições em andamento que disputam o mesmo espaço. De 3 a 8 itens; se o tema é novo no Congresso, diga em "avisos".
 - "judicializacao": sinais concretos de que a lei, se aprovada, será levada ao Judiciário: (a) ação em curso no STF ou em tribunal superior contra lei de teor parecido (federal, estadual ou a própria lei que o texto altera), com classe, número, relator e situação; (b) partido, confederação, entidade de classe ou órgão que ANUNCIOU que irá questionar o texto, ou que tem legitimidade (art. 103 da Constituição) e já se manifestou contra; (c) parecer jurídico público (consultoria legislativa, órgão do governo, Ministério Público, entidade) que aponte vício no texto; (d) lei análoga, no Brasil, que foi suspensa ou derrubada. Diga o dispositivo ou o tema visado e o fundamento alegado. Registre o que as fontes dizem; NÃO conclua que o texto é inconstitucional. Se não houver sinal localizado, devolva a lista vazia e diga em "avisos" o que procurou.
@@ -337,9 +409,47 @@ ${leiIntegral ? `LEI EM VIGOR, TEXTO INTEGRAL (lido pelo programa; use para veri
 === FIM DA BASE ===`;
 }
 
+/** Lista do que a leitura apontou e a nota não pode deixar de fora (o programa confere pelo "ev"). */
+function pe5Cobertura(L, grupos) {
+  const curto = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 110);
+  const linhas = [];
+  for (const g of grupos) for (const x of (L && L[g]) || []) {
+    if (!x || !x.id) continue;
+    if (g === 'achados' && !/alta|m[ée]dia/i.test(x.gravidade || '')) continue;
+    linhas.push(`  ${x.id} — ${curto(g === 'achados' ? x.questao : g === 'estimativas' ? `${x.o_que}: ${x.valor}${/^n[ãa]o/i.test(x.refeita || '') ? ' (NÃO refeita para o texto em votação)' : ''}` : g === 'versoes' ? x.tema : g === 'justificativa' ? `${x.quem ? x.quem + ': ' : ''}${x.objetivo}` : x.questao || x.o_que || x.rotulo || '')}`);
+  }
+  return linhas.length ? `COBERTURA OBRIGATÓRIA (o programa confere): cada identificador abaixo tem de constar no "ev" de pelo menos um bloco desta metade, com o conteúdo dele EXPLICADO no texto. Não é para listar os itens: é para nenhum ficar de fora.\n${linhas.join('\n')}` : '';
+}
+
 const PE5_REGRA_EV = 'Cada bloco tem o campo "ev": a lista dos identificadores da base que sustentam o que o bloco afirma (por exemplo ["B2","T5"], ou ["G"] para dado de tramitação). Bloco sem "ev" é tratado como sem base. Não invente identificador.';
 
+// A redação vai em QUATRO chamadas (pe5-pipeline.js), cada uma com as seções dela. Em duas, a resposta chegava
+// perto do limite de saída: no Gemini 4 Carbon o raciocínio consumiu 44 mil dos 64 mil tokens e a primeira
+// metade veio cortada (PLP 299/2026, 21/11/2026). O prompt é o mesmo; a função abaixo deixa, no formato de
+// resposta e nas orientações, só as seções da parte pedida.
+const PE5_PARTES_REDACAO = {
+  materia: { chaves: ['materia'], campos: ['faz', 'origem', 'documentos', 'historico', 'versoes'], diz: 'A MATÉRIA (o que o texto faz, de onde vem, o que mudou entre as versões, os documentos, o contexto e o histórico)' },
+  debate: { chaves: ['debate', 'internacional'], campos: ['controversias', 'posicoes', 'lados', 'da_analise', 'jurisdicoes', 'comparativo', 'licoes'], diz: 'O DEBATE e A EXPERIÊNCIA INTERNACIONAL' },
+  analise: { chaves: ['analise'], campos: ['lentes', 'jurisprudencia', 'judicializacao', 'impacto'], diz: 'A ANÁLISE TÉCNICA' },
+  caminhos: { chaves: ['caminhos', 'abertura'], campos: ['opcoes', 'emendas', 'partido', 'perguntas', 'abertura', 'alcancados', 'pontos'], diz: 'OS CAMINHOS e A ABERTURA (o resumo da primeira página)' },
+};
+function pe5RecortarRedacao(prompt, parte) {
+  const P = PE5_PARTES_REDACAO[parte]; if (!P) return prompt;
+  const ini = prompt.lastIndexOf('O QUE DEVOLVER\n{'), ori = prompt.indexOf('ORIENTAÇÕES POR SEÇÃO', ini);
+  if (ini < 0 || ori < 0) return prompt;
+  // formato de resposta: só os blocos de primeiro nível da parte (cada um começa em ' "chave": {' e fecha em ' }')
+  const corpo = prompt.slice(ini, ori), blocos = [...corpo.matchAll(/\n "([a-z_]+)": \{[\s\S]*?\n \},?(?=\n)/g)].filter(m => P.chaves.includes(m[1])).map(m => m[0].replace(/,$/, ''));
+  const formato = `O QUE DEVOLVER\n{${blocos.join(',')}\n}\n\n`;
+  // orientações: as linhas '- "campo"' da parte e as gerais (que não começam por campo)
+  const [cab, ...linhas] = prompt.slice(ori).split('\n');
+  const fica = linhas.filter(l => { const m = l.match(/^- "([a-z_]+)"/); return !m || P.campos.includes(m[1]); });
+  return `${prompt.slice(0, ini)}NESTA CHAMADA escreva SÓ ${P.diz}. As demais seções são escritas em outra chamada: não as devolva.\n\n${formato}${cab}\n${fica.join('\n')}`;
+}
+
 function pe5PromptRedacao1(ctx) {
+  return pe5RecortarRedacao(pe5PromptRedacao1Inteiro(ctx), ctx.parte);
+}
+function pe5PromptRedacao1Inteiro(ctx) {
   return `Você vai escrever a primeira metade de um parecer técnico para a assessoria de uma liderança partidária na Câmara dos Deputados: A MATÉRIA, O DEBATE e A EXPERIÊNCIA INTERNACIONAL. O leitor é o analista que vai orientar o parlamentar; ele precisa do máximo de informação útil, organizada e sem repetição.
 
 MATÉRIA: ${ctx.identificacao}
@@ -350,6 +460,8 @@ Escreva SÓ com o que está na base abaixo. O programa imprime por conta própri
 ${PE5_ESTILO}
 
 ${PE5_REGRA_EV}
+
+${ctx.parte === 'debate' ? '' : pe5Cobertura(ctx.leitura, ['versoes', 'justificativa'])}
 
 ${pe5Base(ctx)}
 
@@ -384,13 +496,13 @@ O QUE DEVOLVER
 }
 
 ORIENTAÇÕES POR SEÇÃO
-- "faz": cubra o texto inteiro, em 4 a 9 blocos. Comece pelo que muda de mais importante. Explique o mecanismo, não transcreva artigos.
-- "origem": nomeie os documentos (a exposição de motivos com o número, a consulta, o estudo). Diga expressamente o que NÃO foi lido (relatório, voto, estudo citado), quando a leitura registrar a ausência, e por quê.
+- "faz": cubra o texto inteiro, em 5 a 14 blocos (um por tema; não funda temas para encurtar). Comece pelo que muda de mais importante. Explique o mecanismo, não transcreva artigos: o que dispara a regra, quem decide, valores e percentuais, prazos, exceções e o que fica para ato do Executivo.
+- "origem": um parágrafo por etapa, em ordem. Quando a base trouxer o histórico NO SENADO (bloco "NO SENADO FEDERAL" dos dados do programa), dedique um parágrafo a ele: autor, relator, as datas e CADA votação nominal com o placar e o que decidiu (urgência, texto-base, cada destaque, turno suplementar). Dedique outro à situação NA CÂMARA: relator, o que o parecer dele vota e o que NÃO propõe (emenda, substitutivo), requerimento de urgência pendente ou aprovado, emendas de Plenário, e o que acontece se o texto for aprovado sem mudança e se for alterado. Nomeie os documentos (a exposição de motivos com o número, a consulta, o estudo). Diga expressamente o que NÃO foi lido (relatório, voto, estudo citado), quando a leitura registrar a ausência, e por quê.
 - "documentos": a relação taxativa dos documentos que embasam a proposição, para consulta posterior: o texto original, a justificativa ou exposição de motivos, cada consulta, estudo, relatório ou nota que a leitura (ids U) e a pesquisa (ids Y) identificaram, o parecer e o substitutivo. Título completo, como está na base. Documento que foi localizado e não lido leva essa informação em "o_que_e".
 - "historico": uma linha por tentativa anterior de legislar sobre o tema (ids H), da mais antiga para a mais recente, terminando nas que estão em andamento. Em "por_que", o motivo que a fonte dá; se a fonte não diz, escreva "A fonte lida não informa o motivo.". Não repita aqui as proposições já explicadas em "contexto": se uma delas é a principal concorrente, ela fica aqui, e "contexto" trata do resto.
 - "versoes": uma linha por mudança relevante entre o texto anterior e o texto em votação. Omita a seção se houver uma versão só.
 - "controversias": é o coração do parecer. Para cada pergunta em disputa, os argumentos de um lado e do outro, com QUEM sustenta e QUE EVIDÊNCIA apresenta. Argumento sem evidência na fonte leva "Não apresentada na fonte.". Se um lado não tem argumento localizado, deixe a lista vazia. Em "estado", diga o que o texto em votação fez com a questão e o que ficou em aberto. Quando dois críticos se contradizem, diga.
-- "posicoes" (seção "Quem se posicionou e como"): TEXTO CORRIDO, um parágrafo por ator da pesquisa do debate — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo.
+- "posicoes" (seção "Quem se posicionou e como"): TEXTO CORRIDO, um parágrafo por ator da pesquisa do debate — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo. O relator da Casa em que a matéria está ganha parágrafo próprio, com cada argumento do parecer dele que a leitura registrou (ids J), ainda que a pesquisa na internet não o traga.
 - "lados" (seção "Os dois lados"): dois parágrafos por lado. Em "argumento", o melhor argumento do lado, nomeando quem o sustenta. Em "evidencia", o que o texto e os documentos mostram sobre o que esse lado afirma, ponto por ponto e com o artigo: o que se confirma; o que se confirma só em parte, e qual parte; o que o texto em votação ou a lei vigente contradizem; o que o substitutivo já atendeu; o que não há dado para verificar; e o que é divergência de mérito, que o texto não resolve. Se um argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. Avalia-se o ARGUMENTO, não a proposição: não diga quem tem razão no mérito nem se o texto deve ser aprovado.
 - "da_analise": de 2 a 5 argumentos que a leitura do texto ou a comparação internacional sustentam e que ninguém levantou. São da assessoria e serão impressos como tal.
 - "jurisdicoes": um bloco por país, mais um bloco para os que recuaram ou adiaram, se houver.
@@ -402,6 +514,9 @@ ${PE5_SO_JSON}`;
 }
 
 function pe5PromptRedacao2(ctx) {
+  return pe5RecortarRedacao(pe5PromptRedacao2Inteiro(ctx), ctx.parte);
+}
+function pe5PromptRedacao2Inteiro(ctx) {
   const fase = ctx.coleta?.fase || {};
   return `Você vai escrever a segunda metade de um parecer técnico para a assessoria de uma liderança partidária na Câmara dos Deputados: A ANÁLISE TÉCNICA, OS CAMINHOS e A ABERTURA (o resumo da primeira página). A primeira metade já está escrita e vem abaixo: NÃO repita o que ela já diz; refira-se aos temas sem recontá-los.
 
@@ -413,10 +528,12 @@ ${PE5_ESTILO}
 
 ${PE5_REGRA_EV}
 
+${ctx.parte === 'caminhos' ? '' : pe5Cobertura(ctx.leitura, ['achados', 'estimativas'])}
+
 ${pe5Base(ctx)}
 
 PRIMEIRA METADE, JÁ ESCRITA:
-${JSON.stringify(ctx.parte1 || {})}
+${JSON.stringify(ctx.parte1 || {})}${ctx.analise ? `\n\nANÁLISE TÉCNICA, JÁ ESCRITA (os caminhos e a abertura partem dela; não a reescreva):\n${JSON.stringify(ctx.analise)}` : ''}
 
 O QUE DEVOLVER
 {
@@ -448,10 +565,10 @@ O QUE DEVOLVER
 }
 
 ORIENTAÇÕES POR SEÇÃO
-- "lentes": um ponto por achado relevante da leitura (ids T), agrupado por campo, do mais grave ao menos grave. Em "exame", explique; em "objecao", dê o melhor contra-argumento, inclusive regra parecida que já exista na lei vigente; em "saida", o que resolveria. Ponto que está regular (iniciativa, competência) entra uma vez, curto, com "objecao" e "saida" vazios. NÃO escreva sobre o que não se aplica: liste em "sem_achado".
+- "lentes": um ponto por achado relevante da leitura (ids T), agrupado por campo, do mais grave ao menos grave. Achado de gravidade alta ou média não se funde com outro para encurtar: cada um tem o seu ponto. Quando o parecer do relator responde ao ponto, a resposta dele vai em "objecao"; quando não responde, diga isso em "exame". Em "exame", explique; em "objecao", dê o melhor contra-argumento, inclusive regra parecida que já exista na lei vigente; em "saida", o que resolveria. Ponto que está regular (iniciativa, competência) entra uma vez, curto, com "objecao" e "saida" vazios. NÃO escreva sobre o que não se aplica: liste em "sem_achado".
 - "jurisprudencia": só decisões que estão na pesquisa de contexto. Repita o que ela decidiu e o limite da analogia; não amplie o alcance da decisão.
 - "judicializacao": de 0 a 6 itens. Um item para cada dispositivo que a análise apontou com gravidade alta ou média em matéria constitucional, de iniciativa, de competência, federativa ou orçamentária, e um para cada sinal da pesquisa (ids L). É exame de RISCO, não de mérito: diga onde a lei pode ser questionada depois de aprovada, por quem e com que argumento. NUNCA escreva que o dispositivo "é inconstitucional", "viola" ou "ofende" a Constituição: escreva "pode ser questionado com base em…", "a tese contrária é…". Em "quem", só legitimado do art. 103 da Constituição, parte diretamente atingida ou quem a pesquisa registra; não suponha intenção. Se não há ponto com esse perfil, devolva a lista vazia.
-- "impacto": fiscal (estimativa oficial, ou a ausência dela e a quem pedir), econômico (quem paga, quem ganha, com os números da base e quem os produziu), implementação.
+- "impacto": fiscal (CADA estimativa da leitura, ids S, com quem a produziu, para qual versão do texto e se foi refeita; a ausência de estimativa e a quem pedir; o que depende de ato facultativo do Executivo), econômico (quem paga, quem ganha, com os números da base e quem os produziu), implementação.
 - "opcoes": as que existem NA FASE ATUAL, inclusive adiar, emendar e destacar, quando couber. Para cada uma, a consequência concreta. Sem recomendar.
 - "emendas": de 2 a 7, só para problema apontado na análise. Redija o dispositivo de verdade, na técnica da lei que se altera. Onde a escolha for política (um número, um prazo), deixe entre colchetes.
 - "partido": de 1 a 4 parágrafos, só com os dados do bloco "O PODEMOS E A MATÉRIA" e das votações. Diga: como a bancada votou nesta matéria e quem divergiu; se deputado do partido é autor, relator ou apresentou requerimento, emenda ou destaque, e o que pedia; quais projetos de deputados do partido tratam do mesmo assunto e se vão na MESMA direção do texto em votação, em direção DIFERENTE ou tratam de aspecto que o texto não cobre (explique com a ementa); e como a bancada votou nas proposições correlatas. A lista de projetos vem de busca por palavra e traz itens sem relação: cite e inclua em "projetos" SÓ os que tratam do mesmo assunto; se nenhum tratar, diga que a busca não localizou projeto da bancada sobre o tema. É registro de coerência, não orientação: não diga como a bancada deve votar.
@@ -486,6 +603,9 @@ PROCURE
 12. Projeto de deputado do Podemos citado como relacionado sem tratar do mesmo assunto, ou voto da bancada diferente do que está nos dados do programa.
 13. Nome genérico onde a base traz o nome próprio (órgão, documento, estudo, entidade), ou enumeração anunciada e não feita ("seis critérios" sem dizer quais).
 
+${(ctx.apontamentos || []).length ? `O PROGRAMA JÁ CONFERIU O TEXTO E APONTOU O QUE SEGUE. Resolva CADA item: com uma correção (número sem base, ausência sem dizer onde se procurou, frase repetida a remover, sigla sem o nome por extenso) ou com um acréscimo (item lido ou pesquisado que ficou de fora). Só deixe para "observacoes" o que não tiver conserto pontual.
+${ctx.apontamentos.map(x => `- ${x}`).join('\n')}
+` : ''}
 ${pe5Base(ctx)}
 
 PARECER A REVISAR:
@@ -493,12 +613,13 @@ ${JSON.stringify(ctx.doc || {})}
 
 O QUE DEVOLVER
 { "correcoes": [ { "trecho": "cópia EXATA de um pedaço do parecer (de 5 a 40 palavras), suficiente para localizá-lo", "novo": "o texto que deve entrar no lugar; vazio para apenas remover o trecho", "motivo": "o erro, em uma frase" } ],
+  "acrescimos": [ { "depois_de": "cópia EXATA de um pedaço do parecer (de 5 a 40 palavras), no fim de uma frase; o texto novo entra logo depois dele, no mesmo bloco", "texto": "a frase ou as frases que faltam, só com o que está na base e no estilo do parecer", "ev": ["identificadores da base que sustentam o acréscimo"], "motivo": "o que estava faltando" } ],
   "observacoes": [ "problema que não se resolve trocando um trecho (seção que falta, lado do debate sem argumento, fonte fraca)" ] }
-Se não houver erro, devolva { "correcoes": [], "observacoes": [] }. Não proponha mudança de estilo que não corrija erro.
+Se não houver erro nem falta, devolva { "correcoes": [], "acrescimos": [], "observacoes": [] }. Não proponha mudança de estilo que não corrija erro.
 
 ${PE5_SO_JSON}`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_ESTILO, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao };
+  module.exports = { PE5_ESTILO, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
 }

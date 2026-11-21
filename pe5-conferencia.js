@@ -133,6 +133,17 @@ const PE5_PRIMARIA = /\.(jus|leg|gov|mp|def)\.br|europa\.eu|\.gov\.uk|\.go\.jp|\
  * Corre os testes. `p` é o parecer montado (pe5-pipeline.js): doc, leitura, pesquisa, coleta, alteracoes,
  * cambio, base (textos dos documentos e da lei), trechos (resultado da conferência de citações).
  */
+/** Itens da leitura que a nota não pode deixar de fora: [{ id, rotulo }]. */
+function pe5CoberturaLeitura(L) {
+  const curto = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+  return [
+    ...((L && L.achados) || []).filter(x => x && x.id && /alta|m[ée]dia/i.test(x.gravidade || '')).map(x => ({ id: x.id, rotulo: curto(x.questao) })),
+    ...((L && L.estimativas) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(`${x.o_que}: ${x.valor}`) })),
+    ...((L && L.versoes) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(x.tema) })),
+    ...((L && L.justificativa) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(x.objetivo) })),
+  ];
+}
+
 function pe5Conferir(p, { hoje = new Date() } = {}) {
   const itens = [];
   const add = (teste, ok, detalhe = '', critico = false) => itens.push({ teste, ok: !!ok, detalhe: ok ? (detalhe || '') : detalhe, critico: !ok && critico });
@@ -283,6 +294,11 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Cada posição e cada decisão têm data e fonte', !semData.length && !semFonte.length && !temporarios,
     [semData.length ? `Sem data: ${semData.slice(0, 4).join('; ')}.` : '', semFonte.length ? `Sem fonte: ${semFonte.slice(0, 4).join('; ')}.` : '', temporarios ? `${temporarios} link(s) de redirecionamento temporário, sem o endereço final.` : ''].filter(Boolean).join(' '));
   add('Tudo o que a pesquisa trouxe foi usado no texto', !naoUsados.length, naoUsados.length ? `Coletado e não usado: ${naoUsados.slice(0, 10).join(', ')}.` : '');
+  // Cobertura da LEITURA: ponto grave, estimativa, diferença entre versões e argumento dos documentos que não
+  // aparecem em bloco nenhum da nota. A NTA do PLP 299/2026 feita pelo programa em 21/11/2026 deixou de fora
+  // um ponto que a leitura tinha (o adiamento da Lei Kandir sem correção do valor).
+  const foraLeitura = pe5CoberturaLeitura(L).filter(x => !usados.has(x.id));
+  add('O que a leitura apontou de relevante foi usado no texto', !foraLeitura.length, foraLeitura.length ? `Lido e não usado: ${foraLeitura.slice(0, 8).map(x => `${x.id} (${x.rotulo})`).join('; ')}${foraLeitura.length > 8 ? `; e mais ${foraLeitura.length - 8}` : ''}.` : '');
   if (todas.length) add('Peso das fontes oficiais na pesquisa', prim / todas.length >= 0.3, `${prim} de ${todas.length} fontes são oficiais; as demais são imprensa ou terceiros. ${prim / todas.length < 0.3 ? 'A maior parte do debate está apoiada em imprensa: confira antes de citar.' : ''}`.trim());
   const semLimite = (doc.analise?.jurisprudencia || []).filter(j => !j.limite || !j.decidiu).map(j => j.processo);
   add('Cada decisão judicial diz o que decidiu e onde a analogia para', !semLimite.length, semLimite.length ? `Incompleta(s): ${semLimite.join('; ')}.` : '');
@@ -333,5 +349,5 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pe5Conferir, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
+  module.exports = { pe5Conferir, pe5CoberturaLeitura, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
 }

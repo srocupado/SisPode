@@ -78,7 +78,7 @@ function pe5QuadroPolitico(G, esc) {
   const L = [];
   const u = G.urgencia || {};
   L.push(`<p><b>Fase.</b> ${esc(G.fase?.descricao || '')}${G.status?.situacao ? ` Situação registrada em ${esc(G.status.data)}: ${esc(G.status.situacao)}${G.status.orgao ? ` (${esc(G.status.orgao)})` : ''}.` : ''}</p>`);
-  L.push(`<p><b>Regime.</b> ${u.tem ? `${esc(u.tipo.charAt(0).toUpperCase() + u.tipo.slice(1))}${u.aprovadaEm ? `, aprovada em ${esc(u.aprovadaEm)}` : ''}.` : `Sem urgência registrada (${esc(u.regime || 'regime não informado')}).`}</p>`);
+  L.push(`<p><b>Regime.</b> ${u.tem ? `${esc(u.tipo.charAt(0).toUpperCase() + u.tipo.slice(1))}${u.aprovadaEm ? `, aprovada em ${esc(u.aprovadaEm)}` : ''}.` : `Sem urgência aprovada (${esc(u.regime || 'regime não informado')}).${u.pedidaEm ? ` Requerimento de urgência apresentado em ${esc(u.pedidaEm)}, ainda não votado.` : ''}`}</p>`);
   if (G.pauta?.titulo) L.push(`<p><b>Pauta.</b> Consta da pauta de Plenário de ${esc(G.pauta.data || '')}.</p>`);
   const nominais = (G.votacoes || []).filter(v => v.nominal);
   for (const v of nominais) {
@@ -86,7 +86,14 @@ function pe5QuadroPolitico(G, esc) {
     const votoPode = b.total ? `<b>Podemos:</b> ${b.sim.length} sim, ${b.nao.length} não${b.abstencao.length + b.obstrucao.length + b.outros.length ? `, ${b.abstencao.length + b.obstrucao.length + b.outros.length} outros` : ''}.${b.nao.length && b.sim.length ? ` Votaram ${b.nao.length <= b.sim.length ? `não: ${esc(nomes('nao'))}` : `sim: ${esc(nomes('sim'))}`}.` : ''}` : '<b>Podemos:</b> sem voto registrado.';
     L.push(`<p><b>Votação nominal de ${esc(v.data)}.</b> ${esc(v.descricao.replace(/\s*Sim:.*$/, ''))} Placar: <b>${v.sim} a ${v.nao}</b>. ${votoPode}</p>`);
   }
-  if (!nominais.length) L.push('<p><b>Votações.</b> Não há votação nominal de Plenário registrada para esta matéria.</p>');
+  const S = G.senado;
+  if (!nominais.length) L.push(`<p><b>Votações${S ? ' na Câmara' : ''}.</b> Não há votação nominal de Plenário registrada para esta matéria.</p>`);
+  // O que a outra Casa decidiu: relator, deliberação e o placar de cada votação nominal (dados abertos do Senado).
+  if (S) {
+    const rel = (S.relatores || []).map(r => `${r.nome} (${r.partido}-${r.uf})`).join('; ');
+    L.push(`<p><b>No Senado.</b> ${S.deliberacao ? `${esc(S.deliberacao.tipo)} em ${esc(S.deliberacao.data)}${S.deliberacao.destino ? ` (${esc(S.deliberacao.destino.replace(/^[ÀA]\s+/i, 'à ').replace(/^à\s/, 'destino: ').replace(/\.$/, ''))})` : ''}.` : `${esc(S.situacao ? S.situacao.charAt(0) + S.situacao.slice(1).toLowerCase() : 'Situação não informada')}${S.dataSituacao ? ` (${esc(S.dataSituacao)})` : ''}.`}${rel ? ` Relator: ${esc(rel)}.` : ''}</p>`);
+    if ((S.votacoes || []).length) L.push(`<table class="pe"><thead><tr><th style="width:74px">Data</th><th>Votação nominal no Senado</th><th style="width:78px">Resultado</th><th style="width:64px">Placar</th></tr></thead><tbody>${S.votacoes.map(v => `<tr><td>${esc(v.data)}</td><td>${esc(v.descricao.replace(/^Votação nominal d[aeo]s?\s+/i, '').replace(/^./, c => c.toUpperCase()))}</td><td>${esc(v.resultado)}</td><td><b>${v.sim} a ${v.nao}</b></td></tr>`).join('')}</tbody></table>`);
+  }
   return L.join('');
 }
 
@@ -160,7 +167,11 @@ function pe5MapaHtml(G, esc) {
   const M = G && G.mapa; if (!M) return '';
   const q = M.quorum || {}, L = [];
   L.push(`<p><b>Quórum para aprovar o mérito.</b> ${esc(q.regra ? q.regra.charAt(0).toUpperCase() + q.regra.slice(1) : '')} (${esc(q.base || '')}).${q.minimo ? ` São necessários ao menos ${q.minimo} votos sim.` : q.presenca ? ` A votação só vale com ${q.presenca} deputados presentes; aprova-se com mais votos sim do que não.` : ''}</p>`);
-  if (!M.votacao) { L.push('<p>Não há votação nominal desta matéria registrada em Plenário.</p>'); return L.join(''); }
+  if (!M.votacao) {
+    const vs = (G.senado && G.senado.votacoes) || [], u = vs[vs.length - 1];
+    L.push(`<p>Não há votação nominal desta matéria registrada no Plenário da Câmara.${u ? ` No Senado, a votação nominal mais recente foi em ${esc(u.data)} (${u.sim} a ${u.nao}); os placares estão no quadro político.` : ''}</p>`);
+    return L.join('');
+  }
   const v = M.votacao;
   L.push(`<p><b>Votação nominal mais recente em Plenário, em ${esc(v.data)}.</b> ${esc(String(v.descricao || '').replace(/\s*Sim:.*$/, ''))} Placar: ${v.sim} a ${v.nao}${v.outros ? `, com ${v.outros} abstenção, obstrução ou voto de outra espécie` : ''}; ${M.ausentes} deputados não registraram voto.${v.ehMerito ? '' : ' Não foi a votação do mérito: mostra a força de cada lado naquela data.'}</p>`);
   if ((M.linhas || []).length) L.push(`<table class="pe"><thead><tr><th style="width:24%">Partido</th><th style="width:9%">Sim</th><th style="width:9%">Não</th><th style="width:10%">Outros</th><th style="width:26%">Orientação</th><th>Como votou</th></tr></thead><tbody>${M.linhas.map(l => `<tr><td><b>${esc(l.partido)}</b></td><td>${l.sim}</td><td>${l.nao}</td><td>${l.outros || 0}</td><td>${esc(l.orientacao)}${l.orientadoPor ? `<br><small>${esc(l.orientadoPor)}</small>` : ''}</td><td>${l.situacao === 'dividido' ? '<b>dividido</b>' : esc(l.situacao)}${l.contraOrientacao ? `<br><small>${l.contraOrientacao} contra a orientação</small>` : ''}</td></tr>`).join('')}</tbody></table>`);
