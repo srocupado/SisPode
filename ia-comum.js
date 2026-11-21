@@ -437,15 +437,17 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // Raciocínio: nos Claude 4.6 em diante (Sonnet 5, Opus 5, Fable) o modo é "adaptive" com o
     // esforço em output_config; budget_tokens é rejeitado com 400. Nos anteriores (Haiku 4.5, Sonnet 4.5,
     // 4.1, 3.7) vale o orçamento fixo. Nos dois casos o pensamento conta dentro de max_tokens, que sobe.
+    // No modo adaptativo NÃO há orçamento de raciocínio: o modelo pensa quanto achar preciso, e isso sai do
+    // mesmo max_tokens da resposta. Medido em 21/11/2026 (Opus 5.5, leitura da NTA do PLP 299/2026, esforço
+    // alto): 42 mil tokens de raciocínio — com a folga antiga, de 16 mil, a resposta foi cortada no meio.
+    // Por isso a folga dos adaptativos é larga (o teto desses modelos é 128 mil); só se paga o que for usado.
     if (pensarAlto) {
-      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; }
-      else body.thinking = { type: 'enabled', budget_tokens: 16000 };
-      body.max_tokens = maxSaida + 16000;
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; body.max_tokens = Math.min(128000, maxSaida + 64000); }
+      else { body.thinking = { type: 'enabled', budget_tokens: 16000 }; body.max_tokens = maxSaida + 16000; }
     } else if (nivelPensar) {
       const orc = nivelPensar === 'medio' ? 8000 : 4000;
-      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; }
-      else body.thinking = { type: 'enabled', budget_tokens: orc };
-      body.max_tokens = maxSaida + orc;
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; body.max_tokens = Math.min(128000, maxSaida + orc * 4); }
+      else { body.thinking = { type: 'enabled', budget_tokens: orc }; body.max_tokens = maxSaida + orc; }
     }
     // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
     if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 }];
