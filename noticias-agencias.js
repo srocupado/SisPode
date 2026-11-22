@@ -52,10 +52,12 @@ const _naData = s => { const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4}
  * materia: { sigla, numero, ano, idCamara }. desde: Date — notícia anterior fica de fora (padrão: 1º de janeiro do ano).
  * Devolve [{ casa, veiculo, titulo, data, url, texto }], da mais recente para a mais antiga, no máximo `max`.
  */
-async function agenciasBuscarNoticias(materia = {}, fetchTexto, { max = 24, desde = null, maxCaracteres = 3500 } = {}) {
+async function agenciasBuscarNoticias(materia = {}, fetchTextoBruto, { max = 24, desde = null, maxCaracteres = 3500, esperaMs = 12000, lote = 6 } = {}) {
   const N = (typeof consultoriaCitaMateria === 'function') ? consultoriaCitaMateria : require('./notas-consultoria.js').consultoriaCitaMateria;
   const { sigla, numero, ano, idCamara } = materia;
-  if (!sigla || !numero || !ano || typeof fetchTexto !== 'function') return [];
+  if (!sigla || !numero || !ano || typeof fetchTextoBruto !== 'function') return [];
+  // Cada página tem limite de tempo: uma que não responda não pode travar a nota antes da pesquisa.
+  const fetchTexto = url => { let t; return Promise.race([Promise.resolve().then(() => fetchTextoBruto(url)), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('tempo esgotado')), esperaMs); })]).finally(() => clearTimeout(t)); };
   const ini = desde || new Date(`${ano}-01-01T00:00:00Z`);
   const candidatos = [];
   // Senado: duas páginas da busca (20 resultados cada)
@@ -74,12 +76,15 @@ async function agenciasBuscarNoticias(materia = {}, fetchTexto, { max = 24, desd
   const ordem = candidatos.filter(c => { const d = _naData(c.data); return !d || d >= ini; })
     .filter(c => (vistos.has(c.url) ? false : vistos.add(c.url)))
     .sort((a, b) => (_naData(b.data) || 0) - (_naData(a.data) || 0));
-  for (const c of ordem) {
-    if (out.length >= max) break;
-    let texto = '';
-    try { texto = agenciaTextoDaPagina(await fetchTexto(c.url)); } catch (_) { continue; }
-    if (!N(`${c.titulo}\n${texto}`, { sigla, numero, ano }) && !(idCamara && (c.idsProposicao || []).includes(String(idCamara)) && texto.length > 200)) continue;
-    out.push({ casa: c.casa, veiculo: c.veiculo, titulo: c.titulo, data: c.data, url: c.url, texto: texto.slice(0, maxCaracteres) });
+  // As páginas são lidas em lotes, em paralelo (uma a uma, eram dezenas de esperas em série), na ordem das datas.
+  for (let i = 0; i < ordem.length && out.length < max; i += lote) {
+    const grupo = ordem.slice(i, i + lote);
+    const textos = await Promise.all(grupo.map(c => fetchTexto(c.url).then(agenciaTextoDaPagina).catch(() => null)));
+    grupo.forEach((c, k) => {
+      const texto = textos[k]; if (texto == null || out.length >= max) return;
+      if (!N(`${c.titulo}\n${texto}`, { sigla, numero, ano }) && !(idCamara && (c.idsProposicao || []).includes(String(idCamara)) && texto.length > 200)) return;
+      out.push({ casa: c.casa, veiculo: c.veiculo, titulo: c.titulo, data: c.data, url: c.url, texto: texto.slice(0, maxCaracteres) });
+    });
   }
   return out;
 }

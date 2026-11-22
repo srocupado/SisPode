@@ -183,16 +183,35 @@ async function pe5LimparPesquisa(obj, grupos, fetchFn) {
  * das duas; os identificadores são refeitos (Q1…, D1…) e as controvérsias de pergunta parecida viram uma só.
  */
 function pe5JuntarDebates(...listas) {
-  const chave = n => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\b(senador|senadora|deputado|deputada|ministro|ministra|presidente|governo|federal|do|da|de|dos|das|e|o|a)\b/g, ' ').replace(/\s+/g, ' ').trim();
-  const atores = [], porChave = new Map();
+  // O mesmo ator chega com nomes diferentes em cada grupo: "Confederação Nacional da Indústria (CNI), presidente
+  // Ricardo Alban", "Confederação Nacional da Indústria (CNI)" e "CNI"; "Senador Eduardo Braga (MDB-AM), relator no
+  // Senado" e "Eduardo Braga". Comparam-se o nome sem cargo, partido e aposto, e a sigla. Ator contado duas vezes
+  // infla o quadro de tendência.
+  const semAc = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const limpa = n => semAc(n).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\b(senador|senadora|deputado|deputada|ministro|ministra|presidente|governo|federal|do|da|de|dos|das|e|o|a)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const chaves = n => {
+    const bruto = String(n || '');
+    const siglas = [...bruto.matchAll(/\(([A-Za-zÀ-ú]{2,12})\)/g)].map(m => semAc(m[1]).toLowerCase());   // "(CNI)"; "(PL-RN)" e listas ficam de fora
+    const semPar = bruto.replace(/\([^)]*\)/g, ' ');
+    const nome = limpa(semPar.split(/,\s+(?=[a-zà-ú])|\s+[—–-]\s+/)[0]);   // corta o aposto ("…, relator no Senado"); "A, B e C" fica inteiro
+    if (/^[A-ZÀ-Ú]{2,12}$/.test(bruto.trim())) siglas.push(semAc(bruto.trim()).toLowerCase());
+    return { nome, siglas };
+  };
+  const atores = [], indice = [], divergentes = [];
   const mapa2 = listas.map(() => new Map());
   listas.forEach((p, k) => { for (const x of (p && Array.isArray(p.atores) ? p.atores : [])) {
     if (!x || !x.ator) continue;
     if (p.grupo && !x.grupo) x.grupo = p.grupo;
-    const ch = chave(x.ator), antigo = String(x.id || '');
-    let alvo = ch && porChave.get(ch);
-    if (alvo) { alvo.argumentos = [...(alvo.argumentos || []), ...((x.argumentos || []).filter(g => !(alvo.argumentos || []).some(h => String(h.tese).slice(0, 60) === String(g.tese).slice(0, 60))))]; }
-    else { alvo = { ...x }; atores.push(alvo); if (ch) porChave.set(ch, alvo); }
+    const ch = chaves(x.ator), antigo = String(x.id || '');
+    const reg = indice.find(r => (ch.nome && r.nome === ch.nome) || ch.siglas.some(g => r.siglas.includes(g) || r.nome === g) || r.siglas.includes(ch.nome));
+    let alvo = reg && reg.alvo;
+    if (alvo) {
+      alvo.argumentos = [...(alvo.argumentos || []), ...((x.argumentos || []).filter(g => !(alvo.argumentos || []).some(h => String(h.tese).slice(0, 60) === String(g.tese).slice(0, 60))))];
+      reg.siglas.push(...ch.siglas);
+      if (String(x.ator).length > String(alvo.ator).length && !/,/.test(x.ator)) alvo.ator = x.ator;   // fica o nome mais completo
+      if (x.posicao && alvo.posicao && String(x.posicao).toLowerCase() !== String(alvo.posicao).toLowerCase()) divergentes.push(`${alvo.ator}: "${alvo.posicao}" numa busca e "${x.posicao}" em outra; ficou a primeira.`);
+    }
+    else { alvo = { ...x }; atores.push(alvo); indice.push({ nome: ch.nome, siglas: ch.siglas, alvo }); }
     if (antigo) mapa2[k].set(antigo, alvo);
   } });
   const mapa = mapa2;
@@ -208,7 +227,7 @@ function pe5JuntarDebates(...listas) {
     else contr.push(nova);
   } });
   contr.forEach((c, i) => { c.id = `D${i + 1}`; });
-  return { atores, controversias: contr, avisos: listas.flatMap(p => (p && Array.isArray(p.avisos) ? p.avisos : [])) };
+  return { atores, controversias: contr, avisos: [...listas.flatMap(p => (p && Array.isArray(p.avisos) ? p.avisos : [])), ...divergentes.map(d => `Posição divergente entre as buscas — ${d}`)] };
 }
 
 function pe5AplicarRevisao(doc, correcoes, acrescimos) {
@@ -219,7 +238,7 @@ function pe5AplicarRevisao(doc, correcoes, acrescimos) {
     if (alvo.length < 12) { ignoradas.push({ ...c, razao: 'trecho curto demais' }); continue; }
     let n = 0; visita(doc, s => { n += s.split(alvo).length - 1; return s; });
     if (n !== 1) { ignoradas.push({ ...c, razao: n ? 'trecho aparece mais de uma vez' : 'trecho não localizado' }); continue; }
-    visita(doc, s => s.includes(alvo) ? s.replace(alvo, String(c.novo || '')).replace(/\s{2,}/g, ' ').trim() : s);
+    visita(doc, s => s.includes(alvo) ? s.replace(alvo, () => String(c.novo || '')).replace(/\s{2,}/g, ' ').trim() : s);   // função: "R$" no texto novo não é padrão de substituição
     aplicadas.push({ trecho: alvo.slice(0, 120), novo: String(c.novo || '').slice(0, 200), motivo: String(c.motivo || '') });
   }
   // Acréscimos: frase nova logo depois de um trecho existente, no mesmo bloco, com as referências somadas ao "ev".
@@ -331,6 +350,7 @@ async function gerarParecerPE5(ctx, io) {
 
   // --- IA 2-5: pesquisas ---
   let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], judicializacao: [], avisos: [] } };
+  if (io.semWeb === true) pesquisa.semBusca = true;   // a conferência não cobra mínimos de pesquisa que não houve
   if (io.semWeb !== true) {
     // Notícias das agências do Congresso: lidas pelo programa e entregues à busca do debate como fonte já coletada.
     let noticias = [];
@@ -364,7 +384,7 @@ async function gerarParecerPE5(ctx, io) {
     const PE5_MIN_PAISES = 5, PE5_MIN_DECISOES = 4;
     const nP = (intl.jurisdicoes || []).length, nD = (cx.jurisprudencia || []).length;
     const semContraste = !(intl.jurisdicoes || []).some(R.pe5EhContraste);
-    const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura), cg.historico).map(l => l.lei);
+    const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura, { anoRef: hoje.getFullYear() }), cg.historico).map(l => l.lei);
     if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES || semContraste || faltaOrigens.length) {
       passo('completando a pesquisa (o que ficou abaixo do mínimo ou faltou)…');
       const eixos = Array.isArray(intl.eixos) ? intl.eixos : [];
@@ -406,9 +426,12 @@ async function gerarParecerPE5(ctx, io) {
   const j5 = obj(r5), j5b = obj(r5b), j5c = obj(r5c);
   if (!j5) return falhou(r5, 'A redação da matéria');
   if (!j5b) return falhou(r5b, 'A redação do debate');
-  if (!j5c) return falhou(r5c, 'A redação de "Quem se posicionou e como"');
-  const quem = j5c.quem || {};
-  const parte1 = { materia: j5.materia || {}, debate: { ...(j5b.debate || {}), posicoes: Array.isArray(quem.posicoes) ? quem.posicoes : (j5c.debate?.posicoes || j5b.debate?.posicoes || []), sintese: quem.sintese || null }, internacional: j5b.internacional || {} };
+  // "Quem se posicionou e como" não tem teto e pode vir truncada com muitos atores: a nota segue sem a seção, com
+  // aviso na conferência, em vez de perder a leitura, as pesquisas e as outras redações.
+  const avisosRedacao = [];
+  if (!j5c) avisosRedacao.push(`"Quem se posicionou e como" não foi redigida: ${r5c.truncated ? `a resposta veio truncada (${pe5MotivoTruncada(r5c)})` : 'a resposta do modelo não pôde ser interpretada'}. A nota saiu sem os parágrafos de posição; o quadro de tendência, que é do programa, foi mantido. Gere de novo para obter a seção.`);
+  const quem = (j5c && j5c.quem) || {};
+  const parte1 = { materia: j5.materia || {}, debate: { ...(j5b.debate || {}), posicoes: Array.isArray(quem.posicoes) ? quem.posicoes : (j5c?.debate?.posicoes || j5b.debate?.posicoes || []), sintese: quem.sintese || null }, internacional: j5b.internacional || {} };
   passo('redigindo a análise técnica…');
   // A lei em vigor vai inteira à análise e à revisão: é o que permite ao modelo dizer "a lei atual já tem regra
   // parecida" a partir do texto, e não de memória. Entrada é a parte barata da chamada.
@@ -458,6 +481,7 @@ async function gerarParecerPE5(ctx, io) {
     chamadas, duracaoMs: Date.now() - t0,
   };
   p.conferencia = R.pe5Conferir(p, { hoje });
+  for (const a of avisosRedacao) p.conferencia.itens.push({ teste: 'Redação de "Quem se posicionou e como"', ok: false, detalhe: a, critico: true });
   for (const a of avisosLeitura) p.conferencia.itens.push({ teste: 'Leitura dos documentos de apoio', ok: false, detalhe: a, critico: false });
   for (const a of lv.avisos) p.conferencia.itens.push({ teste: 'Leitura da lei em vigor', ok: false, detalhe: a, critico: false });
   for (const o of revisao.observacoes) p.conferencia.itens.push({ teste: 'Observação da revisão', ok: false, detalhe: o, critico: false });

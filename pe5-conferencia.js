@@ -315,7 +315,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   // com dois países e uma decisão. Abaixo do mínimo, o pipeline faz uma chamada complementar; se ainda faltar,
   // o teste avisa.
   const jurD = doc.internacional?.jurisdicoes || [], decD = doc.analise?.jurisprudencia || [];
-  if (pq.debate || pq.internacional) {
+  if ((pq.debate || pq.internacional) && pq.semBusca !== true) {   // sem busca na internet não há o que cobrar
     add('Experiência internacional: ao menos cinco países ou blocos', jurD.length >= 5, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < 5 ? '; o mínimo é cinco' : ''}.`);
     add('Decisões judiciais: ao menos quatro', decD.length >= 4, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < 4 ? '; o mínimo é quatro' : ''}.`);
     // Um país de modelo oposto (o mecanismo é vedado, depende do Legislativo ou é mais estreito) e a origem das
@@ -324,7 +324,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
     const opostos = jur.filter(P.pe5EhContraste), opostosNaNota = opostos.filter(j => usados.has(j.id));
     add('Experiência internacional: ao menos um país com modelo oposto ao do texto', opostosNaNota.length > 0,
       opostos.length ? `${opostos.map(j => j.lugar).join('; ')}${opostosNaNota.length ? '' : ' — está na pesquisa, mas não na nota'}.` : 'A pesquisa não trouxe país em que o mecanismo seja vedado, dependa do Legislativo ou seja mais estreito.');
-    const leis = P.pe5LeisAlteradas(L), obrig = leis.filter(l => l.obrigatoria);
+    const leis = P.pe5LeisAlteradas(L, { anoRef: hoje.getFullYear() }), obrig = leis.filter(l => l.obrigatoria);
     if (obrig.length) {
       const hist = pq.congresso?.historico || [];
       const falta = P.pe5OrigensFaltantes(leis, hist).map(l => l.lei);

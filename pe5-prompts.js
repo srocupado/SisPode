@@ -294,9 +294,9 @@ function pe5EixosComparacao(L) {
 }
 // Leis que o texto altera, da leitura (alterações e, sem elas, dispositivos dos blocos). A NTA do PLP 299/2026 não trouxe
 // no histórico o projeto que deu origem à Lei Complementar nº 200/2023 (PLP 93/2023), a lei mais alterada pelo texto.
-// "obrigatoria": a mais alterada e as que têm ponto grave (até quatro) — destas o histórico TEM de trazer a origem.
+// "obrigatoria": a mais alterada e as que têm ponto grave (até quatro), se forem lei dos últimos vinte anos — destas o histórico TEM de trazer a origem.
 const PE5_RE_LEI = /\b(Lei Complementar|LC|Decreto-Lei|Lei)\s*(?:n[ºo°.]*\s*)?(\d[\d.]*\d|\d)\s*(?:\/|,\s*de\s+\d{1,2}[º°]?\s+de\s+[a-zç]+\s+de\s+)(\d{4})/gi;
-function pe5LeisAlteradas(L) {
+function pe5LeisAlteradas(L, { anoRef = new Date().getFullYear() } = {}) {
   const m = new Map();
   const achar = s => [...String(s || '').matchAll(PE5_RE_LEI)].map(x => { const tipo = /^(LC|Lei Complementar)$/i.test(x[1]) ? 'Lei Complementar' : /decreto/i.test(x[1]) ? 'Decreto-Lei' : 'Lei'; const numero = x[2].replace(/\./g, ''); return { k: `${tipo}|${numero}|${x[3]}`, tipo, numero, ano: x[3], rot: `${tipo} nº ${x[2]}/${x[3]}` }; });
   const fontes = (L?.alteracoes || []).length ? L.alteracoes.map(a => a.dispositivo) : (L?.blocos || []).map(b => b.dispositivos);
@@ -305,23 +305,27 @@ function pe5LeisAlteradas(L) {
   for (const b of L?.blocos || []) if (pe5BlocoTemPontoGrave(b, graves)) for (const x of achar(b.dispositivos)) if (m.has(x.k)) m.get(x.k).grave = true;
   for (const g of graves) for (const x of achar(g)) if (m.has(x.k)) m.get(x.k).grave = true;
   const lista = [...m.values()].sort((a, b) => b.alteracoes - a.alteracoes);
-  const obrig = new Set([...new Set([lista[0], ...lista.filter(e => e.grave)].filter(Boolean))].slice(0, 4));
+  // Só se exige a origem de lei ou lei complementar dos últimos vinte anos: decreto-lei não nasceu de projeto, e o
+  // debate de origem de lei antiga (CLT, Lei nº 8.666/1993) pouco diz sobre o texto de hoje.
+  const elegivel = e => e.tipo !== 'Decreto-Lei' && Number(e.ano) >= anoRef - 20;
+  const obrig = new Set([...new Set([lista[0], ...lista.filter(e => e.grave)].filter(Boolean))].filter(elegivel).slice(0, 4));
   return lista.map(e => ({ ...e, obrigatoria: obrig.has(e) }));
 }
 /** Leis obrigatórias (pe5LeisAlteradas) cuja origem não está no histórico pesquisado. */
 function pe5OrigensFaltantes(leis, historico) {
   const origens = (historico || []).filter(h => /origem/i.test(h.tipo || '') || /virou lei/i.test(h.desfecho || ''));
-  return (leis || []).filter(l => l.obrigatoria).filter(l => {
-    const re = new RegExp(`(^|[^\\d.])${l.numero.split('').join('\\.?')}(?![\\d])`);
-    return !origens.some(h => { const t = [h.lei_resultante, h.o_que_propunha, h.por_que, h.desfecho].join(' '); return re.test(t) && t.includes(l.ano); });
-  });
+  // Compara pela LEI citada no item (número e ano), não por número solto: "R$ 200 milhões em 2023" não é a LC 200/2023.
+  const citadas = h => [...[h.lei_resultante, h.o_que_propunha, h.por_que, h.desfecho].join(' ').matchAll(PE5_RE_LEI)].map(x => `${x[2].replace(/\./g, '')}|${x[3]}`);
+  return (leis || []).filter(l => l.obrigatoria).filter(l => !origens.some(h => citadas(h).includes(`${l.numero}|${l.ano}`)));
 }
 /** Temas que o texto manda tratar em outra lei ou para os quais dá prazo ("o Congresso apreciará em 60 dias o projeto que…"). */
 function pe5TemasDelegados(L) {
   const out = [];
   for (const b of L?.blocos || []) for (const f of String(b.explica || '').split(/(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕ])/)) {   // "art. 37" não corta a frase
-    const projeto = /\bprojeto\b/i.test(f) && /(\b(em|no prazo de|até)\s+\d+\s+dias\b|\b(disciplin|regulament|tratar|dispor))/i.test(f);
-    const leiPropria = /\blei (complementar )?(específica|própria)\s+(que\s+)?(disciplin|regulament|dispor|dispõe|tratar|definir|fixar)/i.test(f);
+    // Só o que o texto EMPURRA para outra lei: prazo para apreciar projeto, "projeto que disciplinará", "lei específica
+    // disporá", "será regulamentado em lei". "O projeto regulamenta…" descreve a própria matéria e não entra.
+    const projeto = /\b(projeto|lei)\b[^.;]*\b(em|no prazo de|até)\s+\d+\s+dias\b|\b(em|no prazo de|até)\s+\d+\s+dias\b[^.;]*\b(projeto|lei)\b/i.test(f) || /\bprojeto( de lei( complementar)?)? que (disciplinar[áa]|regulamentar[áa]|tratar[áa]|dispor[áa])/i.test(f);
+    const leiPropria = /\blei (complementar )?(específica|própria)\s+(que\s+)?(disciplin|regulament|dispor|dispõe|tratar|definir|fixar)/i.test(f) || /\b(ser[áa]|ser[ãa]o|dever[áa] ser|dever[ãa]o ser) (regulamentad|disciplinad|definid|fixad)[oa]s? (por|em) lei\b/i.test(f);
     if (projeto || leiPropria) out.push(`- ${b.titulo} (${b.dispositivos}): ${f.trim()}`);
   }
   return [...new Set(out)].slice(0, 8);

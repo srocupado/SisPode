@@ -99,6 +99,45 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
     ok(/A pesquisa não trouxe país/.test(item(kSem, /modelo oposto/).detalhe) && /Sem a origem na pesquisa: Lei Complementar nº 176\/2020/.test(item(kSem, /projeto de origem/).detalhe), 'ausentes da pesquisa: apontado');
   }
 
+  // revisão do código (22/11/2026): nove correções
+  {
+    const { gerarReferencia } = require('./pe5-referencia.js');
+    // 1. o mesmo ator com nomes diferentes entre os grupos fica uma vez
+    const jd = PL.pe5JuntarDebates(
+      { grupo: 'A', atores: [{ id: 'Q1', ator: 'Confederação Nacional da Indústria (CNI), presidente Ricardo Alban', posicao: 'contrário', argumentos: [{ tese: 'x' }] }, { id: 'Q2', ator: 'Senador Eduardo Braga (MDB-AM), relator no Senado', posicao: 'favorável', argumentos: [{ tese: 'a' }] }, { id: 'Q3', ator: 'Governadora Raquel Lyra (Pernambuco)', posicao: 'contrário', argumentos: [] }] },
+      { grupo: 'B', atores: [{ id: 'Q1', ator: 'Confederação Nacional da Indústria (CNI)', posicao: 'contrário com ressalvas', argumentos: [{ tese: 'y' }] }, { id: 'Q2', ator: 'Eduardo Braga', posicao: 'favorável', argumentos: [{ tese: 'b' }] }, { id: 'Q3', ator: 'CNI', posicao: 'contrário', argumentos: [] }, { id: 'Q4', ator: 'Governadores (mobilização coordenada)', posicao: 'contrário', argumentos: [] }, { id: 'Q5', ator: 'Senador Carlos Portinho (PL-RJ)', posicao: 'contrário', argumentos: [] }, { id: 'Q6', ator: 'Senador Sergio Moro (PL-PR)', posicao: 'contrário', argumentos: [] }], controversias: [{ questao: 'A regra deve valer para todos os créditos tributários?', favor: ['Q2'], contra: ['Q1', 'Q3'] }] });
+    ok(jd.atores.length === 6 && jd.atores[0].argumentos.length === 2 && jd.atores[1].argumentos.length === 2 && jd.controversias[0].favor[0] === 'Q2' && jd.controversias[0].contra.join() === 'Q1', 'CNI (nome completo, com aposto e só a sigla) e Eduardo Braga (com e sem cargo) ficam uma vez cada, com os argumentos somados; governadora e governadores, e dois senadores do mesmo partido, não se confundem');
+    ok(jd.avisos.some(a => /Posição divergente.*Confederação Nacional da Indústria.*"contrário" numa busca e "contrário com ressalvas"/.test(a)), 'posição diferente entre as buscas vira aviso');
+    // 2. "Quem se posicionou" truncada não derruba a nota
+    const tr = await gerarReferencia({ respostas: { 'redacao-1c': '{"quem": {"posicoes": [ {"texto": "O Ministério' } });
+    ok(!tr.p.erro && tr.p.doc.materia && tr.p.conferencia.itens.some(i => /Quem se posicionou e como/.test(i.teste) && i.critico && /não foi redigida/.test(i.detalhe)), '"Quem se posicionou e como" ilegível: a nota sai sem a seção, com aviso crítico na conferência');
+    // 3. origem só de lei dos últimos vinte anos; decreto-lei nunca
+    const lx = PR.pe5LeisAlteradas({ alteracoes: [{ dispositivo: 'art. 59 do Decreto-Lei nº 5.452, de 1º de maio de 1943' }, { dispositivo: 'art. 60 do Decreto-Lei nº 5.452/1943' }, { dispositivo: 'art. 3º da Lei nº 8.666/1993' }, { dispositivo: 'art. 2º da Lei nº 14.133/2021' }], achados: [{ gravidade: 'alta', dispositivo: 'art. 2º da Lei nº 14.133/2021' }, { gravidade: 'alta', dispositivo: 'art. 3º da Lei nº 8.666/1993' }] }, { anoRef: 2026 });
+    ok(lx.filter(l => l.obrigatoria).map(l => l.lei).join() === 'Lei nº 14.133/2021', 'origem obrigatória: decreto-lei (a CLT) e lei de 1993 ficam de fora; a lei de 2021 com ponto grave entra');
+    // 4. sem busca na internet, os mínimos de pesquisa não são cobrados
+    const sw = await gerarReferencia({ io: { semWeb: true } });
+    ok(sw.p.pesquisa.semBusca === true && !sw.p.conferencia.itens.some(i => /ao menos cinco países|ao menos quatro|modelo oposto|projeto de origem/.test(i.teste)), 'sem busca: a conferência não cobra países, decisões, país oposto nem origem das leis');
+    // 6. tema delegado: só o que o texto empurra para outra lei
+    const td = PR.pe5TemasDelegados({ blocos: [{ titulo: 'T', dispositivos: 'art. 1º', explica: 'O projeto regulamenta o uso de créditos. O projeto de lei orçamentária poderá dispor sobre bolsas. O valor será fixado em lei. Os critérios serão definidos em lei. Lei específica disporá sobre o fundo.' }] });
+    ok(td.length === 3 && /valor será fixado em lei/.test(td[0]) && /critérios serão definidos em lei/.test(td[1]) && /Lei específica disporá/.test(td[2]), 'tema delegado: "o projeto regulamenta" e "o projeto de lei orçamentária poderá dispor" não entram; "será fixado em lei", "serão definidos em lei" e "lei específica disporá" entram');
+    // 7. quadro de tendência: nome sem cortar o segundo ator; posição fora das previstas é dita
+    const tt = H.pe5Tendencia([{ ator: 'Senadores Tereza Cristina (PP-MS) e Wanderlan Cardoso (PSD-GO)', posicao: 'contrário com ressalvas', grupo: 'G' }, { ator: 'Bruno Moretti, ministro do Planejamento e Orçamento', posicao: 'favorável', grupo: 'G' }, { ator: 'Fulano', posicao: 'dividido', grupo: 'G' }, { ator: 'Beltrano', posicao: 'neutro', grupo: 'G' }]);
+    ok(tt[0].ressalva_c[0] === 'Senadores Tereza Cristina e Wanderlan Cardoso' && tt[0].favor[0] === 'Bruno Moretti' && tt.semClasse.join() === 'Fulano ("dividido")' && /Contados em "Neutros"[^<]*Fulano/.test(H.pe5TendenciaHtml([{ ator: 'Fulano', posicao: 'dividido', grupo: 'G' }], null, x => x)), 'tendência: dois atores no mesmo item ficam com os dois nomes; o aposto de cargo sai; posição não prevista é avisada na nota do quadro');
+    // 8. notícias em paralelo e com limite de tempo
+    const busca = '<a href="https://www12.senado.leg.br/noticias/materias/2026/11/12/uma-noticia-sobre-o-ajuste">Uma notícia sobre o ajuste fiscal</a><a href="https://www12.senado.leg.br/noticias/materias/2026/11/13/pagina-que-nao-responde">Página que nunca responde aqui</a>';
+    let simultaneas = 0, pico = 0; const t0 = Date.now();
+    const lento = async u => { if (/busca\?/.test(u)) return /b_start/.test(u) ? '' : busca; if (/busca-api/.test(u)) return '{}'; simultaneas++; pico = Math.max(pico, simultaneas); try { if (/nao-responde/.test(u)) await new Promise(() => {}); await new Promise(r => setTimeout(r, 30)); return '<div id="textoMateria"><p>O Senado aprovou o PLP 299/2026, que trata do ajuste fiscal do governo.</p></div><footer>'; } finally { simultaneas--; } };
+    const nt = await A.agenciasBuscarNoticias({ sigla: 'PLP', numero: 299, ano: 2026 }, lento, { esperaMs: 150 });
+    ok(nt.length === 1 && pico === 2 && Date.now() - t0 < 2000, 'notícias: as páginas são lidas em paralelo, e a que não responde é abandonada no limite de tempo sem travar');
+    // 9. a origem é reconhecida pela lei citada, não por número solto
+    const l200 = [{ lei: 'Lei Complementar nº 200/2023', numero: '200', ano: '2023', obrigatoria: true }];
+    ok(PR.pe5OrigensFaltantes(l200, [{ desfecho: 'virou lei', o_que_propunha: 'Crédito de R$ 200 milhões em 2023' }]).length === 1 && PR.pe5OrigensFaltantes(l200, [{ desfecho: 'virou lei', lei_resultante: 'LC 200/2023' }]).length === 0, 'origem: "R$ 200 milhões em 2023" não é a LC 200/2023; "LC 200/2023" é');
+    // revisão: "R$" seguido de sinal especial no texto novo entra como está
+    const dd = { a: [{ texto: 'O custo estimado é de cem reais por unidade vendida.', ev: [] }] };
+    PL.pe5AplicarRevisao(dd, [{ trecho: 'cem reais por unidade', novo: "R$$ 100 (US$& 17) por unidade" }], []);
+    ok(dd.a[0].texto === "O custo estimado é de R$$ 100 (US$& 17) por unidade vendida.", 'revisão: cifrão no texto novo não é tratado como padrão de substituição');
+  }
+
   // valores em euro e libra depois de espaço são lidos (o \b antes de "€" nunca casava), e a conversão pelo câmbio passa
   const nums = K.pe5Numeros('anulou € 10 bilhões; teto de £ 2 milhões').map(x => `${x.moeda} ${x.valor}`);
   ok(nums.join('|') === 'EUR 10000000000|GBP 2000000', '€ e £ depois de espaço são lidos como valores');

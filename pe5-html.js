@@ -169,19 +169,24 @@ function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" hr
  */
 function pe5Tendencia(atores) {
   const lado = p => /^favor[áa]vel com/i.test(p) ? 'ressalva_f' : /^contr[áa]rio com/i.test(p) ? 'ressalva_c' : /^favor/i.test(p) ? 'favor' : /^contr/i.test(p) ? 'contra' : 'neutro';
-  const grupos = new Map();
+  // Nome curto: sem os parênteses (partido, sigla) e sem o aposto de cargo; "A (PP-MS) e B (PSD-GO)" fica "A e B".
+  const curto = n => String(n).replace(/\s*\([^)]*\)/g, '').replace(/,\s+(?=[a-zà-ú]).*$/, '').replace(/\s+/g, ' ').trim();
+  const grupos = new Map(), semClasse = [];
   for (const a of atores || []) {
     if (!a || !a.ator) continue;
     const g = a.grupo || 'Outros'; if (!grupos.has(g)) grupos.set(g, { grupo: g, favor: [], ressalva_f: [], ressalva_c: [], contra: [], neutro: [] });
-    grupos.get(g)[lado(String(a.posicao || ''))].push(String(a.ator).replace(/\s*\(.*$/, ''));
+    const pos = String(a.posicao || '').trim();
+    grupos.get(g)[lado(pos)].push(curto(a.ator));
+    if (lado(pos) === 'neutro' && !/^(neutr|sem posi)/i.test(pos)) semClasse.push(`${curto(a.ator)}${pos ? ` ("${pos}")` : ' (sem posição na pesquisa)'}`);
   }
-  return [...grupos.values()];
+  const T = [...grupos.values()]; T.semClasse = semClasse;   // posição fora das cinco previstas: contada em "Neutros" e dita na nota do quadro
+  return T;
 }
 function pe5TendenciaHtml(atores, sintese, esc) {
   const T = pe5Tendencia(atores); if (!T.length) return '';
   const cel = l => `${l.length}${l.length ? `<br><small>${esc(l.join('; '))}</small>` : ''}`;
   const tot = k => T.reduce((s, g) => s + g[k].length, 0);
-  return `${sintese && sintese.texto ? `<p><b>Como as posições se distribuem.</b> ${esc(sintese.texto)}</p>` : ''}<table class="pe"><thead><tr><th style="width:16%">Grupo</th><th>Favoráveis</th><th>Favoráveis com ressalvas</th><th>Contrários com ressalvas</th><th>Contrários</th><th style="width:12%">Neutros</th></tr></thead><tbody>${T.map(g => `<tr><td><b>${esc(g.grupo)}</b></td><td>${cel(g.favor)}</td><td>${cel(g.ressalva_f)}</td><td>${cel(g.ressalva_c)}</td><td>${cel(g.contra)}</td><td>${cel(g.neutro)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${tot('favor')}</b></td><td><b>${tot('ressalva_f')}</b></td><td><b>${tot('ressalva_c')}</b></td><td><b>${tot('contra')}</b></td><td><b>${tot('neutro')}</b></td></tr></tbody></table><p class="pe-fonte">Contagem dos atores com manifestação localizada na pesquisa, pelo grupo e pela posição que a fonte registra. Não pesa os atores nem projeta voto.</p>`;
+  return `${sintese && sintese.texto ? `<p><b>Como as posições se distribuem.</b> ${esc(sintese.texto)}</p>` : ''}<table class="pe"><thead><tr><th style="width:16%">Grupo</th><th>Favoráveis</th><th>Favoráveis com ressalvas</th><th>Contrários com ressalvas</th><th>Contrários</th><th style="width:12%">Neutros</th></tr></thead><tbody>${T.map(g => `<tr><td><b>${esc(g.grupo)}</b></td><td>${cel(g.favor)}</td><td>${cel(g.ressalva_f)}</td><td>${cel(g.ressalva_c)}</td><td>${cel(g.contra)}</td><td>${cel(g.neutro)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${tot('favor')}</b></td><td><b>${tot('ressalva_f')}</b></td><td><b>${tot('ressalva_c')}</b></td><td><b>${tot('contra')}</b></td><td><b>${tot('neutro')}</b></td></tr></tbody></table><p class="pe-fonte">Contagem dos atores com manifestação localizada na pesquisa, pelo grupo e pela posição que a fonte registra. Não pesa os atores nem projeta voto.${T.semClasse && T.semClasse.length ? ` Contados em "Neutros" por não terem posição entre as cinco previstas: ${esc(T.semClasse.join('; '))}.` : ''}</p>`;
 }
 
 /** Mapa de votos (dado do programa): quórum, a votação nominal mais recente por partido, quem se dividiu. Não projeta voto. */
