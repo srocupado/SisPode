@@ -280,9 +280,17 @@ ${PE5_SO_JSON}`;
 }
 
 /** Os mecanismos do texto que a comparação internacional cobre: os blocos da leitura, com os de ponto grave marcados. */
+// O bloco é "art. 1º (art. 6º-C da LC 200/2023)": vale o artigo mais interno (6º-C) e, se houver, o número da lei;
+// achado de outro artigo ou de outra lei não marca o bloco.
+function pe5BlocoTemPontoGrave(b, graves) {
+  const arts = String(b.dispositivos || '').match(/arts?\.\s*\d+[º°o]?(?:-[A-Z])?/gi) || []; if (!arts.length) return false;
+  const norm = t => t.toLowerCase().replace(/arts?\.\s*/, 'art. ').replace(/[°o]$/, 'º').replace(/\s+/g, '');
+  const alvo = norm(arts[arts.length - 1]), lei = (String(b.dispositivos).match(/(?:LC|Lei Complementar|Lei)\s*(?:n[ºo°.]*\s*)?([\d.]+)\/\d{4}/i) || [])[1];
+  return graves.some(d => { const ta = (d.match(/arts?\.\s*\d+[º°o]?(?:-[A-Z])?/gi) || []).map(norm); const leiA = (d.match(/(?:LC|Lei Complementar|Lei)\s*(?:n[ºo°.]*\s*)?([\d.]+)\/\d{4}/i) || [])[1]; return ta.includes(alvo) && (lei || '') === (leiA || ''); });   // "art. 14" do projeto não é o art. 14 da LC 235
+}
 function pe5EixosComparacao(L) {
   const graves = (L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).map(a => String(a.dispositivo || ''));
-  return (L?.blocos || []).map(b => `- ${b.titulo} (${b.dispositivos})${graves.some(d => d && String(b.dispositivos || '').split(/[,;()]/).some(x => x.trim().length > 4 && d.includes(x.trim()))) ? ' — tem ponto grave' : ''}`).join('\n');
+  return (L?.blocos || []).map(b => `- ${b.titulo} (${b.dispositivos})${pe5BlocoTemPontoGrave(b, graves) ? ' — tem ponto grave' : ''}`).join('\n');
 }
 function pe5PromptInternacional({ identificacao, ementa, leitura, hoje }) {
   return `Pesquise na internet a EXPERIÊNCIA DE OUTROS PAÍSES com regra parecida com a da proposição abaixo: o que cada um adotou, com quais parâmetros, e O QUE ACONTECEU depois.
@@ -323,12 +331,28 @@ Para país que não aprovou a regra, use os mesmos campos, com "—" no que não
 ${PE5_SO_JSON}`;
 }
 
-/** Os dispositivos da Constituição (e do ADCT) que a leitura cita nos pontos de gravidade alta ou média: cada um é uma tese a procurar no STF. */
+/**
+ * Os dispositivos da Constituição (e do ADCT) que a leitura cita nos pontos de gravidade alta ou média e nas
+ * controvérsias: cada um é uma tese a procurar no STF. Vale o artigo seguido de "da Constituição" ou "do ADCT" e
+ * também o citado numa frase que fala da Constituição ("o fundamento constitucional invocado é o art. 163, VIII").
+ */
 function pe5TesesConstitucionais(L) {
-  const txt = [...(L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).map(a => `${a.questao} ${a.dispositivo} ${a.porque}`), ...(L?.controversias || []).map(c => `${c.questao} ${c.explica}`)].join(' \n ');
-  const out = new Set();
-  for (const m of txt.matchAll(/art\.\s*(\d+)[ºo°]?(?:-[A-Z])?((?:,?\s*(?:§\s*\d+[ºo°]?|inciso\s+[IVXLC]+|[IVXLC]+\b|al[íi]nea\s+["“]?[a-z]["”]?|["“][a-z]["”]))*)\s*,?\s*(?:da\s+Constitui[çc][ãa]o|da\s+CF|do\s+ADCT|do\s+Ato das Disposi)/gi)) out.add(`art. ${m[1]}${m[2] ? m[2].replace(/\s+/g, ' ').replace(/^,?\s*/, ', ') : ''}${/ADCT|Ato das/i.test(m[0]) ? ' do ADCT' : ' da Constituição'}`);
-  return [...out].slice(0, 10);
+  const frases = [...(L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).flatMap(a => [a.questao, a.porque]), ...(L?.controversias || []).flatMap(c => [c.questao, c.explica])]
+    .join(' \n ').split(/\n|(?<=[;!?])\s+|(?<=\.)\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕ"“])/);   // "art. 163" não quebra a frase
+  const out = new Map();
+  const reArt = /art\.\s*(\d+)[ºo°]?(?:-[A-Z])?((?:,?\s*(?:§\s*\d+[ºo°]?|inciso\s+[IVXLC]+|[IVXLC]+\b|al[íi]nea\s+["“]?[a-z]["”]?|["“][a-z]["”]))*)/gi;
+  for (const f of frases) {
+    for (const m of f.matchAll(reArt)) {
+      const depois = f.slice(m.index + m[0].length, m.index + m[0].length + 45);
+      // a Constituição tem de estar PERTO do artigo (até 70 caracteres antes ou 45 depois), não só na mesma frase
+      if (!/Constitui[çc][ãa]o|constitucion|ADCT|Disposi[çc][õo]es Constitucionais/i.test(f.slice(Math.max(0, m.index - 70), m.index) + depois)) continue;
+      if (/^\s*,?\s*(?:da|do)\s+(?:Lei|LC|Lei Complementar|Decreto|C[óo]digo|Regimento)\b/i.test(depois)) continue;   // artigo de lei, não da Constituição
+      const adct = /^\s*,?\s*do\s+(?:ADCT|Ato das Disposi)/i.test(depois);
+      const k = `art. ${m[1]}${m[2] ? m[2].replace(/\s+/g, ' ').replace(/^,?\s*/, ', ').replace(/,\s*$/, '') : ''}${adct ? ' do ADCT' : ' da Constituição'}`;
+      if (!out.has(k.replace(/,.*? (d[ao] )/, ' $1'))) out.set(k.replace(/,.*? (d[ao] )/, ' $1'), k);
+    }
+  }
+  return [...out.values()].slice(0, 10);
 }
 function pe5PromptContexto({ identificacao, ementa, leitura, hoje }) {
   const teses = pe5TesesConstitucionais(leitura);

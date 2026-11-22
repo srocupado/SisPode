@@ -40,6 +40,12 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
     controversias: [{ questao: 'saúde', explica: 'o mínimo é fixado pela Constituição (art. 198, § 2º, I, da Constituição) e o art. 91 do ADCT' }] };
   const teses = PR.pe5TesesConstitucionais(leitura);
   ok(teses.length === 3 && teses.some(t => /art\. 150, III, "b" da Constituição/.test(t)) && teses.some(t => /art\. 91 do ADCT/.test(t)) && !teses.some(t => /art\. 5º/.test(t)), 'teses constitucionais: os dispositivos citados nos pontos graves e nas controvérsias (ponto baixo fica de fora)');
+  const t2 = PR.pe5TesesConstitucionais({ achados: [{ gravidade: 'media', questao: 'O fundamento constitucional invocado para reduzir compensação tributária é o art. 163, VIII, "d".', porque: 'x' }],
+    controversias: [{ questao: 'saúde', explica: 'O Executivo aplicou a vedação do art. 14 ao mínimo da saúde no projeto de orçamento, e isso é controvertido porque o mínimo é fixado pela Constituição.' }] });
+  ok(t2.length === 1 && /art\. 163, VIII, "d" da Constituição/.test(t2[0]), 'tese: "art. 163" não quebra a frase; o art. 14 da lei, longe da palavra Constituição, não vira tese constitucional');
+  const marca = PR.pe5EixosComparacao({ blocos: [{ titulo: 'Explicação pública', dispositivos: 'art. 1º (art. 2º, § 5º, da LC 200/2023)' }, { titulo: 'Lei Kandir', dispositivos: 'art. 2º (art. 1º, § 6º, da LC 176/2020)' }, { titulo: 'Restos a pagar', dispositivos: 'art. 14' }],
+    achados: [{ gravidade: 'alta', dispositivo: 'art. 2º (LC 176/2020, art. 1º, § 6º)' }, { gravidade: 'alta', dispositivo: 'art. 3º (LC 235/2026, art. 14, caput)' }] }).split('\n');
+  ok(!/grave/.test(marca[0]) && /grave/.test(marca[1]) && !/grave/.test(marca[2]), 'ponto grave: o art. 2º da Lei Kandir não marca o art. 2º da LC 200, e o art. 14 da LC 235 não marca o art. 14 do projeto');
   const base = { identificacao: 'PLP 299/2026', ementa: 'e', leitura, coleta: null, hoje: '22/11/2026' };
   const ctx = PR.pe5PromptContexto(base);
   ok(/DISPOSITIVOS DA CONSTITUIÇÃO EM JOGO/.test(ctx) && /NO MÍNIMO 4 e até 10 decisões/.test(ctx) && /acórdãos do TCU/.test(ctx) && /Ação ainda sem decisão NÃO entra aqui/.test(ctx), 'contexto: no mínimo quatro decisões, uma por dispositivo, em quatro frentes; ação sem decisão vai para a judicialização');
