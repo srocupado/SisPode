@@ -318,6 +318,21 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   if (pq.debate || pq.internacional) {
     add('Experiência internacional: ao menos cinco países ou blocos', jurD.length >= 5, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < 5 ? '; o mínimo é cinco' : ''}.`);
     add('Decisões judiciais: ao menos quatro', decD.length >= 4, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < 4 ? '; o mínimo é quatro' : ''}.`);
+    // Um país de modelo oposto (o mecanismo é vedado, depende do Legislativo ou é mais estreito) e a origem das
+    // leis que o texto altera (22/11/2026: a NTA do PLP 299/2026 ficou sem os EUA e sem o PLP 93/2023).
+    const P = (typeof pe5LeisAlteradas === 'function') ? { pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste } : require('./pe5-prompts.js');   // eslint-disable-line no-undef
+    const opostos = jur.filter(P.pe5EhContraste), opostosNaNota = opostos.filter(j => usados.has(j.id));
+    add('Experiência internacional: ao menos um país com modelo oposto ao do texto', opostosNaNota.length > 0,
+      opostos.length ? `${opostos.map(j => j.lugar).join('; ')}${opostosNaNota.length ? '' : ' — está na pesquisa, mas não na nota'}.` : 'A pesquisa não trouxe país em que o mecanismo seja vedado, dependa do Legislativo ou seja mais estreito.');
+    const leis = P.pe5LeisAlteradas(L), obrig = leis.filter(l => l.obrigatoria);
+    if (obrig.length) {
+      const hist = pq.congresso?.historico || [];
+      const falta = P.pe5OrigensFaltantes(leis, hist).map(l => l.lei);
+      const naPesquisa = obrig.filter(l => !falta.includes(l.lei));
+      const foraNota = naPesquisa.filter(l => P.pe5OrigensFaltantes([l], hist.filter(h => usados.has(h.id))).length).map(l => l.lei);
+      add('Histórico: o projeto de origem de cada lei alterada', !falta.length && !foraNota.length,
+        [`Leis: ${obrig.map(l => l.lei).join('; ')}.`, falta.length ? `Sem a origem na pesquisa: ${falta.join('; ')}.` : '', foraNota.length ? `Origem pesquisada e fora da nota: ${foraNota.join('; ')}.` : ''].filter(Boolean).join(' '));
+    }
   }
   // "Quem se posicionou e como" dá a tendência da votação: um parágrafo por ator com argumento próprio. Só divide
   // parágrafo quem repete o argumento de outro; a regra antiga (juntar "atores do mesmo grupo") pôs oito senadores

@@ -30,7 +30,7 @@ function _pe5Refs() {
   /* eslint-disable no-undef */
   return { pe5ColetarTramitacao, pe5MapaVotos, pe5ColetarPartido, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
     pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptComplementar, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
-    PE5_GRUPOS_DEBATE, pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma, agenciasBuscarNoticias };
+    PE5_GRUPOS_DEBATE, pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste, pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma, agenciasBuscarNoticias };
   /* eslint-enable no-undef */
 }
 
@@ -357,17 +357,23 @@ async function gerarParecerPE5(ctx, io) {
       uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', judicializacao: 'L' }),
     ]);
     const deb = pe5JuntarDebates(...debates);
-    // Mínimos (cinco países, quatro decisões): abaixo deles, UMA chamada complementar pede só o que falta.
+    // Mínimos (cinco países, quatro decisões, um país de modelo oposto, a origem das leis alteradas): abaixo
+    // deles, UMA chamada complementar pede só o que falta. O país oposto e a origem da lei alterada entraram em
+    // 22/11/2026: a NTA do PLP 299/2026 não trouxe os Estados Unidos (o Executivo não pode reter gasto aprovado)
+    // nem o PLP 93/2023, projeto que criou a Lei Complementar nº 200/2023, a lei mais alterada pelo texto.
     const PE5_MIN_PAISES = 5, PE5_MIN_DECISOES = 4;
     const nP = (intl.jurisdicoes || []).length, nD = (cx.jurisprudencia || []).length;
-    if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES) {
-      passo('completando a pesquisa (países ou decisões abaixo do mínimo)…');
+    const semContraste = !(intl.jurisdicoes || []).some(R.pe5EhContraste);
+    const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura), cg.historico).map(l => l.lei);
+    if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES || semContraste || faltaOrigens.length) {
+      passo('completando a pesquisa (o que ficou abaixo do mínimo ou faltou)…');
       const eixos = Array.isArray(intl.eixos) ? intl.eixos : [];
       const comp = await uma('pesquisa-complementar', R.pe5PromptComplementar({ ...base, faltaPaises: Math.max(0, PE5_MIN_PAISES - nP), faltaDecisoes: Math.max(0, PE5_MIN_DECISOES - nD),
-        jaPaises: (intl.jurisdicoes || []).map(j => j.lugar), jaDecisoes: (cx.jurisprudencia || []).map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !(intl.jurisdicoes || []).some(j => String(j.eixo || '') === e)) }), { jurisdicoes: 'W', jurisprudencia: 'R' });
+        jaPaises: (intl.jurisdicoes || []).map(j => j.lugar), jaDecisoes: (cx.jurisprudencia || []).map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !(intl.jurisdicoes || []).some(j => String(j.eixo || '') === e)), faltaContraste: semContraste, faltaOrigens }), { jurisdicoes: 'W', jurisprudencia: 'R', historico: 'H' });
       const soma = (lista, novos, pref) => { const n0 = lista.length; return [...lista, ...(novos || []).map((x, i) => ({ ...x, id: `${pref}${n0 + i + 1}` }))]; };
       intl.jurisdicoes = soma(intl.jurisdicoes || [], comp.jurisdicoes, 'W');
       cx.jurisprudencia = soma(cx.jurisprudencia || [], comp.jurisprudencia, 'R');
+      cg.historico = soma(cg.historico || [], comp.historico, 'H');
       intl.avisos = [...(intl.avisos || []), ...(comp.avisos || [])];
     }
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };

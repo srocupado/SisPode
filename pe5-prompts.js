@@ -292,6 +292,42 @@ function pe5EixosComparacao(L) {
   const graves = (L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).map(a => String(a.dispositivo || ''));
   return (L?.blocos || []).map(b => `- ${b.titulo} (${b.dispositivos})${pe5BlocoTemPontoGrave(b, graves) ? ' — tem ponto grave' : ''}`).join('\n');
 }
+// Leis que o texto altera, da leitura (alterações e, sem elas, dispositivos dos blocos). A NTA do PLP 299/2026 não trouxe
+// no histórico o projeto que deu origem à Lei Complementar nº 200/2023 (PLP 93/2023), a lei mais alterada pelo texto.
+// "obrigatoria": a mais alterada e as que têm ponto grave (até quatro) — destas o histórico TEM de trazer a origem.
+const PE5_RE_LEI = /\b(Lei Complementar|LC|Decreto-Lei|Lei)\s*(?:n[ºo°.]*\s*)?(\d[\d.]*\d|\d)\s*(?:\/|,\s*de\s+\d{1,2}[º°]?\s+de\s+[a-zç]+\s+de\s+)(\d{4})/gi;
+function pe5LeisAlteradas(L) {
+  const m = new Map();
+  const achar = s => [...String(s || '').matchAll(PE5_RE_LEI)].map(x => { const tipo = /^(LC|Lei Complementar)$/i.test(x[1]) ? 'Lei Complementar' : /decreto/i.test(x[1]) ? 'Decreto-Lei' : 'Lei'; const numero = x[2].replace(/\./g, ''); return { k: `${tipo}|${numero}|${x[3]}`, tipo, numero, ano: x[3], rot: `${tipo} nº ${x[2]}/${x[3]}` }; });
+  const fontes = (L?.alteracoes || []).length ? L.alteracoes.map(a => a.dispositivo) : (L?.blocos || []).map(b => b.dispositivos);
+  for (const s of fontes) for (const x of achar(s)) { const e = m.get(x.k) || { lei: x.rot, tipo: x.tipo, numero: x.numero, ano: x.ano, alteracoes: 0, grave: false }; e.alteracoes++; m.set(x.k, e); }
+  const graves = (L?.achados || []).filter(a => /alta/i.test(a.gravidade || '')).map(a => String(a.dispositivo || ''));
+  for (const b of L?.blocos || []) if (pe5BlocoTemPontoGrave(b, graves)) for (const x of achar(b.dispositivos)) if (m.has(x.k)) m.get(x.k).grave = true;
+  for (const g of graves) for (const x of achar(g)) if (m.has(x.k)) m.get(x.k).grave = true;
+  const lista = [...m.values()].sort((a, b) => b.alteracoes - a.alteracoes);
+  const obrig = new Set([...new Set([lista[0], ...lista.filter(e => e.grave)].filter(Boolean))].slice(0, 4));
+  return lista.map(e => ({ ...e, obrigatoria: obrig.has(e) }));
+}
+/** Leis obrigatórias (pe5LeisAlteradas) cuja origem não está no histórico pesquisado. */
+function pe5OrigensFaltantes(leis, historico) {
+  const origens = (historico || []).filter(h => /origem/i.test(h.tipo || '') || /virou lei/i.test(h.desfecho || ''));
+  return (leis || []).filter(l => l.obrigatoria).filter(l => {
+    const re = new RegExp(`(^|[^\\d.])${l.numero.split('').join('\\.?')}(?![\\d])`);
+    return !origens.some(h => { const t = [h.lei_resultante, h.o_que_propunha, h.por_que, h.desfecho].join(' '); return re.test(t) && t.includes(l.ano); });
+  });
+}
+/** Temas que o texto manda tratar em outra lei ou para os quais dá prazo ("o Congresso apreciará em 60 dias o projeto que…"). */
+function pe5TemasDelegados(L) {
+  const out = [];
+  for (const b of L?.blocos || []) for (const f of String(b.explica || '').split(/(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕ])/)) {   // "art. 37" não corta a frase
+    const projeto = /\bprojeto\b/i.test(f) && /(\b(em|no prazo de|até)\s+\d+\s+dias\b|\b(disciplin|regulament|tratar|dispor))/i.test(f);
+    const leiPropria = /\blei (complementar )?(específica|própria)\s+(que\s+)?(disciplin|regulament|dispor|dispõe|tratar|definir|fixar)/i.test(f);
+    if (projeto || leiPropria) out.push(`- ${b.titulo} (${b.dispositivos}): ${f.trim()}`);
+  }
+  return [...new Set(out)].slice(0, 8);
+}
+/** Jurisdição marcada como modelo oposto ao do texto. */
+const pe5EhContraste = j => j && (j.contraste === true || /^(sim|true)$/i.test(String(j.contraste || '')));
 function pe5PromptInternacional({ identificacao, ementa, leitura, hoje }) {
   return `Pesquise na internet a EXPERIÊNCIA DE OUTROS PAÍSES com regra parecida com a da proposição abaixo: o que cada um adotou, com quais parâmetros, e O QUE ACONTECEU depois.
 
@@ -307,6 +343,7 @@ ${pe5EixosComparacao(leitura)}
 
 O QUE PROCURAR
 - NO MÍNIMO 5 e até 8 países ou blocos, com AO MENOS UM por eixo escolhido. Cada jurisdição diz em "eixo" qual mecanismo do texto ela permite comparar. Para cada um: a norma, desde quando vale, a autoridade, quem é alcançado (com os números do critério na moeda original), como funciona, a sanção e a duração.
+- AO MENOS UM país com o MODELO OPOSTO ao do texto num dos eixos (de preferência no que tem ponto grave): onde o mecanismo é proibido, depende de aprovação do Legislativo, tem limite fixado em lei bem mais estreito, ou foi revogado. Marque-o com "contraste": true e diga em "como_funciona" em que ele é o oposto. Ele conta para o mínimo. Os demais levam "contraste": false.
 - O que aconteceu: quantos casos, quem foi alcançado, decisões, multas, mudanças de conduta, revisões oficiais da própria lei, decisões de tribunais. Com data.
 - As críticas, dos dois lados: de quem acha a regra fraca ou mal aplicada e de quem acha que ela prejudica.
 - Países que discutiram regra parecida e DESISTIRAM, adiaram ou revogaram, e por quê. Contam para o mínimo.
@@ -319,7 +356,7 @@ ${PE5_REGRAS_PESQUISA}
 O QUE DEVOLVER
 {
  "eixos": [ "os mecanismos do texto escolhidos para comparar" ],
- "jurisdicoes": [ { "id": "W1", "eixo": "qual dos eixos", "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…",
+ "jurisdicoes": [ { "id": "W1", "eixo": "qual dos eixos", "contraste": false, "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…",
      "quem_e_alcancado": "critérios, com os números na moeda original", "como_funciona": "…", "sancao": "…", "duracao": "…",
      "aconteceu": [ { "fato": "…", "data": "…" } ],
      "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ],
@@ -406,9 +443,9 @@ ${PE5_SO_JSON}`;
  * Chamada complementar: só roda quando a pesquisa veio abaixo do mínimo (países ou decisões). Pede só o que
  * falta, dizendo o que já se tem para não repetir.
  */
-function pe5PromptComplementar({ identificacao, ementa, leitura, hoje, faltaPaises = 0, faltaDecisoes = 0, jaPaises = [], jaDecisoes = [], eixosSemPais = [] }) {
+function pe5PromptComplementar({ identificacao, ementa, leitura, hoje, faltaPaises = 0, faltaDecisoes = 0, jaPaises = [], jaDecisoes = [], eixosSemPais = [], faltaContraste = false, faltaOrigens = [] }) {
   const teses = pe5TesesConstitucionais(leitura);
-  return `Pesquise na internet para COMPLETAR a pesquisa sobre a proposição abaixo. A primeira busca trouxe menos do que o mínimo.
+  return `Pesquise na internet para COMPLETAR a pesquisa sobre a proposição abaixo. A primeira busca trouxe menos do que o mínimo ou deixou de fora o que é obrigatório.
 
 MATÉRIA: ${identificacao}
 EMENTA: ${ementa || ''}
@@ -418,13 +455,14 @@ FATOS DO TEXTO:
 ${pe5FatosDoTexto(leitura)}
 
 O QUE FALTA
-${faltaPaises > 0 ? `- "jurisdicoes": mais ${faltaPaises} país(es) ou bloco(s) com regra comparável (ou que discutiram e desistiram).${eixosSemPais.length ? ` Mecanismos ainda sem país: ${eixosSemPais.join('; ')}.` : ''} Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaDecisoes > 0 ? `- "jurisprudencia": mais ${faltaDecisoes} decisão(ões) já tomada(s) do STF, STJ ou TCU. Dispositivos da Constituição em jogo: ${teses.join('; ') || '(ver os fatos do texto)'}. Também ações já julgadas contra as leis que o texto altera. Já localizadas (NÃO repita): ${jaDecisoes.join('; ') || 'nenhuma'}.\n` : ''}
+${faltaPaises > 0 ? `- "jurisdicoes": mais ${faltaPaises} país(es) ou bloco(s) com regra comparável (ou que discutiram e desistiram).${eixosSemPais.length ? ` Mecanismos ainda sem país: ${eixosSemPais.join('; ')}.` : ''} Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaDecisoes > 0 ? `- "jurisprudencia": mais ${faltaDecisoes} decisão(ões) já tomada(s) do STF, STJ ou TCU. Dispositivos da Constituição em jogo: ${teses.join('; ') || '(ver os fatos do texto)'}. Também ações já julgadas contra as leis que o texto altera. Já localizadas (NÃO repita): ${jaDecisoes.join('; ') || 'nenhuma'}.\n` : ''}${faltaContraste ? `- "jurisdicoes": UM país ou bloco com o MODELO OPOSTO ao do texto num dos mecanismos (o mecanismo é proibido lá, depende de aprovação do Legislativo, tem limite fixado em lei bem mais estreito, ou foi revogado), com "contraste": true e, em "como_funciona", em que ele é o oposto. Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaOrigens.length ? `- "historico": o projeto que deu origem a cada uma destas leis, que o texto altera: ${faltaOrigens.join('; ')}. Número, ano, autor, quando virou lei e o que ela criou; "tipo": "origem da lei alterada" e, em "lei_resultante", a lei.\n` : ''}
 ${PE5_REGRAS_PESQUISA}
 
 O QUE DEVOLVER
 {
- "jurisdicoes": [ { "id": "W1", "eixo": "…", "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…", "quem_e_alcancado": "…", "como_funciona": "…", "sancao": "…", "duracao": "…", "aconteceu": [ { "fato": "…", "data": "…" } ], "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ], "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "jurisdicoes": [ { "id": "W1", "eixo": "…", "contraste": false, "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…", "quem_e_alcancado": "…", "como_funciona": "…", "sancao": "…", "duracao": "…", "aconteceu": [ { "fato": "…", "data": "…" } ], "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ], "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "jurisprudencia": [ { "id": "R1", "tribunal": "…", "processo": "…", "relator": "…", "data": "dd/mm/aaaa", "decidiu": "…", "pertinencia": "…", "limite": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "historico": [ { "id": "H1", "tipo": "origem da lei alterada", "proposicao": "PL 0000/0000", "casa": "…", "ano": "aaaa", "autor": "…", "o_que_propunha": "…", "desfecho": "virou lei", "lei_resultante": "…", "por_que": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "avisos": [ "o que procurou e não encontrou" ]
 }
 Se não houver o que acrescentar num dos grupos, devolva a lista vazia e diga em "avisos" onde procurou. Não invente número de processo, relator ou data.
@@ -433,6 +471,7 @@ ${PE5_SO_JSON}`;
 }
 
 function pe5PromptCongresso({ identificacao, ementa, leitura, coleta, hoje }) {
+  const leis = pe5LeisAlteradas(leitura), delegados = pe5TemasDelegados(leitura);
   const pontos = (leitura?.achados || []).filter(a => a.gravidade === 'alta' || /^(1|1B)$/.test(String(a.lente))).map(a => `- ${a.questao} (${a.dispositivo})`).join('\n');
   return `Pesquise na internet duas coisas sobre a proposição abaixo: o HISTÓRICO do tema no Congresso Nacional e os SINAIS DE JUDICIALIZAÇÃO.
 
@@ -452,15 +491,25 @@ ${pontos || '(nenhum)'}
 PONTOS SENSÍVEIS DO TEXTO (apontados na leitura; para a judicialização, procure ação em curso, anúncio ou parecer sobre cada um):
 ${pe5PontosSensiveis(leitura)}
 
+LEIS QUE O TEXTO ALTERA (lidas pelo programa; "obrigatória" = o histórico TEM de trazer o projeto que lhe deu origem):
+${leis.map(l => `- ${l.lei} — ${l.alteracoes} alteração(ões)${l.grave ? ', com ponto grave' : ''}${l.obrigatoria ? ' — obrigatória' : ''}`).join('\n') || '(nenhuma identificada)'}
+
+TEMAS QUE O TEXTO MANDA TRATAR EM OUTRA LEI OU PARA OS QUAIS DÁ PRAZO (procure os projetos em andamento sobre cada um):
+${delegados.join('\n') || '(nenhum identificado pelo programa; confira nos fatos do texto)'}
+
 O QUE PROCURAR
-- "historico": as tentativas ANTERIORES de legislar sobre o mesmo assunto, na Câmara e no Senado: projetos arquivados, rejeitados, vetados, medidas provisórias que perderam a eficácia, textos aprovados em uma Casa e parados na outra, comissões especiais e CPIs que trataram do tema. Para cada uma: a proposição com número e ano, o autor, o que propunha em relação ao texto atual, o desfecho e — o mais importante — POR QUE não avançou ou como terminou, segundo a fonte. Inclua as proposições em andamento que disputam o mesmo espaço. De 3 a 8 itens; se o tema é novo no Congresso, diga em "avisos".
+- "historico", em quatro tipos (campo "tipo"):
+  (1) "origem da lei alterada": o projeto que deu origem a CADA lei obrigatória acima (número, ano, autor, quando virou lei e o que ela criou); em "lei_resultante", a lei. Um item por lei; para as demais leis da lista, só se o debate de origem iluminar o texto atual.
+  (2) "tentativa anterior" e (3) "em andamento": ver abaixo.
+  (4) "tema delegado": para cada tema que o texto manda tratar em outra lei ou com prazo, o projeto que já tramita sobre ele, onde está parado e por quê.
+- "historico" (tipos 2 e 3): as tentativas ANTERIORES de legislar sobre o mesmo assunto, na Câmara e no Senado: projetos arquivados, rejeitados, vetados, medidas provisórias que perderam a eficácia, textos aprovados em uma Casa e parados na outra, comissões especiais e CPIs que trataram do tema. Para cada uma: a proposição com número e ano, o autor, o que propunha em relação ao texto atual, o desfecho e — o mais importante — POR QUE não avançou ou como terminou, segundo a fonte. Inclua as proposições em andamento que disputam o mesmo espaço. De 4 a 12 itens no total; se o tema é novo no Congresso, diga em "avisos".
 - "judicializacao": sinais concretos de que a lei, se aprovada, será levada ao Judiciário: (a) ação em curso no STF ou em tribunal superior contra lei de teor parecido (federal, estadual ou a própria lei que o texto altera), com classe, número, relator e situação; (b) partido, confederação, entidade de classe ou órgão que ANUNCIOU que irá questionar o texto, ou que tem legitimidade (art. 103 da Constituição) e já se manifestou contra; (c) parecer jurídico público (consultoria legislativa, órgão do governo, Ministério Público, entidade) que aponte vício no texto; (d) lei análoga, no Brasil, que foi suspensa ou derrubada. Diga o dispositivo ou o tema visado e o fundamento alegado. Registre o que as fontes dizem; NÃO conclua que o texto é inconstitucional. Se não houver sinal localizado, devolva a lista vazia e diga em "avisos" o que procurou.
 
 ${PE5_REGRAS_PESQUISA}
 
 O QUE DEVOLVER
 {
- "historico": [ { "id": "H1", "proposicao": "PL 0000/0000", "casa": "Câmara | Senado | Congresso", "ano": "aaaa", "autor": "…", "o_que_propunha": "…", "desfecho": "em tramitação | arquivada | rejeitada | vetada | perdeu a eficácia | aprovada em uma Casa | virou lei", "por_que": "o que travou ou decidiu, segundo a fonte", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "historico": [ { "id": "H1", "tipo": "origem da lei alterada | tentativa anterior | em andamento | tema delegado", "proposicao": "PL 0000/0000", "casa": "Câmara | Senado | Congresso", "ano": "aaaa", "autor": "…", "o_que_propunha": "…", "desfecho": "em tramitação | arquivada | rejeitada | vetada | perdeu a eficácia | aprovada em uma Casa | virou lei", "lei_resultante": "a lei em que se transformou, ou \"—\"", "por_que": "o que travou ou decidiu, segundo a fonte", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "judicializacao": [ { "id": "L1", "sinal": "ação em curso | anúncio de questionamento | parecer que aponta vício | lei análoga suspensa ou derrubada", "quem": "…", "alvo": "dispositivo ou tema do texto", "fundamento": "o que se alega, com o artigo da Constituição", "situacao": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "avisos": [ "o que procurou e não encontrou" ]
 }
@@ -606,14 +655,14 @@ ORIENTAÇÕES POR SEÇÃO
 - "faz": cubra o texto inteiro, em 5 a 14 blocos (um por tema; não funda temas para encurtar). Comece pelo que muda de mais importante. Explique o mecanismo, não transcreva artigos: o que dispara a regra, quem decide, valores e percentuais, prazos, exceções e o que fica para ato do Executivo.
 - "origem": um parágrafo por etapa, em ordem. Quando a base trouxer o histórico NO SENADO (bloco "NO SENADO FEDERAL" dos dados do programa), dedique um parágrafo a ele: autor, relator, as datas e CADA votação nominal com o placar e o que decidiu (urgência, texto-base, cada destaque, turno suplementar). Dedique outro à situação NA CÂMARA: relator, o que o parecer dele vota e o que NÃO propõe (emenda, substitutivo), requerimento de urgência pendente ou aprovado, emendas de Plenário, e o que acontece se o texto for aprovado sem mudança e se for alterado. Nomeie os documentos (a exposição de motivos com o número, a consulta, o estudo). Diga expressamente o que NÃO foi lido (relatório, voto, estudo citado), quando a leitura registrar a ausência, e por quê.
 - "documentos": a relação taxativa dos documentos que embasam a proposição, para consulta posterior: o texto original, a justificativa ou exposição de motivos, cada consulta, estudo, relatório ou nota que a leitura (ids U) e a pesquisa (ids Y) identificaram, o parecer e o substitutivo. Título completo, como está na base. Documento que foi localizado e não lido leva essa informação em "o_que_e".
-- "historico": uma linha por tentativa anterior de legislar sobre o tema (ids H), da mais antiga para a mais recente, terminando nas que estão em andamento. Em "por_que", o motivo que a fonte dá; se a fonte não diz, escreva "A fonte lida não informa o motivo.". Não repita aqui as proposições já explicadas em "contexto": se uma delas é a principal concorrente, ela fica aqui, e "contexto" trata do resto.
+- "historico": uma linha por item do histórico pesquisado (ids H), da mais antiga para a mais recente, terminando nas que estão em andamento: a origem de cada lei que o texto altera (o projeto que a criou), as tentativas anteriores de legislar sobre o tema, as que estão em andamento e os projetos sobre temas que o texto manda tratar em outra lei ou com prazo (diga, em "por_que", a que dispositivo do texto ele se liga). Em "por_que", o motivo que a fonte dá; se a fonte não diz, escreva "A fonte lida não informa o motivo.". Não repita aqui as proposições já explicadas em "contexto": se uma delas é a principal concorrente, ela fica aqui, e "contexto" trata do resto.
 - "versoes": uma linha por mudança relevante entre o texto anterior e o texto em votação. Omita a seção se houver uma versão só.
 - "controversias": é o coração do parecer. Para cada pergunta em disputa, os argumentos de um lado e do outro, com QUEM sustenta e QUE EVIDÊNCIA apresenta. Argumento sem evidência na fonte leva "Não apresentada na fonte.". Se um lado não tem argumento localizado, deixe a lista vazia. Em "estado", diga o que o texto em votação fez com a questão e o que ficou em aberto. Quando dois críticos se contradizem, diga.
 - "posicoes" (seção "Quem se posicionou e como"): é a seção que mostra ao parlamentar a TENDÊNCIA da votação; cubra TODOS os atores da pesquisa do debate (ids Q). TEXTO CORRIDO, UM PARÁGRAFO POR ATOR que tenha argumento próprio — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Só divide parágrafo quem apenas REPETE o argumento de outro: nesse caso, um parágrafo com todos os nomes, o partido ou o setor de cada um e a frase "no mesmo sentido de…". Ordem: governo e Congresso, setores econômicos, entes e órgãos públicos, sociedade civil; dentro de cada grupo, favoráveis, com ressalvas, contrários. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo. O relator da Casa em que a matéria está ganha parágrafo próprio, com cada argumento do parecer dele que a leitura registrou (ids J), ainda que a pesquisa na internet não o traga.
 - "sintese": um parágrafo que descreve, sem recomendar voto, como as posições se distribuem por grupo e por lado, quem lidera cada lado e o placar das votações já feitas (dados do programa). O programa imprime ao lado um quadro com a contagem por grupo.
 - "lados" (seção "Os dois lados"): dois parágrafos por lado. Em "argumento", o melhor argumento do lado, nomeando quem o sustenta. Em "evidencia", o que o texto e os documentos mostram sobre o que esse lado afirma, ponto por ponto e com o artigo: o que se confirma; o que se confirma só em parte, e qual parte; o que o texto em votação ou a lei vigente contradizem; o que o substitutivo já atendeu; o que não há dado para verificar; e o que é divergência de mérito, que o texto não resolve. Se um argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. Avalia-se o ARGUMENTO, não a proposição: não diga quem tem razão no mérito nem se o texto deve ser aprovado.
 - "da_analise": de 2 a 5 argumentos que a leitura do texto ou a comparação internacional sustentam e que ninguém levantou. São da assessoria e serão impressos como tal.
-- "jurisdicoes": um bloco por país ou bloco da pesquisa internacional (ids W) — TODOS, no mínimo cinco quando a pesquisa os trouxer —, inclusive os que recuaram ou adiaram. Diga em "regra" qual mecanismo do texto brasileiro ele permite comparar.
+- "jurisdicoes": um bloco por país ou bloco da pesquisa internacional (ids W) — TODOS, no mínimo cinco quando a pesquisa os trouxer —, inclusive os que recuaram ou adiaram. Diga em "regra" qual mecanismo do texto brasileiro ele permite comparar. O país marcado como modelo oposto ("contraste") é apresentado como contraponto: diga em "regra" que lá o mecanismo é vedado, depende do Legislativo ou é mais estreito, e a que dispositivo do texto ele se opõe; ele entra também no "comparativo".
 - "comparativo": a primeira coluna é sempre o Brasil. De 5 a 8 linhas com os parâmetros que permitem comparar (como funciona, quem é alcançado, duração, sanção, resultado até agora). Valor em moeda estrangeira vem acompanhado da conversão em reais pelo câmbio da base, com "cerca de".
 - "licoes" e "limites": seja específico. Diga o que NÃO se pode concluir.
 - Seção sem conteúdo na base: devolva a lista vazia. Não preencha com generalidades.
@@ -729,5 +778,5 @@ ${PE5_SO_JSON}`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_ESTILO, PE5_GRUPOS_DEBATE, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptComplementar, pe5TesesConstitucionais, pe5EixosComparacao, pe5NoticiasAgencias, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
+  module.exports = { PE5_ESTILO, PE5_GRUPOS_DEBATE, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptComplementar, pe5TesesConstitucionais, pe5EixosComparacao, pe5LeisAlteradas, pe5OrigensFaltantes, pe5TemasDelegados, pe5EhContraste, pe5NoticiasAgencias, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
 }

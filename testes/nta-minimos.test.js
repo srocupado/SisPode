@@ -75,6 +75,30 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
   const c4 = K.pe5Conferir(p({ atores, posicoes: atores.slice(0, 6).map(a => ({ texto: 'a', ev: [a.id] })) }));
   ok(!item(c3, /um parágrafo por ator/).ok && /1 parágrafo\(s\) para 8 ator\(es\).*mínimo de 6.*Governo e Congresso: 5; Setores: 3/.test(item(c3, /um parágrafo por ator/).detalhe) && item(c4, /um parágrafo por ator/).ok, 'posições: oito atores num parágrafo só é apontado (com a conta por grupo); seis parágrafos para oito atores passam');
 
+  // histórico: a origem de cada lei alterada; internacional: um país de modelo oposto (22/11/2026)
+  {
+    const PP = PR;
+    const Lx = { alteracoes: [{ dispositivo: 'art. 2º da Lei Complementar nº 200/2023' }, { dispositivo: 'art. 5º da Lei Complementar nº 200/2023' }, { dispositivo: 'art. 1º da LC 176/2020' }, { dispositivo: 'art. 8º-C da Lei nº 9.796, de 5 de maio de 1999' }, { dispositivo: 'art. 12-A da Lei nº 11.540/2007' }],
+      blocos: [{ titulo: 'Lei Kandir', dispositivos: 'art. 2º (art. 1º, § 6º, da LC 176/2020)', explica: 'Limita a entrega.' }, { titulo: 'Teto remuneratório', dispositivos: 'art. 10', explica: 'O Congresso deverá apreciar em até 60 dias o projeto que disciplinará o § 11 do art. 37 da Constituição. A despesa fica sujeita a limite fixado em lei específica ou na lei orçamentária.' }],
+      achados: [{ gravidade: 'alta', dispositivo: 'art. 2º (LC 176/2020, art. 1º, § 6º)' }] };
+    const leis = PP.pe5LeisAlteradas(Lx);
+    ok(leis.map(l => `${l.lei}${l.obrigatoria ? '*' : ''}`).join('|') === 'Lei Complementar nº 200/2023*|Lei Complementar nº 176/2020*|Lei nº 9.796/1999|Lei nº 11.540/2007', 'leis alteradas: a mais alterada e a de ponto grave são obrigatórias; data por extenso é lida');
+    ok(PP.pe5OrigensFaltantes(leis, [{ tipo: 'origem da lei alterada', proposicao: 'PLP 93/2023', lei_resultante: 'Lei Complementar nº 200, de 30 de agosto de 2023', desfecho: 'virou lei' }, { tipo: 'tentativa anterior', o_que_propunha: 'Alterava a LC 176/2020', desfecho: 'arquivada' }]).map(l => l.lei).join('|') === 'Lei Complementar nº 176/2020', 'origem localizada pela lei resultante (número e ano); projeto que só ALTERAVA a lei não conta como origem');
+    const del = PP.pe5TemasDelegados(Lx);
+    ok(del.length === 1 && /60 dias o projeto que disciplinará o § 11 do art\. 37 da Constituição\.$/.test(del[0]), 'tema delegado: o prazo para o projeto do teto entra inteiro ("art. 37" não corta a frase); "limite fixado em lei específica" não é delegação');
+    ok(PP.pe5EhContraste({ contraste: true }) && PP.pe5EhContraste({ contraste: 'sim' }) && !PP.pe5EhContraste({ contraste: false }) && !PP.pe5EhContraste({}), 'país de modelo oposto: "contraste" verdadeiro');
+    const pk = (o = {}) => ({ doc: { abertura: { decide: '257', frase: 'f', muda: [] }, caminhos: { opcoes: [] }, materia: { origem: [], historico: o.hist || [] }, debate: { posicoes: [] }, internacional: { jurisdicoes: o.jurN || [] }, analise: { jurisprudencia: [] } },
+      pesquisa: { debate: { atores: [] }, internacional: { jurisdicoes: o.jur || [] }, contexto: { jurisprudencia: [] }, congresso: { historico: o.h || [] } }, leitura: Lx, coleta: {}, trechos: { recusados: [] }, alteracoes: [] });
+    const jur = [{ id: 'W1', lugar: 'Estados Unidos', contraste: true }, { id: 'W2', lugar: 'França', contraste: false }];
+    const h = [{ id: 'H1', tipo: 'origem da lei alterada', lei_resultante: 'Lei Complementar nº 200/2023', desfecho: 'virou lei' }, { id: 'H2', tipo: 'origem da lei alterada', lei_resultante: 'Lei Complementar nº 176/2020', desfecho: 'virou lei' }];
+    const kOk = K.pe5Conferir(pk({ jur, jurN: [{ lugar: 'EUA', regra: 'r', ev: ['W1'] }], h, hist: [{ proposicao: 'PLP 93/2023', ev: ['H1'] }, { proposicao: 'PLP 133/2020', ev: ['H2'] }] }));
+    const kFora = K.pe5Conferir(pk({ jur, jurN: [{ lugar: 'França', regra: 'r', ev: ['W2'] }], h, hist: [{ proposicao: 'PLP 93/2023', ev: ['H1'] }] }));
+    const kSem = K.pe5Conferir(pk({ jur: [jur[1]], h: [h[0]] }));
+    ok(item(kOk, /modelo oposto/).ok && item(kOk, /projeto de origem/).ok, 'país oposto e origens na pesquisa e na nota: os dois testes passam');
+    ok(/está na pesquisa, mas não na nota/.test(item(kFora, /modelo oposto/).detalhe) && /Origem pesquisada e fora da nota: Lei Complementar nº 176\/2020/.test(item(kFora, /projeto de origem/).detalhe), 'pesquisados e deixados fora da nota: apontado');
+    ok(/A pesquisa não trouxe país/.test(item(kSem, /modelo oposto/).detalhe) && /Sem a origem na pesquisa: Lei Complementar nº 176\/2020/.test(item(kSem, /projeto de origem/).detalhe), 'ausentes da pesquisa: apontado');
+  }
+
   // valores em euro e libra depois de espaço são lidos (o \b antes de "€" nunca casava), e a conversão pelo câmbio passa
   const nums = K.pe5Numeros('anulou € 10 bilhões; teto de £ 2 milhões').map(x => `${x.moeda} ${x.valor}`);
   ok(nums.join('|') === 'EUR 10000000000|GBP 2000000', '€ e £ depois de espaço são lidos como valores');
