@@ -163,6 +163,27 @@ function pe5IndicePesquisa(pq = {}) {
   return m;
 }
 function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" href="${esc(x.fonte_url_final || x.fonte_url)}">${esc(x.fonte_nome || 'fonte')}</a>` : ''; }
+/**
+ * Quadro de tendência (dado do programa): quantos atores da pesquisa, em cada grupo, estão de cada lado, com os
+ * nomes. Conta o que a pesquisa localizou; não pesa os atores nem projeta voto.
+ */
+function pe5Tendencia(atores) {
+  const lado = p => /^favor[áa]vel com/i.test(p) ? 'ressalva_f' : /^contr[áa]rio com/i.test(p) ? 'ressalva_c' : /^favor/i.test(p) ? 'favor' : /^contr/i.test(p) ? 'contra' : 'neutro';
+  const grupos = new Map();
+  for (const a of atores || []) {
+    if (!a || !a.ator) continue;
+    const g = a.grupo || 'Outros'; if (!grupos.has(g)) grupos.set(g, { grupo: g, favor: [], ressalva_f: [], ressalva_c: [], contra: [], neutro: [] });
+    grupos.get(g)[lado(String(a.posicao || ''))].push(String(a.ator).replace(/\s*\(.*$/, ''));
+  }
+  return [...grupos.values()];
+}
+function pe5TendenciaHtml(atores, sintese, esc) {
+  const T = pe5Tendencia(atores); if (!T.length) return '';
+  const cel = l => `${l.length}${l.length ? `<br><small>${esc(l.join('; '))}</small>` : ''}`;
+  const tot = k => T.reduce((s, g) => s + g[k].length, 0);
+  return `${sintese && sintese.texto ? `<p><b>Como as posições se distribuem.</b> ${esc(sintese.texto)}</p>` : ''}<table class="pe"><thead><tr><th style="width:16%">Grupo</th><th>Favoráveis</th><th>Favoráveis com ressalvas</th><th>Contrários com ressalvas</th><th>Contrários</th><th style="width:12%">Neutros</th></tr></thead><tbody>${T.map(g => `<tr><td><b>${esc(g.grupo)}</b></td><td>${cel(g.favor)}</td><td>${cel(g.ressalva_f)}</td><td>${cel(g.ressalva_c)}</td><td>${cel(g.contra)}</td><td>${cel(g.neutro)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${tot('favor')}</b></td><td><b>${tot('ressalva_f')}</b></td><td><b>${tot('ressalva_c')}</b></td><td><b>${tot('contra')}</b></td><td><b>${tot('neutro')}</b></td></tr></tbody></table><p class="pe-fonte">Contagem dos atores com manifestação localizada na pesquisa, pelo grupo e pela posição que a fonte registra. Não pesa os atores nem projeta voto.</p>`;
+}
+
 /** Mapa de votos (dado do programa): quórum, a votação nominal mais recente por partido, quem se dividiu. Não projeta voto. */
 function pe5MapaHtml(G, esc) {
   const M = G && G.mapa; if (!M) return '';
@@ -230,7 +251,7 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
 
   // ---- II. O debate ----
   parte('II', 'O debate');
-  sec('atores', 'Quem se posicionou e como', pe5Prosa(D.debate?.posicoes, esc) || pe5Atores(pq.debate?.atores, esc));
+  sec('atores', 'Quem se posicionou e como', (pe5Prosa(D.debate?.posicoes, esc) || pe5Atores(pq.debate?.atores, esc)) + pe5TendenciaHtml(pq.debate?.atores, D.debate?.sintese, esc));
   { const ld = D.debate?.lados || {}; sec('lados', 'Os dois lados', pe5Prosa([ld.apoia?.argumento, ld.apoia?.evidencia, ld.opoe?.argumento, ld.opoe?.evidencia], esc)); }
   sec('contro', 'Mapa de argumentos', (D.debate?.controversias || []).map(c => pe5Controversia(c, esc)).join(''));
   sec('analise-arg', 'Argumentos que ninguém levantou', (D.debate?.da_analise || []).length
@@ -365,5 +386,5 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5MapaHtml, pe5PartidoHtml, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
+  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5Tendencia, pe5TendenciaHtml, pe5MapaHtml, pe5PartidoHtml, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
 }

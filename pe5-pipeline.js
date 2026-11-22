@@ -21,16 +21,16 @@
 'use strict';
 
 const __pe5m = (typeof module !== 'undefined' && typeof require === 'function') ? {
-  C: require('./pe5-coleta.js'), P: require('./pe5-prompts.js'), K: require('./pe5-conferencia.js'), E: require('./especialistas.js'), D: require('./dossie.js'),
+  C: require('./pe5-coleta.js'), P: require('./pe5-prompts.js'), K: require('./pe5-conferencia.js'), E: require('./especialistas.js'), D: require('./dossie.js'), N: require('./noticias-agencias.js'),
 } : null;
 // No navegador os módulos são scripts clássicos no mesmo escopo (ver a nota em pipeline-parecer.js):
 // identificadores resolvidos só na chamada, nunca por eval.
 function _pe5Refs() {
-  if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
+  if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ...__pe5m.N, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
   /* eslint-disable no-undef */
   return { pe5ColetarTramitacao, pe5MapaVotos, pe5ColetarPartido, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
-    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
-    pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma };
+    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptComplementar, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
+    PE5_GRUPOS_DEBATE, pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma, agenciasBuscarNoticias };
   /* eslint-enable no-undef */
 }
 
@@ -63,7 +63,7 @@ function pe5MotivoTruncada(r) {
 
 // Testes da conferência que o revisor consegue consertar no texto. Ficam de fora os que só informam (peso das
 // fontes oficiais, atualidade da tramitação, trecho recusado na leitura).
-const PE5_RE_APONTAMENTO_CORRIGIVEL = /Valores, percentuais|não se repete|Afirmações de ausência|foi usado no texto|Sem jargão|Linguagem direta|Sem recomendação|Cada entidade da pesquisa|Cada bloco da NTA|Cada artigo citado|decreta inconstitucionalidade|Abertura completa|Cada posição e cada decisão/;
+const PE5_RE_APONTAMENTO_CORRIGIVEL = /Valores, percentuais|não se repete|Afirmações de ausência|foi usado no texto|Sem jargão|Linguagem direta|Sem recomendação|Cada entidade da pesquisa|Cada bloco da NTA|Cada artigo citado|decreta inconstitucionalidade|Abertura completa|Cada posição e cada decisão|Quórum da matéria/;
 
 /** Junta as duas leituras: a do texto em votação manda; a dos documentos de apoio acrescenta os seus grupos. */
 function pe5JuntarLeituras(texto, apoio) {
@@ -182,21 +182,24 @@ async function pe5LimparPesquisa(obj, grupos, fetchFn) {
  * Junta as duas buscas do debate. Ator repetido (mesmo nome, sem porta-voz) fica uma vez, com os argumentos
  * das duas; os identificadores são refeitos (Q1…, D1…) e as controvérsias de pergunta parecida viram uma só.
  */
-function pe5JuntarDebates(a, b) {
+function pe5JuntarDebates(...listas) {
   const chave = n => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\b(senador|senadora|deputado|deputada|ministro|ministra|presidente|governo|federal|do|da|de|dos|das|e|o|a)\b/g, ' ').replace(/\s+/g, ' ').trim();
-  const atores = [], mapa = [new Map(), new Map()], porChave = new Map();
-  [a, b].forEach((p, k) => { for (const x of (p && Array.isArray(p.atores) ? p.atores : [])) {
+  const atores = [], porChave = new Map();
+  const mapa2 = listas.map(() => new Map());
+  listas.forEach((p, k) => { for (const x of (p && Array.isArray(p.atores) ? p.atores : [])) {
     if (!x || !x.ator) continue;
+    if (p.grupo && !x.grupo) x.grupo = p.grupo;
     const ch = chave(x.ator), antigo = String(x.id || '');
     let alvo = ch && porChave.get(ch);
     if (alvo) { alvo.argumentos = [...(alvo.argumentos || []), ...((x.argumentos || []).filter(g => !(alvo.argumentos || []).some(h => String(h.tese).slice(0, 60) === String(g.tese).slice(0, 60))))]; }
     else { alvo = { ...x }; atores.push(alvo); if (ch) porChave.set(ch, alvo); }
-    if (antigo) mapa[k].set(antigo, alvo);
+    if (antigo) mapa2[k].set(antigo, alvo);
   } });
+  const mapa = mapa2;
   atores.forEach((x, i) => { x.id = `Q${i + 1}`; });
   const pal = t => new Set((String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]{5,}/g) || []));
   const contr = [];
-  [a, b].forEach((p, k) => { for (const c of (p && Array.isArray(p.controversias) ? p.controversias : [])) {
+  listas.forEach((p, k) => { for (const c of (p && Array.isArray(p.controversias) ? p.controversias : [])) {
     if (!c || !c.questao) continue;
     const ids = l => [...new Set((Array.isArray(l) ? l : []).map(id => mapa[k].get(String(id))).filter(Boolean).map(x => x.id))];
     const nova = { questao: c.questao, favor: ids(c.favor), contra: ids(c.contra) }, pn = pal(c.questao);
@@ -205,7 +208,7 @@ function pe5JuntarDebates(a, b) {
     else contr.push(nova);
   } });
   contr.forEach((c, i) => { c.id = `D${i + 1}`; });
-  return { atores, controversias: contr, avisos: [...((a && a.avisos) || []), ...((b && b.avisos) || [])] };
+  return { atores, controversias: contr, avisos: listas.flatMap(p => (p && Array.isArray(p.avisos) ? p.avisos : [])) };
 }
 
 function pe5AplicarRevisao(doc, correcoes, acrescimos) {
@@ -329,25 +332,48 @@ async function gerarParecerPE5(ctx, io) {
   // --- IA 2-5: pesquisas ---
   let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], judicializacao: [], avisos: [] } };
   if (io.semWeb !== true) {
+    // Notícias das agências do Congresso: lidas pelo programa e entregues à busca do debate como fonte já coletada.
+    let noticias = [];
+    if (io.fetchFn && ctx.sigla && ctx.numero && ctx.ano && typeof R.agenciasBuscarNoticias === 'function') {
+      passo('lendo as notícias da Agência Senado e da Agência Câmara sobre a matéria…');
+      const fetchTexto = async u => { const r = await io.fetchFn(u); if (!r || !r.ok) throw new Error(`HTTP ${r && r.status}`); return typeof r.text === 'function' ? r.text() : Buffer.from(await r.arrayBuffer()).toString('utf8'); };
+      try { noticias = await R.agenciasBuscarNoticias({ sigla: ctx.sigla, numero: ctx.numero, ano: ctx.ano, idCamara: ctx.idProposicao || coleta?.proposicao?.id }, fetchTexto); } catch (_) { noticias = []; }
+    }
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
-    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR };
+    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR, noticias };
     const uma = async (nome, prompt, grupos) => {
       try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 5 }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
-    // O debate vai em DUAS buscas, uma para cada lado: numa só, o modelo fazia três ou quatro consultas e
-    // voltava com 11 atores onde havia mais de 20 (NTA do PLP 299/2026, 21/11/2026).
-    const [debA, debC, intl, cx, cg] = await Promise.all([
-      uma('pesquisa-debate', R.pe5PromptDebate({ ...base, foco: 'apoio' }), { atores: 'Q' }),
-      uma('pesquisa-debate-criticas', R.pe5PromptDebate({ ...base, foco: 'criticas' }), { atores: 'Q' }),
+    // O debate vai em QUATRO buscas, uma por grupo de atores, cada uma com os dois lados (ver PE5_GRUPOS_DEBATE).
+    // Numa busca só, o modelo voltava com 11 atores onde havia mais de 20; em duas (apoio e crítica), entidades,
+    // entes e sociedade civil ficavam com dois ou três nomes (NTA do PLP 299/2026, 21 e 22/11/2026).
+    const grupos = Object.keys(R.PE5_GRUPOS_DEBATE || { politica: 1, economia: 1, federacao: 1, sociedade: 1 });
+    const nomeDebate = g => (g === 'politica' ? 'pesquisa-debate' : `pesquisa-debate-${g}`);
+    const [debates, intl, cx, cg] = await Promise.all([
+      Promise.all(grupos.map(g => uma(nomeDebate(g), R.pe5PromptDebate({ ...base, foco: g }), { atores: 'Q' }).then(r => ({ ...r, grupo: (R.PE5_GRUPOS_DEBATE?.[g]?.rotulo) || g })))),
       uma('pesquisa-internacional', R.pe5PromptInternacional(base), { jurisdicoes: 'W' }),
       uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
       uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', judicializacao: 'L' }),
     ]);
-    const deb = pe5JuntarDebates(debA, debC);
+    const deb = pe5JuntarDebates(...debates);
+    // Mínimos (cinco países, quatro decisões): abaixo deles, UMA chamada complementar pede só o que falta.
+    const PE5_MIN_PAISES = 5, PE5_MIN_DECISOES = 4;
+    const nP = (intl.jurisdicoes || []).length, nD = (cx.jurisprudencia || []).length;
+    if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES) {
+      passo('completando a pesquisa (países ou decisões abaixo do mínimo)…');
+      const eixos = Array.isArray(intl.eixos) ? intl.eixos : [];
+      const comp = await uma('pesquisa-complementar', R.pe5PromptComplementar({ ...base, faltaPaises: Math.max(0, PE5_MIN_PAISES - nP), faltaDecisoes: Math.max(0, PE5_MIN_DECISOES - nD),
+        jaPaises: (intl.jurisdicoes || []).map(j => j.lugar), jaDecisoes: (cx.jurisprudencia || []).map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !(intl.jurisdicoes || []).some(j => String(j.eixo || '') === e)) }), { jurisdicoes: 'W', jurisprudencia: 'R' });
+      const soma = (lista, novos, pref) => { const n0 = lista.length; return [...lista, ...(novos || []).map((x, i) => ({ ...x, id: `${pref}${n0 + i + 1}` }))]; };
+      intl.jurisdicoes = soma(intl.jurisdicoes || [], comp.jurisdicoes, 'W');
+      cx.jurisprudencia = soma(cx.jurisprudencia || [], comp.jurisprudencia, 'R');
+      intl.avisos = [...(intl.avisos || []), ...(comp.avisos || [])];
+    }
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];
     pesquisa.debate.controversias.forEach((c, i) => { if (c && !c.id) c.id = `D${i + 1}`; });
+    pesquisa.noticias = noticias.map(n => ({ casa: n.casa, veiculo: n.veiculo, titulo: n.titulo, data: n.data, url: n.url }));
   }
 
   // --- programa: o partido e a matéria (depois da pesquisa, que diz quais são as proposições correlatas) ---
@@ -365,14 +391,18 @@ async function gerarParecerPE5(ctx, io) {
   passo('redigindo a matéria, o debate e a experiência internacional…');
   const obj = r => { const j = pe5ExtrairJson(r.text); return j && typeof j === 'object' ? j : null; };
   const falhou = (r, oQue) => ({ erro: r.truncated ? `${oQue} veio truncada: ${pe5MotivoTruncada(r)}` : `Não consegui interpretar ${oQue.charAt(0).toLowerCase() + oQue.slice(1)}.`, chamadas });
-  const [r5, r5b] = await Promise.all([
+  // "Quem se posicionou e como" tem chamada própria (redacao-1c), sem teto total: o tamanho é o número de atores.
+  const [r5, r5b, r5c] = await Promise.all([
     chamar('redacao-1', R.pe5PromptRedacao1({ ...baseRed, parte: 'materia' }), { pensar: 'alto' }),
     chamar('redacao-1b', R.pe5PromptRedacao1({ ...baseRed, parte: 'debate' }), { pensar: 'alto' }),
+    chamar('redacao-1c', R.pe5PromptRedacao1({ ...baseRed, parte: 'quem' }), { pensar: 'alto' }),
   ]);
-  const j5 = obj(r5), j5b = obj(r5b);
+  const j5 = obj(r5), j5b = obj(r5b), j5c = obj(r5c);
   if (!j5) return falhou(r5, 'A redação da matéria');
   if (!j5b) return falhou(r5b, 'A redação do debate');
-  const parte1 = { materia: j5.materia || {}, debate: j5b.debate || {}, internacional: j5b.internacional || {} };
+  if (!j5c) return falhou(r5c, 'A redação de "Quem se posicionou e como"');
+  const quem = j5c.quem || {};
+  const parte1 = { materia: j5.materia || {}, debate: { ...(j5b.debate || {}), posicoes: Array.isArray(quem.posicoes) ? quem.posicoes : (j5c.debate?.posicoes || j5b.debate?.posicoes || []), sintese: quem.sintese || null }, internacional: j5b.internacional || {} };
   passo('redigindo a análise técnica…');
   // A lei em vigor vai inteira à análise e à revisão: é o que permite ao modelo dizer "a lei atual já tem regra
   // parecida" a partir do texto, e não de memória. Entrada é a parte barata da chamada.

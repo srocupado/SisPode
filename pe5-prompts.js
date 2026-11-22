@@ -63,8 +63,10 @@ function pe5ResumoColeta(G) {
   if ((G.marcos || []).length) L.push('Linha do tempo:\n' + G.marcos.map(m => `  ${m.data} ${m.orgao} — ${m.fato}`).join('\n'));
   if ((G.relacionadas || []).length) L.push(`Proposições relacionadas: ${G.relacionadas.map(r => r.rotulo).join('; ')}.`);
   const M = G.mapa;
+  // O quórum vem da sigla e vale com ou sem votação anterior: na NTA do PLP 299/2026 a matéria ainda não tinha
+  // sido votada na Câmara, a linha não saía e a nota não disse que eram precisos 257 votos.
+  if (M && M.quorum) L.push(`Quórum para aprovar o mérito na Câmara: ${M.quorum.regra}${M.quorum.minimo ? ` (${M.quorum.minimo} votos sim)` : M.quorum.presenca ? ` (${M.quorum.presenca} presentes)` : ''}, ${M.quorum.base}.`);
   if (M && M.votacao) {
-    L.push(`Quórum para aprovar o mérito: ${M.quorum.regra}${M.quorum.minimo ? ` (${M.quorum.minimo} votos)` : M.quorum.presenca ? ` (${M.quorum.presenca} presentes)` : ''}, ${M.quorum.base}.`);
     const div = M.divididos.filter(d => d.sim + d.nao >= 10);
     if (div.length) L.push(`Partidos divididos na votação nominal de ${M.votacao.data} (ao menos um quarto dos votos de cada lado): ${div.map(d => `${d.partido} ${d.sim}×${d.nao}`).join(', ')}.`);
     if (M.podemos) L.push(`Orientação do Podemos naquela votação: ${M.podemos.orientacao || 'não registrada'}${M.podemos.orientadoPor ? ` (pelo ${M.podemos.orientadoPor})` : ''}.`);
@@ -217,12 +219,25 @@ function pe5PontosSensiveis(L) {
   const a = (L?.achados || []).filter(x => /alta|m[ée]dia/i.test(x.gravidade || '')).slice(0, 14);
   return a.length ? a.map(x => `- ${x.questao}${x.dispositivo ? ` (${x.dispositivo})` : ''}`).join('\n') : '(a leitura não marcou ponto de gravidade alta ou média)';
 }
-const PE5_FOCO_DEBATE = {
-  apoio: 'FOCO DESTA BUSCA: QUEM DEFENDE o texto e quem dele se beneficia — o governo e seus ministros, o autor, os relatores nas duas Casas, os líderes e parlamentares que apoiam, os setores beneficiados, os analistas e instituições que veem a medida como necessária. Registre também como cada um RESPONDE às críticas. Outra busca, em paralelo, cobre os críticos: não gaste buscas com eles.',
-  criticas: 'FOCO DESTA BUSCA: QUEM CRITICA o texto e quem arca com ele — a oposição e seus líderes, as empresas e setores atingidos e as confederações e associações que os representam, os Estados e Municípios e suas entidades, os conselhos e organizações da sociedade civil, os tributaristas, economistas e consultorias que apontam problema, os órgãos públicos que fizeram ressalva. Outra busca, em paralelo, cobre os defensores: não gaste buscas com eles.',
+// O debate vai em QUATRO buscas, uma por GRUPO de atores, cada uma com os dois lados. "Quem se posicionou e como"
+// é a seção que dá ao parlamentar a tendência da votação: precisa do maior número possível de atores. Em duas
+// buscas (apoio e crítica), o modelo concentrava as tentativas nos parlamentares e deixava entidades, entes e
+// sociedade civil com dois ou três nomes (NTA do PLP 299/2026, 22/11/2026).
+const PE5_GRUPOS_DEBATE = {
+  politica: { rotulo: 'Governo e Congresso', foco: 'FOCO DESTA BUSCA: GOVERNO E CONGRESSO — o Presidente da República, os ministros e órgãos do governo que falaram, o autor, os relatores nas duas Casas, os presidentes da Câmara e do Senado, os líderes do governo, da oposição e dos partidos, as bancadas e frentes parlamentares, e CADA parlamentar que se manifestou (em Plenário, em comissão, em entrevista, em rede social), com o partido e a UF. Registre os dois lados e como cada um responde ao outro. As notícias das agências do Congresso, abaixo, já foram lidas pelo programa: use-as como fonte (com o endereço indicado) e gaste as buscas com o que elas não trazem.' },
+  economia: { rotulo: 'Setores econômicos e trabalhadores', foco: 'FOCO DESTA BUSCA: SETORES ECONÔMICOS E TRABALHADORES — confederações nacionais (indústria, comércio, agricultura, transporte, serviços, instituições financeiras), federações estaduais, associações setoriais, empresas que se manifestaram, centrais sindicais, sindicatos e conselhos profissionais. Para cada entidade, quem ela representa (associados, setor). Os dois lados: quem ganha e quem perde com o texto. Procure notas oficiais, manifestos e cartas abertas, com a lista de signatários.' },
+  federacao: { rotulo: 'Estados, municípios e órgãos públicos', foco: 'FOCO DESTA BUSCA: ESTADOS, MUNICÍPIOS E ÓRGÃOS PÚBLICOS — governadores, secretários de Estado e seus colegiados (de Fazenda, de Saúde, de Educação), a Confederação Nacional de Municípios, a Frente Nacional de Prefeitos, consórcios e associações de municípios, conselhos de políticas públicas, Tribunal de Contas da União e tribunais de contas, Ministério Público, Defensoria, Advocacia-Geral da União, agências reguladoras, Instituição Fiscal Independente e as consultorias legislativas e de orçamento das duas Casas. Os dois lados.' },
+  sociedade: { rotulo: 'Sociedade civil e análise', foco: 'FOCO DESTA BUSCA: SOCIEDADE CIVIL E ANÁLISE — organizações não governamentais, frentes e movimentos, institutos de pesquisa e think tanks, universidades e pesquisadores, economistas e juristas que publicaram análise, escritórios que divulgaram parecer, e os editoriais dos principais jornais. Os dois lados.' },
 };
+const PE5_FOCO_DEBATE = Object.fromEntries(Object.entries(PE5_GRUPOS_DEBATE).map(([k, v]) => [k, v.foco]));
 
-function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje, foco = '' }) {
+/** Notícias das agências do Congresso já lidas pelo programa (noticias-agencias.js), para a busca do debate. */
+function pe5NoticiasAgencias(noticias) {
+  const n = (noticias || []).filter(x => x && x.url && x.texto);
+  return n.length ? `NOTÍCIAS DAS AGÊNCIAS DO CONGRESSO (lidas pelo programa; são fonte primária: use o endereço de cada uma em "fonte_url"):\n${n.map((x, i) => `<<<NOTÍCIA ${i + 1}: ${x.veiculo}, ${x.data} — ${x.titulo} — ${x.url}>>>\n${x.texto}`).join('\n\n')}\n` : '';
+}
+
+function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje, foco = '', noticias = [] }) {
   return `Pesquise na internet QUEM SE POSICIONOU sobre a proposição abaixo e O QUE CADA UM ARGUMENTA. O objetivo é montar o mapa do debate para um assessor parlamentar: os dois lados, com os argumentos e a evidência que cada um apresenta.
 
 MATÉRIA: ${identificacao}
@@ -237,7 +252,7 @@ ${pe5ResumoColeta(coleta)}
 
 PONTOS SENSÍVEIS DO TEXTO (apontados na leitura; procure quem se manifestou sobre cada um):
 ${pe5PontosSensiveis(leitura)}
-${PE5_FOCO_DEBATE[foco] ? `\n${PE5_FOCO_DEBATE[foco]}\n` : ''}
+${PE5_FOCO_DEBATE[foco] ? `\n${PE5_FOCO_DEBATE[foco]}\n` : ''}${foco === 'politica' ? `\n${pe5NoticiasAgencias(noticias)}` : ''}
 O QUE PROCURAR
 - Governo, relator e autor: o que defendem e como respondem às críticas.
 - Empresas e setores diretamente afetados, e as entidades que os representam. Diga quem a entidade representa (associados, setor).
@@ -259,11 +274,16 @@ O QUE DEVOLVER
  "controversias": [ { "id": "D1", "questao": "a pergunta em disputa, em uma frase", "favor": ["Q1"], "contra": ["Q7"] } ],
  "avisos": [ "divergência entre fonte e texto; ator relevante sem manifestação localizada; documento citado e não encontrado" ]
 }
-${foco ? 'De 8 a 16 atores deste lado, cada um com TODOS os argumentos que a fonte traz. De 3 a 8 controvérsias: a pergunta em disputa e os atores desta busca que argumentam de um lado e de outro (o outro lado pode ficar vazio; o programa junta com a outra busca).' : 'De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.'}
+${foco ? `O MAIOR NÚMERO POSSÍVEL de atores deste grupo — de 8 a 30 —, dos dois lados, cada um com TODOS os argumentos que a fonte traz. Ator que só repete outro entra assim mesmo, com a fonte dele: o número de quem se manifestou de cada lado é informação para o parlamentar. Não registre ator sem manifestação localizada (esse vai em "avisos"). De 3 a 8 controvérsias: a pergunta em disputa e os atores desta busca que argumentam de um lado e de outro (o programa junta com as buscas dos outros grupos).` : 'De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.'}
 
 ${PE5_SO_JSON}`;
 }
 
+/** Os mecanismos do texto que a comparação internacional cobre: os blocos da leitura, com os de ponto grave marcados. */
+function pe5EixosComparacao(L) {
+  const graves = (L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).map(a => String(a.dispositivo || ''));
+  return (L?.blocos || []).map(b => `- ${b.titulo} (${b.dispositivos})${graves.some(d => d && String(b.dispositivos || '').split(/[,;()]/).some(x => x.trim().length > 4 && d.includes(x.trim()))) ? ' — tem ponto grave' : ''}`).join('\n');
+}
 function pe5PromptInternacional({ identificacao, ementa, leitura, hoje }) {
   return `Pesquise na internet a EXPERIÊNCIA DE OUTROS PAÍSES com regra parecida com a da proposição abaixo: o que cada um adotou, com quais parâmetros, e O QUE ACONTECEU depois.
 
@@ -274,11 +294,14 @@ DATA DE HOJE: ${hoje}
 FATOS DO TEXTO (para você saber o que comparar):
 ${pe5FatosDoTexto(leitura)}
 
+MECANISMOS DO TEXTO (escolha entre eles de 3 a 5 EIXOS de comparação, priorizando os que têm ponto grave; um texto com vários mecanismos não se compara por um só):
+${pe5EixosComparacao(leitura)}
+
 O QUE PROCURAR
-- De 3 a 6 países ou blocos com regra em vigor comparável. Para cada um: a norma, desde quando vale, a autoridade, quem é alcançado (com os números do critério na moeda original), como funciona, a sanção e a duração.
+- NO MÍNIMO 5 e até 8 países ou blocos, com AO MENOS UM por eixo escolhido. Cada jurisdição diz em "eixo" qual mecanismo do texto ela permite comparar. Para cada um: a norma, desde quando vale, a autoridade, quem é alcançado (com os números do critério na moeda original), como funciona, a sanção e a duração.
 - O que aconteceu: quantos casos, quem foi alcançado, decisões, multas, mudanças de conduta, revisões oficiais da própria lei, decisões de tribunais. Com data.
 - As críticas, dos dois lados: de quem acha a regra fraca ou mal aplicada e de quem acha que ela prejudica.
-- Países que discutiram regra parecida e DESISTIRAM, adiaram ou revogaram, e por quê.
+- Países que discutiram regra parecida e DESISTIRAM, adiaram ou revogaram, e por quê. Contam para o mínimo.
 - Avaliações de organismos internacionais (OCDE, Banco Mundial, FMI, órgãos da ONU), se houver.
 - Estudos que meçam efeito (preço, investimento, entrada de concorrentes, arrecadação, conforme a matéria). Se não houver, diga em "avisos".
 - Fonte primária sempre que possível: a autoridade, o diário oficial, o relatório de revisão.
@@ -287,7 +310,8 @@ ${PE5_REGRAS_PESQUISA}
 
 O QUE DEVOLVER
 {
- "jurisdicoes": [ { "id": "W1", "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…",
+ "eixos": [ "os mecanismos do texto escolhidos para comparar" ],
+ "jurisdicoes": [ { "id": "W1", "eixo": "qual dos eixos", "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…",
      "quem_e_alcancado": "critérios, com os números na moeda original", "como_funciona": "…", "sancao": "…", "duracao": "…",
      "aconteceu": [ { "fato": "…", "data": "…" } ],
      "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ],
@@ -299,7 +323,15 @@ Para país que não aprovou a regra, use os mesmos campos, com "—" no que não
 ${PE5_SO_JSON}`;
 }
 
+/** Os dispositivos da Constituição (e do ADCT) que a leitura cita nos pontos de gravidade alta ou média: cada um é uma tese a procurar no STF. */
+function pe5TesesConstitucionais(L) {
+  const txt = [...(L?.achados || []).filter(a => /alta|m[ée]dia/i.test(a.gravidade || '')).map(a => `${a.questao} ${a.dispositivo} ${a.porque}`), ...(L?.controversias || []).map(c => `${c.questao} ${c.explica}`)].join(' \n ');
+  const out = new Set();
+  for (const m of txt.matchAll(/art\.\s*(\d+)[ºo°]?(?:-[A-Z])?((?:,?\s*(?:§\s*\d+[ºo°]?|inciso\s+[IVXLC]+|[IVXLC]+\b|al[íi]nea\s+["“]?[a-z]["”]?|["“][a-z]["”]))*)\s*,?\s*(?:da\s+Constitui[çc][ãa]o|da\s+CF|do\s+ADCT|do\s+Ato das Disposi)/gi)) out.add(`art. ${m[1]}${m[2] ? m[2].replace(/\s+/g, ' ').replace(/^,?\s*/, ', ') : ''}${/ADCT|Ato das/i.test(m[0]) ? ' do ADCT' : ' da Constituição'}`);
+  return [...out].slice(0, 10);
+}
 function pe5PromptContexto({ identificacao, ementa, leitura, hoje }) {
+  const teses = pe5TesesConstitucionais(leitura);
   const normas = [...new Set((leitura?.alteracoes || []).map(a => String(a.dispositivo).replace(/^arts?\.?[^d]*d[ae]\s+/i, '')))].join('; ');
   const pontos = (leitura?.achados || []).filter(a => a.gravidade !== 'baixa').map(a => `- ${a.questao} (${a.dispositivo})`).join('\n');
   const refs = (leitura?.referencias || []).map(r => `- ${r.nome}: ${r.o_que_e}`).join('\n');
@@ -316,11 +348,14 @@ ${pe5FatosDoTexto(leitura)}
 PONTOS QUE A LEITURA DESTACOU (procure precedente e norma sobre eles):
 ${pontos || '(nenhum)'}
 
+DISPOSITIVOS DA CONSTITUIÇÃO EM JOGO (procure UMA decisão por dispositivo, no mínimo):
+${teses.length ? teses.map(t => `- ${t}`).join('\n') : '(a leitura não citou dispositivo da Constituição; procure pelos pontos acima)'}
+
 DOCUMENTOS QUE A PROPOSIÇÃO CITA COMO BASE (localize cada um):
 ${refs || '(nenhum identificado na leitura)'}
 
 O QUE PROCURAR
-- "jurisprudencia": de 2 a 6 decisões do STF, do STJ, do TCU ou de tribunais superiores sobre regra análoga. Identifique tribunal, órgão julgador, classe e número, relator e data. Diga O QUE A DECISÃO DECIDIU, por que interessa aqui e ONDE A ANALOGIA PARA (o que o caso tinha de diferente). Não atribua à decisão conclusão que ela não tomou. Se não tiver certeza do número ou do relator, não inclua.
+- "jurisprudencia": NO MÍNIMO 4 e até 10 decisões já tomadas, buscadas em quatro frentes: (1) STF sobre cada dispositivo da Constituição listado acima; (2) ações contra as leis que o texto altera (as normas listadas no alto), já julgadas ou com liminar; (3) acórdãos do TCU sobre o mecanismo que o texto cria ou muda; (4) STJ, se a matéria for tributária ou administrativa. Ação ainda sem decisão NÃO entra aqui (vai para a pesquisa de judicialização). Identifique tribunal, órgão julgador, classe e número, relator e data. Diga O QUE A DECISÃO DECIDIU, por que interessa aqui e ONDE A ANALOGIA PARA (o que o caso tinha de diferente). Não atribua à decisão conclusão que ela não tomou. Se não tiver certeza do número ou do relator, não inclua.
 - "normas": leis, decretos, portarias e resoluções em vigor que já disciplinam a matéria ou serão afetados, com o que cada um dispõe.
 - "dados": números oficiais ou de estudo que dimensionem quem é afetado, quanto custa, quanto se arrecada ou se gasta. Diga quem produziu o número e se é parte interessada.
 - "correlatas": outras proposições no Congresso sobre o mesmo tema, com a situação.
@@ -339,6 +374,36 @@ O QUE DEVOLVER
  "alcance": [ { "id": "Z1", "grupo": "nome", "atividade": "…", "piso": "qual critério do texto supera", "dado": "o número, com o período a que se refere", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "avisos": [ "dado importante que não existe em fonte pública; decisão citada no debate e não localizada; documento-base não encontrado" ]
 }
+
+${PE5_SO_JSON}`;
+}
+
+/**
+ * Chamada complementar: só roda quando a pesquisa veio abaixo do mínimo (países ou decisões). Pede só o que
+ * falta, dizendo o que já se tem para não repetir.
+ */
+function pe5PromptComplementar({ identificacao, ementa, leitura, hoje, faltaPaises = 0, faltaDecisoes = 0, jaPaises = [], jaDecisoes = [], eixosSemPais = [] }) {
+  const teses = pe5TesesConstitucionais(leitura);
+  return `Pesquise na internet para COMPLETAR a pesquisa sobre a proposição abaixo. A primeira busca trouxe menos do que o mínimo.
+
+MATÉRIA: ${identificacao}
+EMENTA: ${ementa || ''}
+DATA DE HOJE: ${hoje}
+
+FATOS DO TEXTO:
+${pe5FatosDoTexto(leitura)}
+
+O QUE FALTA
+${faltaPaises > 0 ? `- "jurisdicoes": mais ${faltaPaises} país(es) ou bloco(s) com regra comparável (ou que discutiram e desistiram).${eixosSemPais.length ? ` Mecanismos ainda sem país: ${eixosSemPais.join('; ')}.` : ''} Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaDecisoes > 0 ? `- "jurisprudencia": mais ${faltaDecisoes} decisão(ões) já tomada(s) do STF, STJ ou TCU. Dispositivos da Constituição em jogo: ${teses.join('; ') || '(ver os fatos do texto)'}. Também ações já julgadas contra as leis que o texto altera. Já localizadas (NÃO repita): ${jaDecisoes.join('; ') || 'nenhuma'}.\n` : ''}
+${PE5_REGRAS_PESQUISA}
+
+O QUE DEVOLVER
+{
+ "jurisdicoes": [ { "id": "W1", "eixo": "…", "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…", "quem_e_alcancado": "…", "como_funciona": "…", "sancao": "…", "duracao": "…", "aconteceu": [ { "fato": "…", "data": "…" } ], "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ], "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "jurisprudencia": [ { "id": "R1", "tribunal": "…", "processo": "…", "relator": "…", "data": "dd/mm/aaaa", "decidiu": "…", "pertinencia": "…", "limite": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "avisos": [ "o que procurou e não encontrou" ]
+}
+Se não houver o que acrescentar num dos grupos, devolva a lista vazia e diga em "avisos" onde procurou. Não invente número de processo, relator ou data.
 
 ${PE5_SO_JSON}`;
 }
@@ -433,9 +498,12 @@ const PE5_PARTES_REDACAO = {
   materia: { chaves: ['materia'], campos: ['faz', 'origem', 'documentos', 'historico', 'versoes'],
     tamanho: 'Teto desta chamada: cerca de 4.000 palavras. "faz": até 130 palavras por bloco. "origem": até 5 parágrafos de até 130 palavras. "versoes": cada campo em até 35 palavras; mudanças pequenas do mesmo artigo vão na mesma linha. "documentos": "o_que_e" em até 45 palavras. "contexto": até 4 blocos de até 110 palavras. "historico": cada campo em até 30 palavras.',
     diz: 'A MATÉRIA (o que o texto faz, de onde vem, o que mudou entre as versões, os documentos, o contexto e o histórico)' },
-  debate: { chaves: ['debate', 'internacional'], campos: ['controversias', 'posicoes', 'lados', 'da_analise', 'jurisdicoes', 'comparativo', 'licoes'],
-    tamanho: 'Teto desta chamada: cerca de 5.000 palavras. "posicoes": até 110 palavras por ator; argumento igual ao de ator já descrito não se repete ("no mesmo sentido de …", e só o que ele acrescenta); atores do mesmo grupo com a mesma posição e os mesmos argumentos dividem um parágrafo, com todos os nomes. "controversias": de 5 a 9, as que decidem o voto; cada argumento em até 35 palavras; pergunta parecida com outra se junta a ela. "lados": até 150 palavras por parágrafo. "jurisdicoes": cada campo em até 60 palavras. "licoes" e "limites": até 5 itens cada.',
-    diz: 'O DEBATE e A EXPERIÊNCIA INTERNACIONAL' },
+  quem: { chaves: ['quem'], campos: ['posicoes', 'sintese'],
+    tamanho: 'Esta chamada não tem teto total: o tamanho é o número de atores. "posicoes": até 110 palavras por ator; argumento igual ao de ator já descrito não se repete ("no mesmo sentido de …", e só o que ele acrescenta). "sintese": até 180 palavras.',
+    diz: 'QUEM SE POSICIONOU E COMO (um parágrafo por ator e a síntese da distribuição das posições)' },
+  debate: { chaves: ['debate', 'internacional'], campos: ['controversias', 'lados', 'da_analise', 'jurisdicoes', 'comparativo', 'licoes'],
+    tamanho: 'Teto desta chamada: cerca de 5.500 palavras. "Quem se posicionou e como" é escrito em outra chamada: aqui, refira-se aos atores pelo nome, sem recontar quem são. "controversias": de 5 a 9, as que decidem o voto; cada argumento em até 35 palavras; pergunta parecida com outra se junta a ela. "lados": até 150 palavras por parágrafo. "jurisdicoes": cada campo em até 60 palavras. "licoes" e "limites": até 5 itens cada.',
+    diz: 'O DEBATE (sem "Quem se posicionou e como", escrito em outra chamada) e A EXPERIÊNCIA INTERNACIONAL' },
   analise: { chaves: ['analise'], campos: ['lentes', 'jurisprudencia', 'judicializacao', 'impacto'],
     tamanho: 'Teto desta chamada: cerca de 5.500 palavras. "lentes": ponto de gravidade alta com exame de até 150 palavras; média, até 60; baixa, uma frase. Não reexplique o mecanismo que a primeira metade já explicou: refira-se a ele pelo artigo. "judicializacao": cada campo em até 50 palavras. "impacto": até 6 parágrafos de até 120 palavras.',
     diz: 'A ANÁLISE TÉCNICA' },
@@ -473,7 +541,7 @@ ${PE5_ESTILO}
 
 ${PE5_REGRA_EV}
 
-${ctx.parte === 'debate' ? '' : pe5Cobertura(ctx.leitura, ['versoes', 'justificativa'])}
+${ctx.parte === 'debate' || ctx.parte === 'quem' ? '' : pe5Cobertura(ctx.leitura, ['versoes', 'justificativa'])}
 
 ${pe5Base(ctx)}
 
@@ -487,8 +555,11 @@ O QUE DEVOLVER
    "contexto": [ { "titulo": "…", "texto": "o que já existe hoje sobre o assunto, outras proposições, fatores externos relevantes", "ev": ["M1"] } ],
    "historico": [ { "proposicao": "PL 0000/0000 (Casa)", "ano": "aaaa", "o_que_propunha": "o que propunha, comparado ao texto atual", "desfecho": "como terminou ou onde está", "por_que": "por que não avançou ou o que decidiu", "ev": ["H1"] } ]
  },
- "debate": {
+ "quem": {
    "posicoes": [ { "texto": "um parágrafo de texto corrido sobre UM ator", "ev": ["Q1"] } ],
+   "sintese": { "texto": "um parágrafo: como as posições se distribuem entre os grupos (governo e Congresso, setores econômicos, entes e órgãos públicos, sociedade civil), quem lidera cada lado e o que o placar das votações já feitas mostra", "ev": ["G","Q1"] }
+ },
+ "debate": {
    "lados": {
      "apoia": { "argumento": "um parágrafo: quem são os defensores, pelo nome, e o argumento deles no seu melhor", "evidencia": "um parágrafo: o que o texto em votação, a lei vigente e os dados mostram sobre esses argumentos", "ev": ["Q1","B2"] },
      "opoe": { "argumento": "um parágrafo: quem são os críticos, pelo nome, e o argumento deles no seu melhor", "evidencia": "um parágrafo: o que o texto em votação, a lei vigente e os dados mostram sobre essas objeções", "ev": ["Q7","V1"] }
@@ -514,10 +585,11 @@ ORIENTAÇÕES POR SEÇÃO
 - "historico": uma linha por tentativa anterior de legislar sobre o tema (ids H), da mais antiga para a mais recente, terminando nas que estão em andamento. Em "por_que", o motivo que a fonte dá; se a fonte não diz, escreva "A fonte lida não informa o motivo.". Não repita aqui as proposições já explicadas em "contexto": se uma delas é a principal concorrente, ela fica aqui, e "contexto" trata do resto.
 - "versoes": uma linha por mudança relevante entre o texto anterior e o texto em votação. Omita a seção se houver uma versão só.
 - "controversias": é o coração do parecer. Para cada pergunta em disputa, os argumentos de um lado e do outro, com QUEM sustenta e QUE EVIDÊNCIA apresenta. Argumento sem evidência na fonte leva "Não apresentada na fonte.". Se um lado não tem argumento localizado, deixe a lista vazia. Em "estado", diga o que o texto em votação fez com a questão e o que ficou em aberto. Quando dois críticos se contradizem, diga.
-- "posicoes" (seção "Quem se posicionou e como"): TEXTO CORRIDO, um parágrafo por ator da pesquisa do debate — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo. O relator da Casa em que a matéria está ganha parágrafo próprio, com cada argumento do parecer dele que a leitura registrou (ids J), ainda que a pesquisa na internet não o traga.
+- "posicoes" (seção "Quem se posicionou e como"): é a seção que mostra ao parlamentar a TENDÊNCIA da votação; cubra TODOS os atores da pesquisa do debate (ids Q). TEXTO CORRIDO, UM PARÁGRAFO POR ATOR que tenha argumento próprio — governo e autor, relator, órgãos públicos, entidades de classe, setor regulado, sociedade civil, academia, parlamentares, governos e parlamentares estrangeiros. Só divide parágrafo quem apenas REPETE o argumento de outro: nesse caso, um parágrafo com todos os nomes, o partido ou o setor de cada um e a frase "no mesmo sentido de…". Ordem: governo e Congresso, setores econômicos, entes e órgãos públicos, sociedade civil; dentro de cada grupo, favoráveis, com ressalvas, contrários. Cada parágrafo diz, em prosa: quem é o ator e o que ou quem representa (para entidade, os associados); a posição (favorável, favorável com ressalvas, contrário com ressalvas, contrário); sobre qual texto fala (o original ou o texto em votação); por que meio e em que data se manifestou (exposição de motivos, carta, nota, estudo, declaração a tal veículo); e o que defende, com TODOS os argumentos que a pesquisa registra e a evidência que apresenta (estudo, número, exemplo). Sempre atribuído: "a entidade sustenta que…", "segundo a empresa…". Nome completo da entidade, com a sigla. Não avalie o argumento aqui e não use tabela, lista nem tópicos. Comece pelos favoráveis (governo, relator, apoiadores) e siga para os contrários. Quem não se manifestou não ganha parágrafo: feche com um parágrafo dizendo quem, entre os diretamente afetados, NÃO teve manifestação localizada nas fontes pesquisadas. Todo ator da pesquisa (ids Q) aparece em algum parágrafo. O relator da Casa em que a matéria está ganha parágrafo próprio, com cada argumento do parecer dele que a leitura registrou (ids J), ainda que a pesquisa na internet não o traga.
+- "sintese": um parágrafo que descreve, sem recomendar voto, como as posições se distribuem por grupo e por lado, quem lidera cada lado e o placar das votações já feitas (dados do programa). O programa imprime ao lado um quadro com a contagem por grupo.
 - "lados" (seção "Os dois lados"): dois parágrafos por lado. Em "argumento", o melhor argumento do lado, nomeando quem o sustenta. Em "evidencia", o que o texto e os documentos mostram sobre o que esse lado afirma, ponto por ponto e com o artigo: o que se confirma; o que se confirma só em parte, e qual parte; o que o texto em votação ou a lei vigente contradizem; o que o substitutivo já atendeu; o que não há dado para verificar; e o que é divergência de mérito, que o texto não resolve. Se um argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. Avalia-se o ARGUMENTO, não a proposição: não diga quem tem razão no mérito nem se o texto deve ser aprovado.
 - "da_analise": de 2 a 5 argumentos que a leitura do texto ou a comparação internacional sustentam e que ninguém levantou. São da assessoria e serão impressos como tal.
-- "jurisdicoes": um bloco por país, mais um bloco para os que recuaram ou adiaram, se houver.
+- "jurisdicoes": um bloco por país ou bloco da pesquisa internacional (ids W) — TODOS, no mínimo cinco quando a pesquisa os trouxer —, inclusive os que recuaram ou adiaram. Diga em "regra" qual mecanismo do texto brasileiro ele permite comparar.
 - "comparativo": a primeira coluna é sempre o Brasil. De 5 a 8 linhas com os parâmetros que permitem comparar (como funciona, quem é alcançado, duração, sanção, resultado até agora). Valor em moeda estrangeira vem acompanhado da conversão em reais pelo câmbio da base, com "cerca de".
 - "licoes" e "limites": seja específico. Diga o que NÃO se pode concluir.
 - Seção sem conteúdo na base: devolva a lista vazia. Não preencha com generalidades.
@@ -633,5 +705,5 @@ ${PE5_SO_JSON}`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_ESTILO, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
+  module.exports = { PE5_ESTILO, PE5_GRUPOS_DEBATE, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptComplementar, pe5TesesConstitucionais, pe5EixosComparacao, pe5NoticiasAgencias, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
 }

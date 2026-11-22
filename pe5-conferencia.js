@@ -104,6 +104,7 @@ function pe5Blocos(doc = {}) {
   }
   // "Quem se posicionou" e "Os dois lados" retomam, de propósito, os argumentos das controvérsias: mesma seção para o teste de repetição.
   for (const x of doc.debate?.posicoes || []) add('debate', x, ['texto']);
+  if (doc.debate?.sintese) add('debate', doc.debate.sintese, ['texto']);
   for (const k of ['apoia', 'opoe']) add('debate', doc.debate?.lados?.[k], ['argumento', 'evidencia']);
   for (const x of doc.debate?.da_analise || []) add('debate-analise', x, ['argumento']);
   for (const x of doc.internacional?.jurisdicoes || []) add('internacional', x, ['regra', 'aconteceu', 'criticas']);
@@ -306,6 +307,31 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   if (todas.length) add('Peso das fontes oficiais na pesquisa', prim / todas.length >= 0.3, `${prim} de ${todas.length} fontes são oficiais; as demais são imprensa ou terceiros. ${prim / todas.length < 0.3 ? 'A maior parte do debate está apoiada em imprensa: confira antes de citar.' : ''}`.trim());
   const semLimite = (doc.analise?.jurisprudencia || []).filter(j => !j.limite || !j.decidiu).map(j => j.processo);
   add('Cada decisão judicial diz o que decidiu e onde a analogia para', !semLimite.length, semLimite.length ? `Incompleta(s): ${semLimite.join('; ')}.` : '');
+
+  // --- mínimos da pesquisa (22/11/2026): cinco países, quatro decisões, um parágrafo por ator, o quórum ---
+  // Os prompts já pediam de 3 a 6 países e de 2 a 6 decisões, e ninguém conferia: a NTA do PLP 299/2026 saiu
+  // com dois países e uma decisão. Abaixo do mínimo, o pipeline faz uma chamada complementar; se ainda faltar,
+  // o teste avisa.
+  const jurD = doc.internacional?.jurisdicoes || [], decD = doc.analise?.jurisprudencia || [];
+  if (pq.debate || pq.internacional) {
+    add('Experiência internacional: ao menos cinco países ou blocos', jurD.length >= 5, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < 5 ? '; o mínimo é cinco' : ''}.`);
+    add('Decisões judiciais: ao menos quatro', decD.length >= 4, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < 4 ? '; o mínimo é quatro' : ''}.`);
+  }
+  // "Quem se posicionou e como" dá a tendência da votação: um parágrafo por ator com argumento próprio. Só divide
+  // parágrafo quem repete o argumento de outro; a regra antiga (juntar "atores do mesmo grupo") pôs oito senadores
+  // com argumentos diferentes num parágrafo só.
+  const comArg = atores.filter(a => (a.argumentos || []).length);
+  if (comArg.length) {
+    const minimo = Math.ceil(comArg.length * 0.75), nPos = (doc.debate?.posicoes || []).length;
+    const porGrupo = [...comArg.reduce((m, a) => m.set(a.grupo || 'sem grupo', (m.get(a.grupo || 'sem grupo') || 0) + 1), new Map())].map(([g, n]) => `${g}: ${n}`).join('; ');
+    add('Quem se posicionou e como: um parágrafo por ator com argumento próprio', nPos >= minimo, `${nPos} parágrafo(s) para ${comArg.length} ator(es) com argumento${nPos < minimo ? ` (mínimo de ${minimo}: só divide parágrafo quem repete o argumento de outro)` : ''}. Por grupo: ${porGrupo}.`);
+  }
+  const Q = G.mapa?.quorum;
+  if (Q && Q.minimo) {
+    const onde = [doc.abertura?.decide, doc.abertura?.frase, ...(doc.caminhos?.opcoes || []).map(o => `${o.opcao} ${o.consequencias}`), ...(doc.materia?.origem || []).map(o => o.texto)].join(' ');
+    const cita = new RegExp(`\\b${Q.minimo}\\b`).test(onde);
+    add('Quórum da matéria dito na nota', cita, cita ? `${Q.minimo} votos (${Q.regra}).` : `A matéria exige ${Q.minimo} votos (${Q.regra}, ${Q.base}) e a abertura, a origem e as opções não dizem.`);
+  }
 
   // --- linguagem ---
   const achar = re => { const o = []; for (const b of blocos) { const m = b.texto.match(re); if (m) o.push(`"${m[0]}" [${b.secao}]`); } return o; };
