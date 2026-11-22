@@ -8793,9 +8793,6 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
       let lista = [];
       try { lista = await listarModelosDoProvedor(pid); } catch (e) { st.textContent = `Não consegui listar os modelos: ${e.message}`; return; }
       if (selP.value !== pid) return;
-      // A NTA voltou à regra geral em 22/11/2026 (versão mais alta entre os de faixa conhecida — no Gemini, o
-      // 3.8 Flash): o Opus saiu caro e o Gemini 4 Argon não roda em chave sem faturamento. Os dois continuam na
-      // lista para quem quiser escolher; a preferência por modelo de ponta segue em parecer.js, desligada aqui.
       const rk = ranquearModelos(lista.map(m => m.id));
       escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null });
       if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }
@@ -8806,7 +8803,7 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
     }
     selP.addEventListener('change', carregar);
     selM.addEventListener('change', () => {
-      const id = selM.value; const f = pontaDoModelo(id) ? 'superior' : faixaDoModelo(id);
+      const id = selM.value; const f = faixaDoModelo(id);
       st.textContent = id === escolhaAuto?.modelo ? escolhaAuto.motivo : `Escolhido pelo usuário no diálogo (${id}, ${ROTULO_FAIXA[f]}).`;
     });
     ov.querySelector('#dlg-parecer-fechar').addEventListener('click', () => fechar(null));
@@ -8814,7 +8811,7 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
     btnG.addEventListener('click', () => {
       const pid = selP.value, modelo = selM.value;
       if (!modelo) return;
-      const f = pontaDoModelo(modelo) ? 'superior' : faixaDoModelo(modelo);
+      const f = faixaDoModelo(modelo);
       const proprio = modelo !== escolhaAuto?.modelo;
       fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
         apoioSenado: apoioSenado.filter((_, i) => ov.querySelector(`[data-senado="${i}"]`)?.checked),
@@ -8835,6 +8832,10 @@ async function gerarParecerEspecialista(it) {
   // item ainda sem registro na Câmara, que já os usa. As consultas têm prazo curto: site lento não segura o diálogo.
   let apoioSenado = [];
   if (!docsProprios(it)) {
+    // Até 8 segundos de consulta antes do diálogo: o botão diz o que está acontecendo, para o clique não parecer perdido.
+    const btnAntes = document.querySelector(`.an-card[data-chave="${it.chave}"] [data-role=btn-parecer]`);
+    const rotAntes = btnAntes ? btnAntes.innerHTML : '';
+    if (btnAntes) { btnAntes.disabled = true; btnAntes.innerHTML = '<span class="an-spinner"></span> consultando o Senado…'; }
     const mat = { sigla: it.sigla, numero: it.numero, ano: it.ano, ementa: it.ementa || '' };
     const comPrazo = p => Promise.race([p, new Promise(ok => setTimeout(() => ok(null), 8000))]).catch(e => { console.warn('NTA: documentos de apoio não consultados', e.message); return null; });
     const textoDe = async u => { const r = await fetch(u, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.text(); };
@@ -8843,6 +8844,7 @@ async function gerarParecerEspecialista(it) {
       typeof consultoriasBuscarNotas === 'function' ? comPrazo(consultoriasBuscarNotas(mat, textoDe)) : null,
     ]);
     apoioSenado = [...((sen && sen.documentos) || []), ...(notas || [])];
+    if (btnAntes) { btnAntes.disabled = false; btnAntes.innerHTML = rotAntes; }
   }
   // --- provedor e modelo confirmados no diálogo ----------------------------
   const esc = await confirmarModeloParecer(it, { apoioSenado });

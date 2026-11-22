@@ -258,6 +258,9 @@ const EMENTA = 'Altera a Lei Complementar nº 200, de 30 de agosto de 2023, para
   const telaNta = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
   ok(/comPrazo\(senadoApoioDaMateria\(mat, fetchJson\)\)/.test(telaNta) && /!it\.provisorio && typeof senadoApoioDaMateria === 'function'/.test(telaNta) && /if \(!docsProprios\(it\)\) \{/.test(telaNta) && /confirmarModeloParecer\(it, \{ apoioSenado \}\)/.test(telaNta) && /data-senado="\$\{i\}" checked/.test(telaNta) && /for \(const d of esc\.apoioSenado \|\| \[\]\) if \(!docsMeta\.some\(x => x\.url === d\.url\)\) docsMeta\.push\(d\);/.test(telaNta), 'tela da NTA: consulta o Senado antes do diálogo, oferece os documentos já marcados e junta os escolhidos depois dos da Câmara');
 
+  ok(/btnAntes\.innerHTML = '<span class="an-spinner"><\/span> consultando o Senado…'/.test(telaNta) && /if \(btnAntes\) \{ btnAntes\.disabled = false; btnAntes\.innerHTML = rotAntes; \}/.test(telaNta), 'tela da NTA: o botão mostra "consultando o Senado…" durante a consulta e volta ao normal antes do diálogo');
+  const promptsNta = fs.readFileSync(path.join(RAIZ, 'pe5-prompts.js'), 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
+  ok(!/PLP 299|Kandir|Proex|108 páginas/.test(promptsNta), 'os prompts da NTA não citam o caso concreto que deu origem às regras (PLP 299/2026)');
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.log('ERRO', e.stack); process.exit(1); });
