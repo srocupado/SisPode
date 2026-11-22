@@ -332,7 +332,7 @@ async function gerarParecerPE5(ctx, io) {
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
     const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR };
     const uma = async (nome, prompt, grupos) => {
-      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 8 }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
+      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 5 }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
     // O debate vai em DUAS buscas, uma para cada lado: numa só, o modelo fazia três ou quatro consultas e

@@ -8793,9 +8793,11 @@ function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
       let lista = [];
       try { lista = await listarModelosDoProvedor(pid); } catch (e) { st.textContent = `Não consegui listar os modelos: ${e.message}`; return; }
       if (selP.value !== pid) return;
-      // Só na NTA vale a preferência da Liderança: Claude Opus e Gemini 4 Argon (parecer.js, MODELOS_DE_PONTA).
-      const rk = ranquearModelos(lista.map(m => m.id), { ponta: true });
-      escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null, ponta: true });
+      // A NTA voltou à regra geral em 22/11/2026 (versão mais alta entre os de faixa conhecida — no Gemini, o
+      // 3.8 Flash): o Opus saiu caro e o Gemini 4 Argon não roda em chave sem faturamento. Os dois continuam na
+      // lista para quem quiser escolher; a preferência por modelo de ponta segue em parecer.js, desligada aqui.
+      const rk = ranquearModelos(lista.map(m => m.id));
+      escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null });
       if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }
       selM.innerHTML = rk.map(m => `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para a NTA)'}</option>`).join('');
       selM.value = escolhaAuto.modelo;
