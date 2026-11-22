@@ -55,7 +55,7 @@ const pe5NumBR = s => { const t = String(s).trim(); if (/^\d{1,3}(\.\d{3})+(,\d+
 function pe5Numeros(texto) {
   const t = pe5ExtensoParaDigitos(String(texto || '')).replace(/ /g, ' ');
   const out = [];
-  const reMoeda = /\b(R\$|EUR|GBP|USD|US\$|JPY|€|£)\s?([\d.]+(?:,\d+)?)(?:\s*\([^)]{0,40}\))?\s*(mil(?![a-zà-ú])|milh[ãa]o|milh[õo]es|bilh[ãa]o|bilh[õo]es|trilh[ãa]o|trilh[õo]es)?/gi;
+  const reMoeda = /(?<![A-Za-z0-9])(R\$|EUR|GBP|USD|US\$|JPY|€|£)\s?([\d.]+(?:,\d+)?)(?:\s*\([^)]{0,40}\))?\s*(mil(?![a-zà-ú])|milh[ãa]o|milh[õo]es|bilh[ãa]o|bilh[õo]es|trilh[ãa]o|trilh[õo]es)?/gi;
   let m;
   while ((m = reMoeda.exec(t)) !== null) {
     const moeda = { 'r$': 'BRL', 'eur': 'EUR', '€': 'EUR', 'gbp': 'GBP', '£': 'GBP', 'usd': 'USD', 'us$': 'USD', 'jpy': 'JPY' }[m[1].toLowerCase()];
@@ -184,6 +184,8 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
     if (n.tipo === 'data') return false;
     // conversão de moeda pelo câmbio do programa (com arredondamento)
     if (n.tipo === 'moeda' && n.moeda === 'BRL' && estr.some(e => taxas[e.moeda] && perto(e.valor * taxas[e.moeda], n.valor))) return true;
+    // a própria taxa citada ("a R$ 6,4672 por euro")
+    if (n.tipo === 'moeda' && n.moeda === 'BRL' && Object.values(taxas).some(t => perto(Number(t), n.valor, 0.001))) return true;
     if (n.tipo === 'moeda' && n.moeda !== 'BRL' && taxas[n.moeda] && brl.some(v => perto(v / taxas[n.moeda], n.valor))) return true;
     // soma ou produto de dois números da base (prazo + prazo; valor × multiplicador)
     // intervalo entre duas datas da base ("dezenove dias depois da apresentação")

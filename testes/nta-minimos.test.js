@@ -75,6 +75,15 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
   const c4 = K.pe5Conferir(p({ atores, posicoes: atores.slice(0, 6).map(a => ({ texto: 'a', ev: [a.id] })) }));
   ok(!item(c3, /um parágrafo por ator/).ok && /1 parágrafo\(s\) para 8 ator\(es\).*mínimo de 6.*Governo e Congresso: 5; Setores: 3/.test(item(c3, /um parágrafo por ator/).detalhe) && item(c4, /um parágrafo por ator/).ok, 'posições: oito atores num parágrafo só é apontado (com a conta por grupo); seis parágrafos para oito atores passam');
 
+  // valores em euro e libra depois de espaço são lidos (o \b antes de "€" nunca casava), e a conversão pelo câmbio passa
+  const nums = K.pe5Numeros('anulou € 10 bilhões; teto de £ 2 milhões').map(x => `${x.moeda} ${x.valor}`);
+  ok(nums.join('|') === 'EUR 10000000000|GBP 2000000', '€ e £ depois de espaço são lidos como valores');
+  const pc = p({ jur: [{ lugar: 'França', aconteceu: 'O decreto anulou € 10 bilhões (cerca de R$ 64,7 bilhões, a R$ 6,4672 por euro).', ev: ['W1'] }] });
+  pc.pesquisa.internacional.jurisdicoes = [{ id: 'W1', aconteceu: [{ fato: 'Decreto anulou € 10 bilhões' }] }];
+  pc.cambio = { data: '19/11/2026', taxas: { EUR: 6.4672 } };
+  const cv = item(K.pe5Conferir(pc), /Valores, percentuais/);
+  ok(!/64,7|6,4672/.test(cv.detalhe || ''), 'conversão de € 10 bilhões pelo câmbio da base e a taxa citada não são apontadas');
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })();
