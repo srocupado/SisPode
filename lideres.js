@@ -1021,7 +1021,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
     const autores = autoresDaBusca(hit);
     it.autoresApi     = autores.map(a => a.nome + (a.siglaPartido ? ` (${a.siglaPartido}${a.siglaUF ? '-' + a.siglaUF : ''})` : '')).filter(Boolean).slice(0, 5);
     // O partido da busca é o da ÉPOCA da autoria: confere com a bancada de hoje (sem ela, fica o da busca).
-    const bancadaHoje = await bancadaPodemos().catch(() => null);
+    const bancadaHoje = await bancadaPodemos({ semApi: true }).catch(() => null);
     const naBancada = a => !bancadaHoje || bancadaHoje.has(nomeChave(a.nome));
     const pode = autores.filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS && naBancada(a));
     it.autoriaPodemos = pode.length > 0;
@@ -1209,10 +1209,10 @@ function relatoriaDaLista(celula) {
 // de deputado do Podemos vira selo (pedido de 10/11/2026).
 let _bancadaPodemos = null;   // { em, nomes: Set } — 30 min
 const nomeChave = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-async function bancadaPodemos() {
+async function bancadaPodemos({ semApi = false } = {}) {   // semApi: a API já está fora (carregarDadosPeloPortal)
   if (_bancadaPodemos && Date.now() - _bancadaPodemos.em < 30 * 60e3) return _bancadaPodemos.nomes;
   let nomes = null;
-  try {
+  if (!semApi) try {
     const r = await fetch(`${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS}&itens=100`, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {});
     if (r.ok) nomes = ((await r.json()).dados || []).map(d => d.nome);
   } catch (_) { /* webservice */ }
