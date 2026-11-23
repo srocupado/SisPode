@@ -68,6 +68,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ${fn('tipoLabel')}
     ${fn('ehMPV')}
     ${fn('ehPDL')}
+    ${fn('ehUrgenciaComProjeto')}
+    ${fn('itemComoProjeto')}
     ${trecho(/const RE_SUSTACAO\s*=[^\n]+/)}
     ${fn('subtipoPDL')}
     ${fn('montarPrompt')}

@@ -168,7 +168,7 @@ async function processarPDFModal(file) {
   try {
     const texto = await extrairTextoPDF(file);
     const refs  = extrairReferencias(texto);
-    _bufferPDF  = { nome: file.name, refs };
+    _bufferPDF  = { nome: file.name, refs, lido: refs.lido || null };
 
     if (!refs.length) {
       labelText.textContent = '⚠ Nenhum projeto encontrado no PDF';
@@ -177,8 +177,10 @@ async function processarPDFModal(file) {
       return;
     }
 
-    labelText.textContent = `✓ ${file.name} (${refs.length} projeto${refs.length !== 1 ? 's' : ''} encontrado${refs.length !== 1 ? 's' : ''})`;
-    listaMod.innerHTML = refs.map(r => `<div class="prop-tag">${esc(r.chave)}</div>`).join('');
+    const reqs = refs.requerimentos || [];
+    labelText.textContent = `✓ ${file.name} (${refs.length} projeto${refs.length !== 1 ? 's' : ''} encontrado${refs.length !== 1 ? 's' : ''}${refs.lido ? ` em ${refs.lido.itens.length} itens da pauta` : ''})`;
+    listaMod.innerHTML = refs.map(r => `<div class="prop-tag">${r.item ? `${r.item}. ` : ''}${esc(r.chave)}</div>`).join('')
+      + (reqs.length ? `<div style="flex-basis:100%;margin-top:6px;font-size:12px;opacity:.8">Fora da análise: ${reqs.map(q => `item ${q.n}, ${esc(q.chave)} (requerimento da comissão)`).join('; ')}.</div>` : '');
     encontrados.style.display = 'block';
     document.getElementById('btn-criar-pauta').disabled = false;
 
@@ -215,6 +217,8 @@ async function criarPauta() {
     })),
   };
 
+  // blocos (A, B…) e números dos itens, como na pauta importada pelo calendário
+  if (_bufferPDF.lido && typeof pautaBlocosAplicar === 'function') { try { pautaBlocosAplicar(pauta, _bufferPDF.lido, 'pdf'); } catch (_) { /* sem blocos */ } }
   fecharModal('modal-nova-pauta');
   app.pautaAtual   = pauta;
   app.projetoAtivo = null;
@@ -244,7 +248,7 @@ async function extrairTextoPDF(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page    = await pdf.getPage(i);
     const content = await page.getTextContent();
-    texto += content.items.map(it => it.str).join(' ') + '\n';
+    texto += (typeof textoComLinhas === 'function' ? textoComLinhas(content.items) : content.items.map(it => it.str).join(' ')) + '\n';
   }
   return texto;
 }
@@ -261,7 +265,14 @@ const _SECOES_PAUTA = [
   { re: /audi[êe]ncias?\s+p[úu]blicas?/gi, rf: false },
 ];
 
+// Itens da pauta oficial no PDF: pautaRefsDoTexto (ccjc-blocos.js), a mesma leitura da pauta oficial da página
+// da reunião. Sem item numerado (PDF de outro formato), vale a busca por sigla de antes.
 function extrairReferencias(texto) {
+  const refs = (typeof pautaRefsDoTexto === 'function') ? pautaRefsDoTexto(texto) : null;
+  return refs && refs.length ? refs : extrairReferenciasPorSigla(texto);
+}
+
+function extrairReferenciasPorSigla(texto) {
   // Mapeia a posição de cada cabeçalho de seção encontrado no texto.
   const marcos = [];
   for (const sec of _SECOES_PAUTA) {
@@ -3046,12 +3057,17 @@ async function atualizarCalendario() {
   try {
     app.cal.eventos = await buscarEventosMes(app.cal.ano, app.cal.mes);
     renderizarCalendario();
+    const fonte = app.cal.eventos.__fonte; delete app.cal.eventos.__fonte;
     const n = Object.values(app.cal.eventos).reduce((s, arr) => s + arr.length, 0);
-    status.textContent = n > 0
+    status.textContent = (n > 0
       ? `${n} reunião${n !== 1 ? 'ões' : ''} deliberativa${n !== 1 ? 's' : ''} neste mês`
-      : 'Nenhuma reunião deliberativa neste mês';
+      : 'Nenhuma reunião deliberativa neste mês') + (fonte ? ` — pelo ${fonte}` : '');
   } catch (e) {
-    status.textContent = `Erro ao buscar reuniões: ${e.message}`;
+    // 502/503/504: a API de Dados Abertos da Câmara está fora do ar (medido em 23/11/2026: 504 em qualquer
+    // endpoint, inclusive /orgaos/2003), não é defeito do módulo; o PDF da pauta não depende dela para os itens.
+    status.textContent = /HTTP 50[234]/.test(e.message)
+      ? `A API de Dados Abertos da Câmara não está respondendo (${e.message}). Tente de novo mais tarde ou carregue a pauta pelo PDF.`
+      : `Erro ao buscar reuniões: ${e.message}`;
   } finally {
     app.cal.carregando = false;
   }
@@ -3069,9 +3085,19 @@ async function buscarEventosMes(ano, mes) {
   }
 
   const url = `${API_BASE}/orgaos/${CCJC_ORGAO_ID}/eventos?dataInicio=${dataInicio}&dataFim=${dataFim}&itens=50`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
+  // API fora do ar (502/503/504, falha de rede): as reuniões vêm do site da Câmara (buscarEventosMesSite, em
+  // ccjc-blocos.js). O resultado do site não vai para o cache de uma hora: quando a API voltar, ela é usada.
+  let json;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    json = await res.json();
+  } catch (e) {
+    if (typeof buscarEventosMesSite !== 'function') throw e;
+    const mapaSite = await buscarEventosMesSite(ano, mes);
+    mapaSite.__fonte = `site da Câmara (API: ${e.message})`;
+    return mapaSite;
+  }
 
   const mapa = {};
   for (const ev of (json.dados || [])) {
@@ -3180,9 +3206,25 @@ function _exibirSeletorReunioes(dataStr, evs) {
 }
 
 async function buscarPautaEvento(eventoId) {
-  const res = await fetch(`${API_BASE}/eventos/${eventoId}/pauta`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
+  let text;
+  try {
+    const res = await fetch(`${API_BASE}/eventos/${eventoId}/pauta`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    text = await res.text();
+  } catch (e) {
+    // API fora do ar: a pauta oficial da reunião, pela página do evento no site (a mesma leitura do PDF).
+    if (typeof pautaOficialDoEvento !== 'function') throw e;
+    const of = await pautaOficialDoEvento(eventoId);
+    if (!of) throw new Error(`a API não respondeu (${e.message}) e a página da reunião não tem link de pauta`);
+    const refs = pautaRefsDoTexto(of.texto);
+    const projetos = refs.map(r => ({
+      chave: r.chave, sigla: r.sigla, numero: r.numero, ano: r.ano, idCamara: null, ementa: '', autores: [], relator: '',
+      topico: '', item: r.item, regime: r.regimeBloco || '', redacaoFinal: r.redacaoFinal, statusApi: '', urlInteiroTeor: null, resumoOriginal: '',
+      comissoes: [], argumentosFavoraveis: '', argumentosContrarios: '', refsSuspeitas: [], statusAnalise: 'pendente', erroAnalise: '',
+    }));
+    projetos.lido = refs.lido; projetos.urlPauta = of.url; projetos.fonte = 'site';
+    return projetos;
+  }
   try {
     // API retorna JSON quando chamada pela extensão (sem Accept: text/html)
     const json = JSON.parse(text);
@@ -3306,7 +3348,7 @@ async function carregarPautaDoCalendario() {
   btn.textContent = '⏳ Carregando...';
 
   try {
-    mostrarToast('Buscando pauta da reunião na API da Câmara...', '');
+    mostrarToast('Buscando a pauta da reunião...', '');
     const projetos = await buscarPautaEvento(ev.id);
 
     if (!projetos.length) {
@@ -3325,8 +3367,9 @@ async function carregarPautaDoCalendario() {
       projetos,
     };
 
-    // blocos (A – Redações Finais…) e números dos itens, da pauta oficial da reunião
-    if (typeof garantirBlocosPauta === 'function') await garantirBlocosPauta(pauta);
+    // blocos (A – Redações Finais…) e números dos itens, da pauta oficial da reunião (já lida, se veio do site)
+    if (projetos.lido && typeof pautaBlocosAplicar === 'function') { pautaBlocosAplicar(pauta, projetos.lido, 'oficial'); pauta.blocosUrl = projetos.urlPauta; }
+    else if (typeof garantirBlocosPauta === 'function') await garantirBlocosPauta(pauta);
 
     app.pautaAtual   = pauta;
     app.projetoAtivo = null;

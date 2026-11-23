@@ -78,5 +78,42 @@ ok(B.pautaBlocosAplicar(pz, a, 'oficial') === 1 && pz.projetos[0].item === 47 &&
 const papi = { projetos: [{ topico: 'Redações Finais', item: 1 }, { topico: 'Tramitação Ordinária', item: 2 }] };
 ok(B.pautaBlocosDaApi(papi) && papi.blocos.map(x => x.nome).join() === 'Redações Finais,Tramitação Ordinária' && papi.blocosFonte === 'api', 'sem a pauta oficial: blocos pelos tópicos da API');
 
-console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
-process.exit(falhas ? 1 : 0);
+
+// PDF da pauta (botão "Via PDF"), 24/11/2026: o texto extraído pelo pdf.js da extensão (com textoComLinhas) dá
+// os 77 itens. Antes, a página inteira saía numa linha e o módulo achava 18 "projetos" — os apensados citados
+// nas ementas, escritos com sigla.
+console.log('\n== PDF da pauta: itens pela pauta oficial ==');
+const t24 = ler('ccjc-pdf-24-11-2026.txt');
+const r24 = B.pautaRefsDoTexto(t24);
+const porSigla = r24.reduce((m, x) => (m[x.sigla] = (m[x.sigla] || 0) + 1, m), {});
+ok(r24.lido.itens.length === 77 && r24.length === 76 && porSigla.PL === 41 && porSigla.PDL === 34 && porSigla.PRC === 1, `os 77 itens: 76 projetos (41 PL, 34 PDL, 1 PRC) — ${r24.length}`);
+ok(r24.requerimentos.map(q => q.chave).join() === 'REQ 29/2026' && !r24.some(x => x.sigla === 'REQ'), 'o requerimento da comissão (item 1) fica fora da análise e é informado');
+ok(r24.filter(x => x.redacaoFinal).map(x => x.item).join() === '2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18', 'os itens 2 a 18 (bloco B) são Redação Final; os demais, não');
+ok(r24.find(x => x.chave === 'PDL 1050/2025').item === 40 && r24.find(x => x.chave === 'PDL 1050/2025').bloco === 'D' && r24.find(x => x.chave === 'PL 4493/2020').item === 4, 'número com ponto de milhar (1.050, 4.493) e o item e o bloco de cada projeto');
+ok(!r24.some(x => ['PL 2539/2020', 'PL 51/2021', 'PL 4783/2023', 'PL 415/2023'].includes(x.chave)), 'apensado citado na ementa ("Apensados: PL 2539/2020…") não vira item');
+// textoComLinhas: a linha muda no fim de linha marcado pelo pdf.js ou quando a altura muda
+const itensPdf = [{ str: '12 - PROJETO DE LEI Nº', transform: [1, 0, 0, 1, 50, 700] }, { str: '4.493/2020 - do Sr. X', transform: [1, 0, 0, 1, 200, 700], hasEOL: true },
+  { str: 'que "altera a lei".', transform: [1, 0, 0, 1, 60, 688] }, { str: 'RELATOR: Deputado Y.', transform: [1, 0, 0, 1, 60, 676] }];
+ok(B.textoComLinhas(itensPdf) === '12 - PROJETO DE LEI Nº 4.493/2020 - do Sr. X\nque "altera a lei". \nRELATOR: Deputado Y. '.replace(/ \n/g, '\n'), 'textoComLinhas: uma linha por linha da página');
+
+
+// Plano B (23/11/2026): a API de Dados Abertos devolvia 504 em tudo; o calendário e a pauta vêm do site.
+console.log('\n== API fora do ar: calendário e pauta pelo site da Câmara ==');
+(async () => {
+  const lista = fs.readFileSync(path.join(__dirname, 'pautas', 'ccjc-sessoesereunioes-2026-11.html'), 'utf8');
+  const ag = B.agendaCcjcDoHtml(lista);
+  ok(ag.total === 7 && ag.eventos.length === 7 && ag.eventos[5].id === 83357 && ag.eventos[5].data === '2026-11-24' && ag.eventos[5].hora === '14:30' && ag.eventos[5].situacao === 'convocada' && ag.eventos[5].tipo === 'Reunião Deliberativa' && /Anexo II/.test(ag.eventos[5].local), 'lista "Sessões e reuniões": os 7 eventos de novembro, com id, data, hora, tipo, situação e local');
+  ok(B.linkPautaDoEvento(fs.readFileSync(path.join(__dirname, 'pautas', 'ccjc-evento-83357-trecho.html'), 'utf8')) === 'https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3198580', 'página do evento: o link da pauta oficial');
+  // paginação: 20 por página; a segunda página é pedida enquanto faltar evento
+  const li = (id, d, tipo) => `<li class="g-agenda__evento"><span class="g-agenda__data">${d}</span><span class="g-agenda__hora">9h</span><a href="https://www.camara.leg.br/evento-legislativo/${id}" class="g-agenda__nome">X</a><span class="g-agenda__tipo">${tipo}</span><span class="g-agenda__situacao">encerrada</span><span class="g-agenda__local">L</span></li>`;
+  const pedidos = [];
+  const falso = async u => { pedidos.push(u); const p2 = /pagina=2/.test(u); return { ok: true, text: async () => `Exibindo ${p2 ? '21 a 21' : '1 a 20'} de 21 encontrados` + (p2 ? li(999, '30/11/2026', 'Reunião Deliberativa') : Array.from({ length: 20 }, (_, i) => li(i + 1, '03/11/2026', i % 2 ? 'Audiência Pública' : 'Reunião Deliberativa')).join('')) }; };
+  const mes = await B.buscarEventosMesSite(2026, 10, falso);
+  ok(pedidos.length === 2 && /dataInicial=01%2F11%2F2026&dataFinal=30%2F11%2F2026/.test(pedidos[0]) && mes['2026-11-03'].length === 10 && mes['2026-11-30'][0].id === 999 && mes['2026-11-03'][0].dataHoraInicio === '2026-11-03T09:00', 'mês pelo site: todas as páginas, só reunião deliberativa, no formato do calendário');
+  // a pauta oficial lida do site dá o mesmo que o PDF
+  const rOf = B.pautaRefsDoTexto(ler('ccjc-pauta-oficial-24-11-2026.txt'));
+  ok(rOf.lido.itens.length === 77 && rOf.length === 76 && rOf.map(x => x.chave).join() === B.pautaRefsDoTexto(ler('ccjc-pdf-24-11-2026.txt')).map(x => x.chave).join(), 'pauta oficial pelo site: os mesmos 77 itens e 76 projetos do PDF, na mesma ordem');
+  console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
+  process.exit(falhas ? 1 : 0);
+})();
+
