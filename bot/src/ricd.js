@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // REGIMENTO INTERNO DA CÂMARA — texto consolidado, EMBUTIDO no bot.
 // Gerado de: LEGIN, Resolução 17/1989 (norma atualizada), em 2026-08-03.

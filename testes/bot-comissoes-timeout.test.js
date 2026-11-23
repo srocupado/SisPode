@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Rede instável não pode virar espera silenciosa — e o agente não pode gastar
 // o teto de consultas listando comissões uma a uma.
 //

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — A COLETA DO PROGRAMA.
 //
 // Tudo o que é dado estruturado vem daqui, nunca do modelo: regime de tramitação, urgência, votações
@@ -42,7 +43,7 @@ const PE5_RE_ARQUIVO = /arquivad[oa]|prejudicad[oa]|retirad[oa] pelo autor|devol
 const PE5_RE_APROVADA_PLEN = /aprovad[oa] (?:o|a|em)?\s*(?:o\s+)?(?:substitutivo|projeto|proposta|reda[çc][ãa]o final|texto|medida provis[óo]ria|emendas? do senado|parecer.*plen[áa]rio)|aprova[çc][ãa]o de proposi[çc][ãa]o \(plen[áa]rio\)/i;
 const PE5_RE_VOLTA_SENADO = /emendas? do senado|substitutivo do senado|recebimento d[oa]s? (?:emendas?|substitutivo) do senado/i;
 
-function pe5Fase(status = {}, tramitacoes = []) {
+function pe5Fase(status = {}, tramitacoes = [], { origemSenado = false } = {}) {
   const txt = t => pe5Limpo(`${t.descricaoTramitacao || ''} ${t.descricaoSituacao || ''} ${t.despacho || ''}`);
   const ordenadas = [...tramitacoes].sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)) || (a.sequencia || 0) - (b.sequencia || 0));
   const atual = txt(status);
@@ -66,8 +67,25 @@ function pe5Fase(status = {}, tramitacoes = []) {
   if (remessa) return { ...fase, codigo: 'senado', casa: 'Senado Federal', jaVotadaNaCamara: true, dataVotacao: pe5DataBR(aprovPlen?.dataHora) || '',
     descricao: `A Câmara já concluiu a votação e enviou a matéria ao Senado${remessa.dataHora ? ` em ${pe5DataBR(remessa.dataHora)}` : ''}. A decisão agora é dos senadores; a Câmara só volta a deliberar se o Senado alterar o texto.` };
   const emPlenario = /PLEN/i.test(status.siglaOrgao || '') || /pronta para pauta|plen[áa]rio/i.test(atual) || /urg[êe]ncia/i.test(status.regime || '');
-  return { ...fase, codigo: emPlenario ? 'camara_plenario' : 'camara_comissoes',
-    descricao: emPlenario ? 'A matéria está na Câmara, em condições de ser votada no Plenário.' : 'A matéria está na Câmara, em fase de comissões.' };
+  // Relator e parecer DE PLENÁRIO e urgência só requerida. A NTA do PLP 299/2026 (21/11/2026) saiu com "em fase
+  // de comissões" quando a matéria tinha vindo do Senado, tinha relator de Plenário e parecer apresentado.
+  const relT = ordenadas.filter(t => /PLEN/i.test(t.siglaOrgao || '') && /designa[çc][ãa]o de relator|designad[oa] relator/i.test(txt(t))).pop() || null;
+  const prlpT = ordenadas.filter(t => /parecer preliminar de plen[áa]rio|\bPRLP\b|parecer (?:do|da) relator.*plen[áa]rio/i.test(txt(t))).pop() || null;
+  const urgAprov = ordenadas.some(t => /aprova[çc][ãa]o de urg[êe]ncia|aprovado o requerimento.*urg[êe]ncia/i.test(txt(t)));
+  const urgReq = urgAprov || /urg[êe]ncia/i.test(status.regime || '') ? null : (ordenadas.filter(t => /requerimento de urg[êe]ncia/i.test(txt(t))).pop() || null);
+  const nomeRel = relT ? (pe5Limpo(relT.despacho).match(/Relator(?:a)?,?\s+(?:Dep\.|Deputad[oa])\s+([^.;]+?\([^)]*\))/i) || [])[1] || '' : '';
+  const rumoPlenario = emPlenario || !!relT || !!prlpT;
+  const partes = [];
+  if (origemSenado) partes.push('A matéria veio do Senado e está na Câmara, que atua como Casa revisora: aprovado sem mudança de mérito, o texto vai à sanção; se a Câmara o alterar, as mudanças voltam ao Senado.');
+  else partes.push(emPlenario ? 'A matéria está na Câmara, em condições de ser votada no Plenário.' : rumoPlenario ? 'A matéria está na Câmara, com relator de Plenário designado.' : 'A matéria está na Câmara, em fase de comissões.');
+  if (relT) partes.push(`Relator de Plenário designado em ${pe5DataBR(relT.dataHora)}${nomeRel ? `: ${nomeRel}` : ''}.`);
+  if (prlpT) partes.push(`Parecer de Plenário apresentado em ${pe5DataBR(prlpT.dataHora)}.`);
+  if (urgReq) partes.push(`Requerimento de urgência apresentado em ${pe5DataBR(urgReq.dataHora)} e ainda não votado; sem a urgência, a matéria segue o rito das comissões.`);
+  return { ...fase, codigo: rumoPlenario ? 'camara_plenario' : 'camara_comissoes', descricao: partes.join(' '),
+    ...(origemSenado ? { casaRevisora: true } : {}),
+    ...(relT ? { relatorPlenario: { nome: nomeRel, data: pe5DataBR(relT.dataHora) } } : {}),
+    ...(prlpT ? { parecerPlenario: { data: pe5DataBR(prlpT.dataHora) } } : {}),
+    ...(urgReq ? { urgenciaPendente: { data: pe5DataBR(urgReq.dataHora) } } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -105,14 +123,16 @@ function pe5Marcos(tramitacoes = [], max = 40) {
 }
 
 /** Urgência: tipo, data da aprovação e o requerimento — do registro da tramitação. */
+/** Regime como a Câmara o registra; "." e traço (matéria sem despacho) viram vazio. */
+const pe5Regime = r => { const t = pe5Limpo(r); return /^[.\-–—\s]*$/.test(t) ? '' : t; };
 function pe5Urgencia(status = {}, tramitacoes = []) {
-  const reg = pe5Limpo(status.regime);
+  const reg = pe5Regime(status.regime);
   const aprov = tramitacoes.filter(t => /aprova[çc][ãa]o de urg[êe]ncia|aprovado o requerimento.*urg[êe]ncia/i.test(`${t.descricaoTramitacao} ${t.despacho}`))
     .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)))[0] || null;
   const apres = tramitacoes.filter(t => /requerimento de urg[êe]ncia/i.test(`${t.descricaoTramitacao} ${t.despacho}`))
     .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)))[0] || null;
   const constitucional = /64/.test(reg) || /urg[êe]ncia constitucional/i.test(reg);
-  if (!/urg[êe]ncia/i.test(reg) && !aprov) return { tem: false, regime: reg || 'não informado' };
+  if (!/urg[êe]ncia/i.test(reg) && !aprov) return { tem: false, regime: reg || 'regime ainda não definido', ...(apres ? { pedidaEm: pe5DataBR(apres.dataHora), requerimento: pe5Corta(apres.despacho, 260) } : {}) };
   return { tem: true, regime: reg, tipo: constitucional ? 'urgência constitucional (art. 64, § 1º, da Constituição)' : (reg.match(/art\.?\s*(15[1-5])/i) ? `urgência regimental (art. ${reg.match(/art\.?\s*(15[1-5])/i)[1]} do Regimento Interno da Câmara)` : 'urgência'),
     aprovadaEm: pe5DataBR(aprov?.dataHora), requerimento: pe5Corta((aprov || apres)?.despacho, 260), pedidaEm: pe5DataBR(apres?.dataHora) };
 }
@@ -203,6 +223,65 @@ async function pe5VotacoesDoArquivo(idProp, anos, fetchFn) {
   return { votacoes: out, modificado };
 }
 
+// ---------------------------------------------------------------------------------------------
+// SENADO: o que a outra Casa fez com a matéria. A API da Câmara não traz relator, placar nem destaques do
+// Senado; a NTA do PLP 299/2026 gerada pelo programa em 21/11/2026 saiu sem os destaques votados lá.
+// Desde 2019 a numeração de PL, PLP, PEC e PDL é única nas duas Casas: consulta-se pela mesma sigla,
+// número e ano, e a ementa é conferida (número igual não é garantia absoluta).
+// ---------------------------------------------------------------------------------------------
+const PE5_SENADO_API = 'https://legis.senado.leg.br/dadosabertos';
+const PE5_RE_ANDAMENTO_SENADO = /aprovad|rejeitad|destaque|retirad|prejudicad|turno suplementar|urg[êe]ncia|reda[çc][ãa]o final|aut[óo]grafo|[àa] c[âa]mara|[àa] san[çc][ãa]o|parecer/i;
+function pe5EmentaParecida(a, b) {
+  const pal = t => new Set((String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]{5,}/g) || []));
+  const x = pal(a), y = pal(b); if (x.size < 3 || y.size < 3) return true;   // sem ementa para comparar: não descarta
+  let c = 0; for (const w of x) if (y.has(w)) c++;
+  return c / Math.min(x.size, y.size) >= 0.3;
+}
+/**
+ * Histórico da matéria no Senado: relator, deliberação, votações nominais (placar contado nos votos) e os
+ * andamentos de Plenário. Devolve null quando o Senado não tem a matéria; falha de rede vira aviso em quem chama.
+ */
+async function pe5ColetarSenado({ sigla, numero, ano, ementa = '' } = {}, fetchFn) {
+  const sg = String(sigla || '').toUpperCase();
+  if (!/^(PL|PLP|PEC|PDL|MPV)$/.test(sg) || !/^\d+$/.test(String(numero || '')) || !/^\d{4}$/.test(String(ano || ''))) return null;
+  const json = u => pe5Json(u, fetchFn);
+  const lista = await json(`${PE5_SENADO_API}/processo?sigla=${sg}&numero=${Number(numero)}&ano=${ano}`);
+  const esperado = `${sg} ${Number(numero)}/${ano}`;
+  const hits = (Array.isArray(lista) ? lista : []).filter(x => x && pe5Limpo(x.identificacao).toUpperCase() === esperado);
+  if (!hits.length) return null;
+  const h = hits.find(x => pe5EmentaParecida(ementa, x.ementa)) || null;
+  if (!h) return null;
+  const avisos = [], tenta = async (rot, fn, pad) => { try { return await fn(); } catch (e) { avisos.push(`Senado, ${rot}: ${e.message}`); return pad; } };
+  const det = await tenta('andamento', () => json(`${PE5_SENADO_API}/processo/${h.id}`), null);
+  const rel = await tenta('relatoria', () => json(`${PE5_SENADO_API}/processo/relatoria?idProcesso=${h.id}`), []);
+  const vot = await tenta('votações', () => json(`${PE5_SENADO_API}/votacao?idProcesso=${h.id}`), []);
+  const conta = (votos, re) => (votos || []).filter(v => re.test(String(v.siglaVotoParlamentar || ''))).length;
+  const votacoes = (Array.isArray(vot) ? vot : []).filter(v => v && Array.isArray(v.votos) && v.votos.length && !/^s$/i.test(v.votacaoSecreta || ''))
+    .sort((a, b) => String(a.dataSessao).localeCompare(String(b.dataSessao)) || (a.sequencialSessao || 0) - (b.sequencialSessao || 0))
+    .map(v => ({ data: pe5DataBR(v.dataSessao), iso: String(v.dataSessao || '').slice(0, 10), descricao: pe5Corta(v.descricaoVotacao, 260),
+      resultado: /^a/i.test(v.resultadoVotacao || '') ? 'aprovado' : /^r/i.test(v.resultadoVotacao || '') ? 'rejeitado' : pe5Limpo(v.resultadoVotacao),
+      sim: conta(v.votos, /^sim$/i), nao: conta(v.votos, /^n[ãa]o$/i), abstencao: conta(v.votos, /^absten/i) }));
+  const informes = ((det && det.autuacoes) || []).flatMap(a => a.informesLegislativos || []).filter(i => i && i.descricao)
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  // O resumo da sessão de votação traz o resultado de cada destaque e vai quase inteiro; o recebimento de
+  // cada emenda e de cada requerimento de destaque (dezenas de linhas) fica de fora.
+  const andamentos = informes.filter(i => PE5_RE_ANDAMENTO_SENADO.test(i.descricao) && !/^\s*recebid[ao]s?\b/i.test(i.descricao)).slice(-12)
+    .map(i => ({ data: pe5DataBR(i.data), orgao: (i.colegiado && i.colegiado.sigla) || i.siglaColegiado || '', texto: pe5Corta(i.descricao, /^\s*\(sess[ãa]o/i.test(i.descricao) ? 2600 : 420) }));
+  const dl = (det && det.deliberacao) || null;
+  return {
+    id: h.id, codigoMateria: h.codigoMateria || (det && det.codigoMateria) || null, identificacao: esperado,
+    autor: pe5Limpo(h.autoria || (det && det.documento && det.documento.resumoAutoria)),
+    casaIniciadora: pe5Limpo((det && det.siglaCasaIniciadora) || h.casaIdentificadora) === 'SF' ? 'Senado Federal' : pe5Limpo((det && det.siglaCasaIniciadora) || '') === 'CD' ? 'Câmara dos Deputados' : '',
+    situacao: pe5Limpo(h.situacaoAtual || (det && det.situacaoAtual)), dataSituacao: pe5DataBR(h.dataSituacaoAtual || (det && det.dataSituacaoAtual)),
+    deliberacao: dl ? { data: pe5DataBR(dl.data), tipo: pe5Limpo(dl.tipoDeliberacao), destino: pe5Limpo(dl.destino) } : null,
+    relatores: (Array.isArray(rel) ? rel : []).map(r => ({ nome: pe5Limpo(`${r.formaTratamentoParlamentar || ''} ${r.nomeParlamentar || ''}`), partido: r.siglaPartidoParlamentar || '', uf: r.ufParlamentar || '',
+      colegiado: r.nomeColegiado || r.siglaColegiado || '', designadoEm: pe5DataBR(r.dataDesignacao) })).filter(r => r.nome),
+    votacoes, andamentos,
+    url: h.codigoMateria ? `https://www25.senado.leg.br/web/atividade/materias/-/materia/${h.codigoMateria}` : '',
+    avisos,
+  };
+}
+
 /** Tudo o que a API da Câmara diz da tramitação. Falha parcial não derruba: vai em `avisos`. */
 async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date(), ano = null } = {}) {
   const avisos = [];
@@ -226,12 +305,21 @@ async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date(), ano = 
   }
   const status = prop.statusProposicao || {};
   const ordAut = [...autores].sort((a, b) => (a.ordemAssinatura || 99) - (b.ordemAssinatura || 99));
+  // Veio do Senado (a Câmara registra o autor como "Senado Federal - Fulano") ou já passou por lá: busca o histórico.
+  const origemSenado = ordAut.some(a => /^senado federal\b/i.test(pe5Limpo(a.nome)));
+  const fase = pe5Fase(status, tram, { origemSenado });
+  let senado = null;
+  if (origemSenado || fase.codigo === 'senado' || fase.codigo === 'camara_revisao_do_senado') {
+    senado = await tenta('Senado', () => pe5ColetarSenado({ sigla: prop.siglaTipo, numero: prop.numero, ano: prop.ano, ementa: prop.ementa }, fetchFn), null);
+    if (senado) { avisos.push(...(senado.avisos || [])); delete senado.avisos; }
+  }
   return {
     proposicao: { id: prop.id || idProp, sigla: prop.siglaTipo || '', numero: prop.numero || '', ano: prop.ano || '', ementa: pe5Limpo(prop.ementa),
       apresentacao: pe5DataBR(prop.dataApresentacao), autores: ordAut.slice(0, 6).map(a => pe5Limpo(a.nome)), totalAutores: ordAut.length },
-    status: { data: pe5DataBR(status.dataHora), iso: String(status.dataHora || '').slice(0, 10), orgao: status.siglaOrgao || '', regime: pe5Limpo(status.regime),
+    status: { data: pe5DataBR(status.dataHora), iso: String(status.dataHora || '').slice(0, 10), orgao: status.siglaOrgao || '', regime: pe5Regime(status.regime),
       situacao: pe5Limpo(status.descricaoSituacao), andamento: pe5Limpo(status.descricaoTramitacao), despacho: pe5Corta(status.despacho, 400) },
-    fase: pe5Fase(status, tram), urgencia: pe5Urgencia(status, tram), marcos: pe5Marcos(tram), votacoes,
+    fase, urgencia: pe5Urgencia(status, tram), marcos: pe5Marcos(tram), votacoes,
+    ...(senado ? { senado } : {}),
     relacionadas: relacionadas.filter(r => r && r.siglaTipo && !/^(REQ|EMP|EMC|PRLP|PRLE|SBT|PAR|DTQ|MSC|OF|RDF|EMR|ESB|SSP|EMS|REL|VTS|DVT|PPP|PRL|EMA|EMD|ERD|RPD)$/i.test(r.siglaTipo))
       .slice(0, 20).map(r => ({ rotulo: `${r.siglaTipo} ${r.numero}/${r.ano}`, ementa: pe5Corta(r.ementa, 220) })),
     acessorias: relacionadas.filter(r => r && r.id && r.siglaTipo && !/^Vota[çc][ãa]o Nominal/i.test(r.ementa || ''))
@@ -409,7 +497,10 @@ function pe5ArtigosAlterados(alteracoes = []) {
   const out = [];
   for (const a of alteracoes) {
     const d = String(a.dispositivo || '');
-    const norma = d.match(/(Lei Complementar|Decreto-Lei|Lei)\s+n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s+(?:\d{1,2}[ºo°]?\s+de\s+[a-zçãé]+\s+de\s+)?)(\d{4})/i);
+    // "LC nº 235/2026" e "LCP 235/2026" valem como "Lei Complementar": na NTA do PLP 299/2026 de 21/11/2026 a
+    // leitura abreviou o nome da lei e seis linhas da tabela "o que muda" ficaram sem o texto vigente.
+    const bruto = d.match(/(Lei Complementar|LCP?|Decreto-Lei|Lei)\s+n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s+(?:\d{1,2}[ºo°]?\s+de\s+[a-zçãé]+\s+de\s+)?)(\d{4})/i);
+    const norma = bruto && /^LCP?$/i.test(bruto[1]) ? [bruto[0], 'Lei Complementar', bruto[2], bruto[3]] : bruto;
     const arts = d.match(/\barts?\.?\s*([^,;]*?(?:\d{1,4}\s*[ºo°]?(?:\s*-\s*[A-Z]{1,2})?(?:\s*(?:,|e|a)\s*)?)+)/i);
     if (!norma) continue;
     const tipo = /complementar/i.test(norma[1]) ? 'lcp' : /decreto/i.test(norma[1]) ? 'del' : 'lei';
@@ -431,6 +522,6 @@ function pe5Inventario(documentos = [], disponiveis = []) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Corta, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5VotacoesDoArquivo, pe5ColetarTramitacao, pe5Quorum, pe5OrientacaoDe, pe5MapaVotos, pe5ColetarPartido, pe5Rotulo,
+  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Corta, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5VotacoesDoArquivo, pe5ColetarTramitacao, pe5ColetarSenado, pe5Regime, pe5Quorum, pe5OrientacaoDe, pe5MapaVotos, pe5ColetarPartido, pe5Rotulo,
     pe5NumArtigo, pe5CabecalhosDeArtigo, pe5ArtigoVigente, pe5ArtigosAlterados, pe5Inventario };
 }

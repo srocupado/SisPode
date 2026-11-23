@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Defesa focada em itens, na aba "Como votou o deputado".
 //
 // O que este teste trava:

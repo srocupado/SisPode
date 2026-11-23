@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aba "Leis aprovadas" do módulo Relatórios.
 //
 // Esta aba não coleta nada — só lê o agregado que o bot/ já gravou em

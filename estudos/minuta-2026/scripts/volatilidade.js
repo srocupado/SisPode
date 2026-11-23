@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Volatilidade histórica: variação da fatia de cada partido (deputado federal) em cada UF
 // de uma eleição para a seguinte (2018→2022 e 2022→2026), com as siglas levadas às sucessoras.

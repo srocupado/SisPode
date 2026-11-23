@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Reunião de Líderes · PDF com o cabeçalho das colunas em TODA página.
 //
 // 10/11/2026: o cabeçalho saía só na página 1. Causa: o Paged.js (que numerava

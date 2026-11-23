@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Resumo da Sessão (WhatsApp) pelo portal da Câmara, quando a API cai.
 //

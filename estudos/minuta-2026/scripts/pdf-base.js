@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Identidade visual dos PDFs do sistema (Sistemas eleitorais, Mapa Territorial, Perfil): verde do
 // Podemos, filete em quatro cores, logo do sistema, títulos verdes sublinhados, A4 em pé.

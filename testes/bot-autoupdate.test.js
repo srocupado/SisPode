@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · /update: o parser da pauta (raiz do repo) vem junto, e a lista de
 // arquivos aplicada decide se o mesmo commit precisa ser baixado de novo.
 // Uso: node testes/bot-autoupdate.test.js

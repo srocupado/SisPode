@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    GUIA DE APLICAÇÃO DAS EMENDAS — o que dá para fazer com o dinheiro
 

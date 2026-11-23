@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — camada de dados ("dossiê").
 //
 // O parecer que só respondia ao checklist saiu fraco na primeira rodada real

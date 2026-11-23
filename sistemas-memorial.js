@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Sistemas Eleitorais — memorial de cálculo (PURO, sem DOM): monta, a partir
 // dos dados lidos do TSE e do resultado do simulador, as abas de uma planilha

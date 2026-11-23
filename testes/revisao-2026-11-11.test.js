@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Revisão de 11/11/2026 — os nove defeitos achados na revisão das mudanças feitas
 // durante a instabilidade da API da Câmara (4.1.8.12 → 4.1.8.24). Cada bloco
 // reproduz o defeito e trava a correção.

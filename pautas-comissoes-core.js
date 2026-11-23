@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas de Comissões — o NÚCLEO, sem tela: o que se lê da API da Câmara
 // (comissões permanentes, reuniões deliberativas, itens de pauta), como um
 // item vira documentos e prompt, e a fila que limita as chamadas ao provedor

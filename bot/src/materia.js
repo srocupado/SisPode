@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // /colegio — ficha de UMA proposição avulsa, no formato do resumo da Reunião
 // de Líderes da extensão (lideres.js). Serve ao analista que, durante a

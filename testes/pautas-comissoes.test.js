@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas de Comissões — o núcleo, contra respostas reais da API da Câmara
 // (fixtures de set/2026): reuniões deliberativas, itens de pauta, papel da
 // comissão, prompt, fila com limite e saídas.

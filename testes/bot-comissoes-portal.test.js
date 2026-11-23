@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · pauta de comissões pelo PORTAL da Câmara quando a API de Dados Abertos cai.
 //
 // Relato de 10/11/2026: a API inteira em HTTP 503 e o /varrercomissoes respondia

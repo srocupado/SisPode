@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Comissões — o cadastro compartilhado de deputados acompanha a bancada em
 // exercício: quem sai (não reeleito na posse, troca de partido) sai do cadastro
 // na atualização pela API, exceto quem ainda ocupa vaga em comissão, os

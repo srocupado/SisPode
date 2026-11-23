@@ -1,3 +1,4 @@
+/* SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026 */
 /* ============================================================
    DESTAQUES LEGISLATIVOS – PODEMOS
    Tema Dark Teal (alinhado ao Sistema de Votação)
@@ -2003,3 +2004,5 @@ body {
 }
 @keyframes cn-spin { to { transform: rotate(360deg); } }
 .cn-empty { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
+
+:root { --sp-rev: "f4ae9448a321e1e97364ff634b802bb7953d8e2f1cc9d3bf4d0ae7d51f8b6494"; }

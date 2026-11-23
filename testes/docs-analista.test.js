@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Documento próprio do(a) analista (docs-analista.js + ligação em analise.js / analise.html).
 //
 // Nasceu do PLP 299/2026 (17/11/2026): estava na pauta da Câmara, ainda em votação no Senado, e o item

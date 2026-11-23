@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // AGENTE de conversa natural (F1) — substitui o roteador de tiro único.
 //

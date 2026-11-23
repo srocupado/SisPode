@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Plenário: parecer de relator em comissão que a comissão NÃO votou (19/11/2026).
 //
 // CASO REAL: PL 294/2015. Na CSSF (2021) e na CPASF (2026, retirado de pauta) só há PRL — o parecer que

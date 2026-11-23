@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Detector de lacunas da pauta + recuperação por IA (pauta-parser.js).
 //

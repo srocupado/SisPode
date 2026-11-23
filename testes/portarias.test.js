@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Orçamento · Comparador de Portarias — etapa 1 (montar a sequência).
 //
 // O que este teste trava:

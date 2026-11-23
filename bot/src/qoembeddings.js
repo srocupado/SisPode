@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // VETORES SEMÂNTICOS das teses — GERADO, não editar à mão.
 // Refazer com: node scripts/embeddings-qo.js && node scripts/gerar-vetores.js

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Biblioteca do estudo: carrega as exportações do simulador, reroda a Minuta com o
 // motor do próprio simulador (sistemas-distrital.js) e gera mapas alternativos

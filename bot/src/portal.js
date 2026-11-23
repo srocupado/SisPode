@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Painel ao vivo do Plenário (votacao-portal) — fonte primária do monitor de
 // sessão. Porte da camada de dados do processPortalDoc (votacao.js da

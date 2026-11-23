@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Labs · Mapa Territorial — análises em painel (layout em grade):
 //   · Emendas × votos (um deputado): o que foi pago na legislatura, por

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    CAMADA DE IA DO MÓDULO DE ORÇAMENTO
 

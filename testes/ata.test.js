@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes do /ata (bot) — anotação da Reunião de Líderes e a mensagem da bancada.
 //
 // O que dá para testar sem IA é justamente o que não pode falhar: o FORMATO da

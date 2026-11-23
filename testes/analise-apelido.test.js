@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Análise de Pauta: nota salva com o apelido em branco ganha o apelido depois
 // (completarApelidoFaltante, analise.js). Caso real: REQ 3.721/2026, nota de
 // 03/11/2026 gravada com apelido "" — a chamada do apelido falhou e o erro era engolido.

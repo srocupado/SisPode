@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Fonte AO VIVO do Plenário pelas APIs PÚBLICAS que o próprio app Infoleg usa
 // (sistema cosev / ws-plenario). Descoberto na engenharia reversa do APK do app.

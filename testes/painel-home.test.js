@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // A navegação da home do painel (panel.js + panel.html).
 //
 // O defeito que este teste existe para impedir tem uma assinatura muito

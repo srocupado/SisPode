@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    CMO — leis orçamentárias (LOA, LDO, PPA) no Congresso Nacional
 

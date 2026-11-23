@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Mecanismos anti-alucinação da nota do Plenário (12/11/2026). CASO REAL: a nota do PL 2475/2025
 // (maus-tratos a animais) falou em "tração animal", que não está em nenhum dos 15 documentos da
 // proposição, e disse que "a CCJC aprovou um substitutivo" quando o PRLP é parecer do relator em Plenário.

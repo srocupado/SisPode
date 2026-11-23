@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas de Comissões — a TELA. Uma aba por comissão permanente e a aba
 // "Semana" com todas as reuniões deliberativas. A pauta de cada reunião vem
 // da API da Câmara; cada item é analisado nos moldes do Plenário (nota única

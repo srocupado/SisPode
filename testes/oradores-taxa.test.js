@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Limite de taxa do portal na varredura de oradores (HTTP 429, 13/08/2026).
 // A varredura da sessão cheia dispara ~30 GETs por minuto; o portal fechava a
 // porta e o log repetia "HTTP 429 na página de oradores" a cada minuto,

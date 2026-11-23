@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Mensagens do bot no formato do WHATSAPP — pedido de 10/11/2026: a equipe
 // copia o que o bot manda no Telegram e cola no WhatsApp. Com parse_mode, o

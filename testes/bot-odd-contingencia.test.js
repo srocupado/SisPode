@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · Ordem do Dia com a API de Dados Abertos fora.
 //
 // 10/11/2026: "Bot não puxou a pauta hoje". A Ordem do Dia (odd.js) dependia só

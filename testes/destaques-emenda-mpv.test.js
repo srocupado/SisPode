@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Emendas de Medida Provisória no módulo Destaques — a fonte é o Senado.
 //
 // Relato de 01/09/2026 (MPV 1357/2026): o módulo buscava as emendas na página

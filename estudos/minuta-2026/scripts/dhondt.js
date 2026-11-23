@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 /** Maiores médias (D'Hondt): votos [n] → cadeiras [n]. */
 function dhondt(votos, vagas) {

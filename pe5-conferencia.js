@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — A CONFERÊNCIA DO PROGRAMA.
 //
 // A conferência anterior media forma: seção presente, parágrafo com identificador, número "na base". Deu
@@ -54,7 +55,7 @@ const pe5NumBR = s => { const t = String(s).trim(); if (/^\d{1,3}(\.\d{3})+(,\d+
 function pe5Numeros(texto) {
   const t = pe5ExtensoParaDigitos(String(texto || '')).replace(/ /g, ' ');
   const out = [];
-  const reMoeda = /\b(R\$|EUR|GBP|USD|US\$|JPY|€|£)\s?([\d.]+(?:,\d+)?)(?:\s*\([^)]{0,40}\))?\s*(mil(?![a-zà-ú])|milh[ãa]o|milh[õo]es|bilh[ãa]o|bilh[õo]es|trilh[ãa]o|trilh[õo]es)?/gi;
+  const reMoeda = /(?<![A-Za-z0-9])(R\$|EUR|GBP|USD|US\$|JPY|€|£)\s?([\d.]+(?:,\d+)?)(?:\s*\([^)]{0,40}\))?\s*(mil(?![a-zà-ú])|milh[ãa]o|milh[õo]es|bilh[ãa]o|bilh[õo]es|trilh[ãa]o|trilh[õo]es)?/gi;
   let m;
   while ((m = reMoeda.exec(t)) !== null) {
     const moeda = { 'r$': 'BRL', 'eur': 'EUR', '€': 'EUR', 'gbp': 'GBP', '£': 'GBP', 'usd': 'USD', 'us$': 'USD', 'jpy': 'JPY' }[m[1].toLowerCase()];
@@ -103,6 +104,7 @@ function pe5Blocos(doc = {}) {
   }
   // "Quem se posicionou" e "Os dois lados" retomam, de propósito, os argumentos das controvérsias: mesma seção para o teste de repetição.
   for (const x of doc.debate?.posicoes || []) add('debate', x, ['texto']);
+  if (doc.debate?.sintese) add('debate', doc.debate.sintese, ['texto']);
   for (const k of ['apoia', 'opoe']) add('debate', doc.debate?.lados?.[k], ['argumento', 'evidencia']);
   for (const x of doc.debate?.da_analise || []) add('debate-analise', x, ['argumento']);
   for (const x of doc.internacional?.jurisdicoes || []) add('internacional', x, ['regra', 'aconteceu', 'criticas']);
@@ -133,6 +135,17 @@ const PE5_PRIMARIA = /\.(jus|leg|gov|mp|def)\.br|europa\.eu|\.gov\.uk|\.go\.jp|\
  * Corre os testes. `p` é o parecer montado (pe5-pipeline.js): doc, leitura, pesquisa, coleta, alteracoes,
  * cambio, base (textos dos documentos e da lei), trechos (resultado da conferência de citações).
  */
+/** Itens da leitura que a nota não pode deixar de fora: [{ id, rotulo }]. */
+function pe5CoberturaLeitura(L) {
+  const curto = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+  return [
+    ...((L && L.achados) || []).filter(x => x && x.id && /alta|m[ée]dia/i.test(x.gravidade || '')).map(x => ({ id: x.id, rotulo: curto(x.questao) })),
+    ...((L && L.estimativas) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(`${x.o_que}: ${x.valor}`) })),
+    ...((L && L.versoes) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(x.tema) })),
+    ...((L && L.justificativa) || []).filter(x => x && x.id).map(x => ({ id: x.id, rotulo: curto(x.objetivo) })),
+  ];
+}
+
 function pe5Conferir(p, { hoje = new Date() } = {}) {
   const itens = [];
   const add = (teste, ok, detalhe = '', critico = false) => itens.push({ teste, ok: !!ok, detalhe: ok ? (detalhe || '') : detalhe, critico: !ok && critico });
@@ -171,6 +184,8 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
     if (n.tipo === 'data') return false;
     // conversão de moeda pelo câmbio do programa (com arredondamento)
     if (n.tipo === 'moeda' && n.moeda === 'BRL' && estr.some(e => taxas[e.moeda] && perto(e.valor * taxas[e.moeda], n.valor))) return true;
+    // a própria taxa citada ("a R$ 6,4672 por euro")
+    if (n.tipo === 'moeda' && n.moeda === 'BRL' && Object.values(taxas).some(t => perto(Number(t), n.valor, 0.001))) return true;
     if (n.tipo === 'moeda' && n.moeda !== 'BRL' && taxas[n.moeda] && brl.some(v => perto(v / taxas[n.moeda], n.valor))) return true;
     // soma ou produto de dois números da base (prazo + prazo; valor × multiplicador)
     // intervalo entre duas datas da base ("dezenove dias depois da apresentação")
@@ -283,9 +298,57 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Cada posição e cada decisão têm data e fonte', !semData.length && !semFonte.length && !temporarios,
     [semData.length ? `Sem data: ${semData.slice(0, 4).join('; ')}.` : '', semFonte.length ? `Sem fonte: ${semFonte.slice(0, 4).join('; ')}.` : '', temporarios ? `${temporarios} link(s) de redirecionamento temporário, sem o endereço final.` : ''].filter(Boolean).join(' '));
   add('Tudo o que a pesquisa trouxe foi usado no texto', !naoUsados.length, naoUsados.length ? `Coletado e não usado: ${naoUsados.slice(0, 10).join(', ')}.` : '');
+  // Tamanho: nota longa demais ninguém lê. O alvo é de até 20 mil palavras (perto de 60 páginas).
+  const palavras = blocos.reduce((n, b) => n + (String(b.texto || '').match(/\S+/g) || []).length, 0);
+  add('Tamanho da nota', palavras <= 24000, palavras > 24000 ? `A nota tem cerca de ${Math.round(palavras / 1000)} mil palavras; o alvo é de até 20 mil (perto de 60 páginas). Há repetição a cortar.` : `${Math.round(palavras / 100) / 10} mil palavras.`);
+  // Cobertura da LEITURA: ponto grave, estimativa, diferença entre versões e argumento dos documentos que não
+  // aparecem em bloco nenhum da nota. A NTA do PLP 299/2026 feita pelo programa em 21/11/2026 deixou de fora
+  // um ponto que a leitura tinha (o adiamento da Lei Kandir sem correção do valor).
+  const foraLeitura = pe5CoberturaLeitura(L).filter(x => !usados.has(x.id));
+  add('O que a leitura apontou de relevante foi usado no texto', !foraLeitura.length, foraLeitura.length ? `Lido e não usado: ${foraLeitura.slice(0, 8).map(x => `${x.id} (${x.rotulo})`).join('; ')}${foraLeitura.length > 8 ? `; e mais ${foraLeitura.length - 8}` : ''}.` : '');
   if (todas.length) add('Peso das fontes oficiais na pesquisa', prim / todas.length >= 0.3, `${prim} de ${todas.length} fontes são oficiais; as demais são imprensa ou terceiros. ${prim / todas.length < 0.3 ? 'A maior parte do debate está apoiada em imprensa: confira antes de citar.' : ''}`.trim());
   const semLimite = (doc.analise?.jurisprudencia || []).filter(j => !j.limite || !j.decidiu).map(j => j.processo);
   add('Cada decisão judicial diz o que decidiu e onde a analogia para', !semLimite.length, semLimite.length ? `Incompleta(s): ${semLimite.join('; ')}.` : '');
+
+  // --- mínimos da pesquisa (22/11/2026): cinco países, quatro decisões, um parágrafo por ator, o quórum ---
+  // Os prompts já pediam de 3 a 6 países e de 2 a 6 decisões, e ninguém conferia: a NTA do PLP 299/2026 saiu
+  // com dois países e uma decisão. Abaixo do mínimo, o pipeline faz uma chamada complementar; se ainda faltar,
+  // o teste avisa.
+  const jurD = doc.internacional?.jurisdicoes || [], decD = doc.analise?.jurisprudencia || [];
+  if ((pq.debate || pq.internacional) && pq.semBusca !== true) {   // sem busca na internet não há o que cobrar
+    add('Experiência internacional: ao menos cinco países ou blocos', jurD.length >= 5, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < 5 ? '; o mínimo é cinco' : ''}.`);
+    add('Decisões judiciais: ao menos quatro', decD.length >= 4, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < 4 ? '; o mínimo é quatro' : ''}.`);
+    // Um país de modelo oposto (o mecanismo é vedado, depende do Legislativo ou é mais estreito) e a origem das
+    // leis que o texto altera (22/11/2026: a NTA do PLP 299/2026 ficou sem os EUA e sem o PLP 93/2023).
+    const P = (typeof pe5LeisAlteradas === 'function') ? { pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste } : require('./pe5-prompts.js');   // eslint-disable-line no-undef
+    const opostos = jur.filter(P.pe5EhContraste), opostosNaNota = opostos.filter(j => usados.has(j.id));
+    add('Experiência internacional: ao menos um país com modelo oposto ao do texto', opostosNaNota.length > 0,
+      opostos.length ? `${opostos.map(j => j.lugar).join('; ')}${opostosNaNota.length ? '' : ' — está na pesquisa, mas não na nota'}.` : 'A pesquisa não trouxe país em que o mecanismo seja vedado, dependa do Legislativo ou seja mais estreito.');
+    const leis = P.pe5LeisAlteradas(L, { anoRef: hoje.getFullYear() }), obrig = leis.filter(l => l.obrigatoria);
+    if (obrig.length) {
+      const hist = pq.congresso?.historico || [];
+      const falta = P.pe5OrigensFaltantes(leis, hist).map(l => l.lei);
+      const naPesquisa = obrig.filter(l => !falta.includes(l.lei));
+      const foraNota = naPesquisa.filter(l => P.pe5OrigensFaltantes([l], hist.filter(h => usados.has(h.id))).length).map(l => l.lei);
+      add('Histórico: o projeto de origem de cada lei alterada', !falta.length && !foraNota.length,
+        [`Leis: ${obrig.map(l => l.lei).join('; ')}.`, falta.length ? `Sem a origem na pesquisa: ${falta.join('; ')}.` : '', foraNota.length ? `Origem pesquisada e fora da nota: ${foraNota.join('; ')}.` : ''].filter(Boolean).join(' '));
+    }
+  }
+  // "Quem se posicionou e como" dá a tendência da votação: um parágrafo por ator com argumento próprio. Só divide
+  // parágrafo quem repete o argumento de outro; a regra antiga (juntar "atores do mesmo grupo") pôs oito senadores
+  // com argumentos diferentes num parágrafo só.
+  const comArg = atores.filter(a => (a.argumentos || []).length);
+  if (comArg.length) {
+    const minimo = Math.ceil(comArg.length * 0.75), nPos = (doc.debate?.posicoes || []).length;
+    const porGrupo = [...comArg.reduce((m, a) => m.set(a.grupo || 'sem grupo', (m.get(a.grupo || 'sem grupo') || 0) + 1), new Map())].map(([g, n]) => `${g}: ${n}`).join('; ');
+    add('Quem se posicionou e como: um parágrafo por ator com argumento próprio', nPos >= minimo, `${nPos} parágrafo(s) para ${comArg.length} ator(es) com argumento${nPos < minimo ? ` (mínimo de ${minimo}: só divide parágrafo quem repete o argumento de outro)` : ''}. Por grupo: ${porGrupo}.`);
+  }
+  const Q = G.mapa?.quorum;
+  if (Q && Q.minimo) {
+    const onde = [doc.abertura?.decide, doc.abertura?.frase, ...(doc.caminhos?.opcoes || []).map(o => `${o.opcao} ${o.consequencias}`), ...(doc.materia?.origem || []).map(o => o.texto)].join(' ');
+    const cita = new RegExp(`\\b${Q.minimo}\\b`).test(onde);
+    add('Quórum da matéria dito na nota', cita, cita ? `${Q.minimo} votos (${Q.regra}).` : `A matéria exige ${Q.minimo} votos (${Q.regra}, ${Q.base}) e a abertura, a origem e as opções não dizem.`);
+  }
 
   // --- linguagem ---
   const achar = re => { const o = []; for (const b of blocos) { const m = b.texto.match(re); if (m) o.push(`"${m[0]}" [${b.secao}]`); } return o; };
@@ -333,5 +396,5 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pe5Conferir, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
+  module.exports = { pe5Conferir, pe5CoberturaLeitura, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
 }

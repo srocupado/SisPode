@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Pauta ATIVA por usuário — a escolhida no /sispode. Enquanto vigorar, todos os
 // comandos que dependem de "a pauta" (/perguntar, /listar, /analisar, /exportar)

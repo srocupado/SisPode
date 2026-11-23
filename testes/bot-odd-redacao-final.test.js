@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Ordem do Dia (bot/src/odd.js): a API de Dados Abertos marca as redações
 // finais no tópico, no plural — "Redações Finais (RICD, art. 83, I)" (evento

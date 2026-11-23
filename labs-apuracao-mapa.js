@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Contorno das 27 UFs (IBGE, malha de países por UF, qualidade mínima), projetado e
 // simplificado uma vez e embutido aqui: no dia da apuração o painel não depende de

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Painel de Votação · aba "Prints da sessão": download do Firebase (12/11/2026).
 //
 // Antes, a consulta de 15 s lia de novo TODOS os prints da sessão (~2 KB cada), mesmo com a página em

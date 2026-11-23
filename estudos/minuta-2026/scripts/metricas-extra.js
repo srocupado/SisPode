@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Números de apoio ao texto do artigo: qualidade dos mapas, volatilidade histórica, posições do PODEMOS.
 const fs = require('fs'), path = require('path');

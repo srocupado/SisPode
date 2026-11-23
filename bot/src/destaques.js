@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Consulta ao módulo "Destaques Legislativos" (Firebase /sessoes) — usado pelo
 // monitor quando um DESTAQUE entra em votação no Plenário: se a equipe

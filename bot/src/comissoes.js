@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Pauta de COMISSÕES da Câmara dos Deputados via API de Dados Abertos (pública,
 // sem chave). Porte do handoff camara.py — dado OFICIAL, texto pronto pro chat,

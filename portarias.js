@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Orçamento · Comparador de Portarias — TELA (etapa 1: montar a sequência).
 //

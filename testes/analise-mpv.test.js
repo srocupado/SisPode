@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Medida Provisória na Análise de Pauta — Cenários 8a e 8b.
 //
 // Até 02/09/2026 a MPV era "Cenário 8 — edição livre": o analista escrevia a

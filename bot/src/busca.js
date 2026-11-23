@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // RANQUEAMENTO DE TEXTO — usado pela consulta ao Regimento e pela busca de
 // questões de ordem. Ficava duplicado e divergente nos dois: o Regimento

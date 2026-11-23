@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Sustentação do posicionamento, na aba "Como votou o deputado".
 //
 // A regra que este teste existe para guardar: a defesa é RECUSADA quando a

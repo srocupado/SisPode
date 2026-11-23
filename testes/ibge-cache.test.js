@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Cópia dos dados do IBGE no Firebase (ibge-cache.js): confere e regrava só o que mudou;
 // com o IBGE fora do ar, usa a cópia; sem cópia, devolve o erro do IBGE.
 // Uso: node testes/ibge-cache.test.js

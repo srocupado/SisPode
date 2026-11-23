@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Artigo: "O PODEMOS no distrital misto da Versão Minuta: onde crescer" — texto completo, tabelas e
 // figuras numeradas, na identidade visual dos relatórios do sistema (pdf-base.js).

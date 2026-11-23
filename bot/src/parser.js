@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Reusa o parser da EXTENSÃO (raiz do repositório) — fonte única de verdade:
 // se a Câmara mudar o formato da pauta, corrige-se num lugar só.

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Agrega os resultados dos mapas (resultados/ens/UF.json) nos estudos 1 (robustez da bancada ao mapa),
 // 2 (candidatos de distrito), 3 (Assembleias) e 5 (federação). Limiares declarados antes de olhar os dados:

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Orçamento · Comparador de Portarias — TELA da nota de UMA portaria (avulsa),
 // a caixa "Pedir alterações" (comum às duas notas) e a configuração de IA.

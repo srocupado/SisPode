@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas CCJC · Resumo executivo (ccjc-resumo.js): o que é contagem sai dos
 // dados, o texto de cada item sai da IA a partir da nota já gerada.
 // Pauta no formato da de 03/11/2026: 122 itens, 7 comentados, 115 PDLs de rádio

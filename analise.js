@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    ANÁLISE DA PAUTA – PODEMOS
    Painel que importa a Pauta da Semana (PDF), identifica projetos
@@ -8736,7 +8737,7 @@ async function listarModelosDoProvedor(pid) {
 // geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
 // documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
 // isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
-const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '8 chamadas ao modelo, quatro delas com busca na internet', tokens: 'da ordem de R$ 10 por NTA na medição de 17/11/2026' };
+const AVISO_PARECER = { tempo: 'de 25 a 45 minutos', chamadas: '12 chamadas ao modelo, cinco delas com busca na internet', tokens: 'varia com o modelo e com o número de documentos; o consumo real desta geração fica registrado no relatório de conferência' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
@@ -8749,7 +8750,7 @@ const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '8 chamadas ao mo
  * do modelo aparece no momento em que custa — reverte, só aqui, a regra
  * "sem confirmação" do início.
  */
-function confirmarModeloParecer(it) {
+function confirmarModeloParecer(it, { apoioSenado = [] } = {}) {
   return new Promise(resolve => {
     const cfg = state.config || {};
     const provedores = Object.keys(PROVEDORES_META);
@@ -8765,9 +8766,12 @@ function confirmarModeloParecer(it) {
         <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> A NTA não é uma resposta rápida: o modelo lê os documentos, pesquisa na internet o debate, a experiência de outros países e o contexto jurídico, redige e revisa o próprio texto.
           <ul>
             <li><b>Tempo:</b> ${AVISO_PARECER.tempo}. Mantenha esta aba aberta.</li>
-            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. Custo <b>${AVISO_PARECER.tokens}</b>, no formato anterior; o consumo real desta geração fica registrado no relatório de conferência.</li>
+            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. O custo <b>${AVISO_PARECER.tokens}</b>.</li>
           </ul>
         </div>
+        ${apoioSenado.length ? `<div class="form-group" id="dlg-parecer-senado"><label>Documentos de apoio (lidos junto com os da Câmara)</label>
+          <div style="font-size:11.5px;color:var(--text-dim);margin:0 0 6px;line-height:1.5">Documentos do Senado sobre a matéria e notas das consultorias de orçamento das duas Casas. Eles dão à nota a comparação entre versões, as estimativas e o destino das emendas. Desmarque o que não quiser incluir; mais documentos, mais tempo e consumo.</div>
+          ${apoioSenado.map((d, i) => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;font-weight:400;margin:3px 0;cursor:pointer"><input type="checkbox" data-senado="${i}" checked style="margin-top:2px"><span>${escapeHtml(d.rotulo)}</span></label>`).join('')}</div>` : ''}
         <div class="form-group"><label>Provedor</label>
           <select id="dlg-parecer-provedor" class="form-input">${provedores.map(p => `<option value="${p}"${comChave.includes(p) ? '' : ' disabled'}>${escapeHtml(PROVEDORES_META[p].label)}${comChave.includes(p) ? '' : ' — sem chave cadastrada'}</option>`).join('')}</select></div>
         <div class="form-group"><label>Modelo</label>
@@ -8810,6 +8814,7 @@ function confirmarModeloParecer(it) {
       const f = faixaDoModelo(modelo);
       const proprio = modelo !== escolhaAuto?.modelo;
       fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
+        apoioSenado: apoioSenado.filter((_, i) => ov.querySelector(`[data-senado="${i}"]`)?.checked),
         motivo: proprio ? `Escolhido pelo usuário no diálogo (${modelo}, faixa ${f}).` : escolhaAuto.motivo,
         ressalva: proprio ? (f === 'superior' ? null : `O modelo ${modelo} é de faixa ${ROTULO_FAIXA[f].replace('faixa ', '')}; escolha do usuário. Esta ressalva fica registrada no relatório de conferência.`) : escolhaAuto.ressalva });
     });
@@ -8819,8 +8824,30 @@ function confirmarModeloParecer(it) {
 
 async function gerarParecerEspecialista(it) {
   const cfg = state.config || {};
+  // --- documentos de apoio: do Senado e das consultorias de orçamento ---------
+  // A Câmara registra só o que recebeu (o autógrafo) e o que produziu; pareceres, primeira versão do relatório,
+  // texto inicial e emendas aprovadas estão no Senado (senado-materia.js). As notas das consultorias de orçamento
+  // das duas Casas ficam nas páginas de estudos delas (notas-consultoria.js). O programa oferece tudo no diálogo,
+  // já marcado. Não vale para documento anexado pelo(a) analista; os documentos do Senado também não entram no
+  // item ainda sem registro na Câmara, que já os usa. As consultas têm prazo curto: site lento não segura o diálogo.
+  let apoioSenado = [];
+  if (!docsProprios(it)) {
+    // Até 8 segundos de consulta antes do diálogo: o botão diz o que está acontecendo, para o clique não parecer perdido.
+    const btnAntes = document.querySelector(`.an-card[data-chave="${it.chave}"] [data-role=btn-parecer]`);
+    const rotAntes = btnAntes ? btnAntes.innerHTML : '';
+    if (btnAntes) { btnAntes.disabled = true; btnAntes.innerHTML = '<span class="an-spinner"></span> consultando o Senado…'; }
+    const mat = { sigla: it.sigla, numero: it.numero, ano: it.ano, ementa: it.ementa || '' };
+    const comPrazo = p => Promise.race([p, new Promise(ok => setTimeout(() => ok(null), 8000))]).catch(e => { console.warn('NTA: documentos de apoio não consultados', e.message); return null; });
+    const textoDe = async u => { const r = await fetch(u, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.text(); };
+    const [sen, notas] = await Promise.all([
+      !it.provisorio && typeof senadoApoioDaMateria === 'function' && senadoTemSigla(it.sigla) ? comPrazo(senadoApoioDaMateria(mat, fetchJson)) : null,
+      typeof consultoriasBuscarNotas === 'function' ? comPrazo(consultoriasBuscarNotas(mat, textoDe)) : null,
+    ]);
+    apoioSenado = [...((sen && sen.documentos) || []), ...(notas || [])];
+    if (btnAntes) { btnAntes.disabled = false; btnAntes.innerHTML = rotAntes; }
+  }
   // --- provedor e modelo confirmados no diálogo ----------------------------
-  const esc = await confirmarModeloParecer(it);
+  const esc = await confirmarModeloParecer(it, { apoioSenado });
   if (!esc) return;
   const pid = esc.pid;
 
@@ -8850,6 +8877,9 @@ async function gerarParecerEspecialista(it) {
       abrirDocAnalista(it, 'A Câmara ainda não tem documento desta matéria. Anexe o texto (PDF ou link) para gerar a Nota Técnica Analítica (NTA) sobre ele.');
       return;
     }
+    // Os documentos de apoio escolhidos no diálogo (Senado e consultorias) entram DEPOIS dos da Câmara: o texto em votação continua
+    // sendo o primeiro da lista. Não levam a marca doSenado, que é a do item sem registro na Câmara.
+    for (const d of esc.apoioSenado || []) if (!docsMeta.some(x => x.url === d.url)) docsMeta.push(d);
     const docs = [];
     for (const d of docsMeta) {
       try { docs.push({ rotulo: d.rotulo, url: d.url, buffer: d.buffer ? d.buffer.slice(0) : await baixarPdf(d.url) }); }
@@ -8900,7 +8930,7 @@ async function gerarParecerEspecialista(it) {
     };
     const io = {
       // `pensar` vem do pipeline: alto na leitura e na redação, médio nas pesquisas e na revisão.
-      chamarModelo: ({ prompt, pdfBuffers, web, pensar }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: pensar || 'medio', stream: true } }),
+      chamarModelo: ({ prompt, pdfBuffers, web, pensar, buscas }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: pensar || 'medio', stream: true, ...(buscas ? { maxBuscas: buscas } : {}) } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
       onPasso: passo,

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    NOTAS TÉCNICAS ORÇAMENTÁRIAS — LOA, LDO e PPA
 

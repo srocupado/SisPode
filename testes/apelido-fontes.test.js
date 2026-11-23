@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Apelido das matérias (extensão, bot e CCJC): de onde a IA tira o conteúdo, e o que acontece quando ele não está lá.
 //
 // Caso real (11/11/2026): PL 215/2015 apareceu como "Aumento de pena para crimes contra idosos". A ementa oficial

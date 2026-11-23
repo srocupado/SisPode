@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Resumos dos itens votados, para a aba "Como votou o deputado".
 //
 // A tramitação diz O QUE estava em votação ("DTQ 3: Bloco UNIÃO (SD): Emenda de

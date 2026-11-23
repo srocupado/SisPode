@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aba "Radar temático" do módulo Relatórios.
 //
 // Responde "o que está andando na Casa sobre o tema X" — e marca o que é da

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aba "Produção legislativa" do módulo Relatórios.
 //
 // Responde "o que o deputado produziu no mandato" — e o ponto do relatório é

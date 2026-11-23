@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aderência: registro transitório na sigla e relatório da legislatura ano a ano.
 //
 // O caso (28/10/2026): no relatório de 2026 o Ilacir Bicalho contava como

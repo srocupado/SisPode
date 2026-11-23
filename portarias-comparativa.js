@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Orçamento · Comparador de Portarias — TELA da nota comparativa (etapa 2).
 // O motor (pares, prompts, conferência) está em portarias-comparacao.js; aqui

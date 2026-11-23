@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot · /update da extensão (bot/src/autoupdate.js), de ponta a ponta numa
 // pasta temporária: uma "máquina do bot" com a extensão desatualizada, a API do
 // GitHub simulada servindo o commit atual deste repositório. Nada é gravado

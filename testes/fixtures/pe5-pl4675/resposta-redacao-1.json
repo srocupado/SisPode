@@ -78,7 +78,8 @@
      "J5",
      "U1",
      "U2",
-     "G"
+     "G",
+     "J3"
     ],
     "texto": "O projeto é do Poder Executivo e chegou à Câmara em 18/09/2025, acompanhado da Exposição de Motivos Interministerial nº 00099/2025, assinada pelos ministérios da Justiça e Segurança Pública, da Fazenda, da Gestão e pela Advocacia-Geral da União. A exposição apresenta a proposta como resultado de estudo do Ministério da Fazenda iniciado com a Tomada de Subsídios SRE/MF nº 1/2024, que recebeu 301 contribuições de 72 participantes e examinou a experiência de dez países. A conclusão do estudo foi que o Cade precisa de instrumentos de prevenção mais rápidos para os mercados digitais. O governo situa o modelo ao lado do alemão, do japonês e do britânico."
    },
@@ -111,7 +112,8 @@
     "atual": "Lista fechada de seis características, em análise conjunta e fundamentada.",
     "efeito": "Reduz a margem do Cade para designar; aumenta o que o Cade precisa provar.",
     "ev": [
-     "V1"
+     "V1",
+     "V6"
     ]
    },
    {

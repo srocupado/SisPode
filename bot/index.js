@@ -1,4 +1,6 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
+const BOT_REV = 'f4ae9448a321e1e97364ff634b802bb7953d8e2f1cc9d3bf4d0ae7d51f8b6494';
 const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 

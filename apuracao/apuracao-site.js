@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Apuração — a tela do painel, a mesma no site (apuracao/index.html, arquivo
 // único) e na aba Apuração do Labs (apuracao/extensao.html, num iframe).

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // SisPode — o que as telas de análise têm em comum: cliente de IA (Gemini,
 // OpenAI, Anthropic, com streaming e retry), cancelamento global, download de
 // PDF, markdown da nota, sanitização do HTML do editor, utilitários de tela e
@@ -5,6 +6,9 @@
 // Comissões passou a precisar do mesmo cliente; é script clássico e vive no
 // mesmo escopo global das páginas que o carregam (analise.html e
 // pautas-comissoes.html) — carregue-o ANTES do script da tela.
+
+const IA_REV = 'f4ae9448a321e1e97364ff634b802bb7953d8e2f1cc9d3bf4d0ae7d51f8b6494';
+if (typeof globalThis !== 'undefined') globalThis.__spRev = IA_REV;
 
 const PROVEDORES_META = {
   gemini: {
@@ -330,9 +334,21 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     };
     // Gemini 3: thinkingLevel. O Google deprecou thinkingBudget e os parâmetros de amostragem
     // (temperature/topP/topK) no Gemini — os 2.5 ficam com o raciocínio padrão deles.
-    if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
+    // Linha Gemini 4: raciocínio e resposta dividem 65.536 tokens por resposta (acima disso só pela API nova,
+    // em várias etapas). Medido em 21/11/2026 no Gemini 4 Carbon, em quatro chamadas da NTA do PLP 299/2026: no
+    // nível alto o raciocínio usa de 41 a 45 mil tokens e sobram cerca de 20 mil para a resposta, que veio
+    // cortada todas as vezes em que precisava de mais. Quando quem chama pede resposta longa, o nível é o
+    // médio (o padrão do Carbon), que deixa espaço para ela.
+    const gemini4 = /gemini-4/.test(m);
+    if (gemini4 && (pensarAlto || nivelPensar)) body.generationConfig.maxOutputTokens = 65536;
+    if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: gemini4 && maxSaida > 20000 ? 'medium' : 'high' };
     // 'medium' só existe na linha flash; nos demais o degrau abaixo de 'high' é 'low'.
     else if (nivelPensar && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: nivelPensar === 'medio' && /flash/.test(m) ? 'medium' : 'low' };
+    // No streaming, pede os resumos do raciocínio: sem eles o Gemini fica em silêncio enquanto pensa, e a
+    // conexão cai antes do primeiro byte. Medido em 21/11/2026 (Gemini 4 Carbon, redação da NTA do PLP
+    // 299/2026): mais de 5 minutos sem resposta, quatro tentativas perdidas. As partes de raciocínio chegam
+    // marcadas com `thought` e são descartadas abaixo; o texto da resposta não muda.
+    if (emStream && body.generationConfig.thinkingConfig) body.generationConfig.thinkingConfig.includeThoughts = true;
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
     if (emStream) {
@@ -437,18 +453,20 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // Raciocínio: nos Claude 4.6 em diante (Sonnet 5, Opus 5, Fable) o modo é "adaptive" com o
     // esforço em output_config; budget_tokens é rejeitado com 400. Nos anteriores (Haiku 4.5, Sonnet 4.5,
     // 4.1, 3.7) vale o orçamento fixo. Nos dois casos o pensamento conta dentro de max_tokens, que sobe.
+    // No modo adaptativo NÃO há orçamento de raciocínio: o modelo pensa quanto achar preciso, e isso sai do
+    // mesmo max_tokens da resposta. Medido em 21/11/2026 (Opus 5.5, leitura da NTA do PLP 299/2026, esforço
+    // alto): 42 mil tokens de raciocínio — com a folga antiga, de 16 mil, a resposta foi cortada no meio.
+    // Por isso a folga dos adaptativos é larga (o teto desses modelos é 128 mil); só se paga o que for usado.
     if (pensarAlto) {
-      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; }
-      else body.thinking = { type: 'enabled', budget_tokens: 16000 };
-      body.max_tokens = maxSaida + 16000;
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; body.max_tokens = Math.min(128000, maxSaida + 64000); }
+      else { body.thinking = { type: 'enabled', budget_tokens: 16000 }; body.max_tokens = maxSaida + 16000; }
     } else if (nivelPensar) {
       const orc = nivelPensar === 'medio' ? 8000 : 4000;
-      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; }
-      else body.thinking = { type: 'enabled', budget_tokens: orc };
-      body.max_tokens = maxSaida + orc;
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; body.max_tokens = Math.min(128000, maxSaida + orc * 4); }
+      else { body.thinking = { type: 'enabled', budget_tokens: orc }; body.max_tokens = maxSaida + orc; }
     }
     // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
-    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 }];
+    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: Math.min(20, Math.max(1, opcoes.maxBuscas || 5)) }];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
     if (emStream) {
       body.stream = true;
@@ -485,6 +503,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
  * (rate limit) e 5xx transitórios. Tentativas: 1 inicial + 3 retries em
  * intervalos de 5s, 15s e 30s.
  */
+// Queda de conexão DEPOIS de muito tempo no ar não é reenviada: o provedor já estava processando (e
+// cobrando) o pedido, e reenviar três vezes multiplica o custo de uma chamada cara. Queda rápida (rede
+// instável, DNS) continua sendo tentada de novo.
+const IA_SEM_REENVIO_MS = 90000;
+function erroConexaoLonga(ini) {
+  return new Error(`A conexão com o provedor de IA caiu depois de ${Math.round((Date.now() - ini) / 1000)} segundos sem resposta. O pedido não foi reenviado, para não ser cobrado de novo; tente outra vez.`);
+}
+
 async function fetchIA(url, init) {
   const delays = [0, 5000, 15000, 30000];
   let ultimaErro = null;
@@ -492,11 +518,12 @@ async function fetchIA(url, init) {
   for (let i = 0; i < delays.length; i++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (delays[i] > 0) await sleep(delays[i], signal);
-    let res;
+    let res; const ini = Date.now();
     try {
       res = await fetch(url, { ...init, signal });
     } catch (e) {
       if (isAbortError(e)) throw e;
+      if (Date.now() - ini > IA_SEM_REENVIO_MS) throw erroConexaoLonga(ini);
       ultimaErro = e;
       continue; // erro de rede → retry
     }
@@ -548,9 +575,9 @@ async function fetchIASse(url, init) {
   for (let i = 0; i < delays.length; i++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (delays[i] > 0) await sleep(delays[i], signal);
-    let res;
+    let res; const ini = Date.now();
     try { res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Accept: 'text/event-stream' }, signal }); }
-    catch (e) { if (isAbortError(e)) throw e; ultimaErro = e; continue; }
+    catch (e) { if (isAbortError(e)) throw e; if (Date.now() - ini > IA_SEM_REENVIO_MS) throw erroConexaoLonga(ini); ultimaErro = e; continue; }
     if (res.ok) {
       let texto = '';
       if (res.body && res.body.getReader) {

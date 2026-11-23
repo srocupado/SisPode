@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Ficha de parâmetros do exercício (ficha.js).
 //
 // A nota orçamentária vive de uma dúzia de números — cota individual, cota de

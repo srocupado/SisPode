@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Empacota os arquivos de vetores (dados/qordem-vetores-*.json) em
 // src/qoembeddings.js, que é o formato que o /update leva para quem roda o bot.

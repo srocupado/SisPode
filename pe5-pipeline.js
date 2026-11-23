@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista (refeito em 17/11/2026) — O ENCADEAMENTO.
 //
 //   programa   lê os PDFs (texto), coleta tramitação/votações/bancada/fase na API da Câmara, câmbio no BC
@@ -20,16 +21,16 @@
 'use strict';
 
 const __pe5m = (typeof module !== 'undefined' && typeof require === 'function') ? {
-  C: require('./pe5-coleta.js'), P: require('./pe5-prompts.js'), K: require('./pe5-conferencia.js'), E: require('./especialistas.js'), D: require('./dossie.js'),
+  C: require('./pe5-coleta.js'), P: require('./pe5-prompts.js'), K: require('./pe5-conferencia.js'), E: require('./especialistas.js'), D: require('./dossie.js'), N: require('./noticias-agencias.js'),
 } : null;
 // No navegador os módulos são scripts clássicos no mesmo escopo (ver a nota em pipeline-parecer.js):
 // identificadores resolvidos só na chamada, nunca por eval.
 function _pe5Refs() {
-  if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
+  if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ...__pe5m.N, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
   /* eslint-disable no-undef */
   return { pe5ColetarTramitacao, pe5MapaVotos, pe5ColetarPartido, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
-    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
-    pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma };
+    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptComplementar, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
+    PE5_GRUPOS_DEBATE, pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste, pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma, agenciasBuscarNoticias };
   /* eslint-enable no-undef */
 }
 
@@ -48,6 +49,35 @@ function pe5ExtrairJson(texto) {
  * pipeline anterior (achado sem trecho não entra), agora também para versões, justificativa e blocos.
  * Devolve { leitura, conferidos, recusados: [{ id, motivo }] }.
  */
+/**
+ * Por que a resposta veio cortada. O raciocínio do modelo sai do mesmo limite da resposta: quando ele consome
+ * a maior parte, o problema não é o tamanho dos documentos (era o que a mensagem antiga dizia).
+ */
+function pe5MotivoTruncada(r) {
+  const u = (r && r.usage) || {}, saida = u.saida || 0, txt = Math.round(String((r && r.text) || '').length / 3.2);
+  const rac = u.raciocinio || (saida > txt * 1.6 ? saida - txt : 0);
+  return rac && rac > txt
+    ? `o raciocínio do modelo consumiu a maior parte do limite de saída (cerca de ${Math.round(rac / 1000)} mil tokens de raciocínio para ${Math.round(txt / 1000)} mil de resposta). Tente de novo ou use outro modelo.`
+    : 'a resposta não coube no limite de saída do modelo. Tente com menos documentos.';
+}
+
+// Testes da conferência que o revisor consegue consertar no texto. Ficam de fora os que só informam (peso das
+// fontes oficiais, atualidade da tramitação, trecho recusado na leitura).
+const PE5_RE_APONTAMENTO_CORRIGIVEL = /Valores, percentuais|não se repete|Afirmações de ausência|foi usado no texto|Sem jargão|Linguagem direta|Sem recomendação|Cada entidade da pesquisa|Cada bloco da NTA|Cada artigo citado|decreta inconstitucionalidade|Abertura completa|Cada posição e cada decisão|Quórum da matéria/;
+
+/** Junta as duas leituras: a do texto em votação manda; a dos documentos de apoio acrescenta os seus grupos. */
+function pe5JuntarLeituras(texto, apoio) {
+  const out = { ...texto }, lista = (o, g) => (Array.isArray(o && o[g]) ? o[g].filter(x => x && typeof x === 'object') : []);
+  for (const g of ['emendas', 'justificativa', 'estimativas', 'referencias']) out[g] = lista(apoio, g).length ? lista(apoio, g) : lista(texto, g);
+  for (const [g, pref] of [['controversias', 'C'], ['achados', 'T'], ['ausencias', 'X']]) {
+    const a = lista(texto, g), usados = new Set(a.map(x => String(x.id)));
+    let n = 100;
+    const b = lista(apoio, g).map(x => { let id = String(x.id || ''); while (!id || usados.has(id)) id = `${pref}${++n}`; usados.add(id); return { ...x, id }; });
+    out[g] = [...a, ...b];
+  }
+  return out;
+}
+
 function pe5ConferirTrechos(L, documentos, norm) {
   const docs = (documentos || []).map(d => ({ rotulo: d.rotulo, n: norm(d.texto) }));
   const onde = (rotulo, trecho) => {
@@ -148,7 +178,59 @@ async function pe5LimparPesquisa(obj, grupos, fetchFn) {
 }
 
 /** Aplica as correções do revisor: troca de trecho que aparece UMA vez no documento. */
-function pe5AplicarRevisao(doc, correcoes) {
+/**
+ * Junta as duas buscas do debate. Ator repetido (mesmo nome, sem porta-voz) fica uma vez, com os argumentos
+ * das duas; os identificadores são refeitos (Q1…, D1…) e as controvérsias de pergunta parecida viram uma só.
+ */
+function pe5JuntarDebates(...listas) {
+  // O mesmo ator chega com nomes diferentes em cada grupo: "Confederação Nacional da Indústria (CNI), presidente
+  // Ricardo Alban", "Confederação Nacional da Indústria (CNI)" e "CNI"; "Senador Eduardo Braga (MDB-AM), relator no
+  // Senado" e "Eduardo Braga". Comparam-se o nome sem cargo, partido e aposto, e a sigla. Ator contado duas vezes
+  // infla o quadro de tendência.
+  const semAc = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const limpa = n => semAc(n).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\b(senador|senadora|deputado|deputada|ministro|ministra|presidente|governo|federal|do|da|de|dos|das|e|o|a)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const chaves = n => {
+    const bruto = String(n || '');
+    const siglas = [...bruto.matchAll(/\(([A-Za-zÀ-ú]{2,12})\)/g)].map(m => semAc(m[1]).toLowerCase());   // "(CNI)"; "(PL-RN)" e listas ficam de fora
+    const semPar = bruto.replace(/\([^)]*\)/g, ' ');
+    const nome = limpa(semPar.split(/,\s+(?=[a-zà-ú])|\s+[—–-]\s+/)[0]);   // corta o aposto ("…, relator no Senado"); "A, B e C" fica inteiro
+    if (/^[A-ZÀ-Ú]{2,12}$/.test(bruto.trim())) siglas.push(semAc(bruto.trim()).toLowerCase());
+    return { nome, siglas };
+  };
+  const atores = [], indice = [], divergentes = [];
+  const mapa2 = listas.map(() => new Map());
+  listas.forEach((p, k) => { for (const x of (p && Array.isArray(p.atores) ? p.atores : [])) {
+    if (!x || !x.ator) continue;
+    if (p.grupo && !x.grupo) x.grupo = p.grupo;
+    const ch = chaves(x.ator), antigo = String(x.id || '');
+    const reg = indice.find(r => (ch.nome && r.nome === ch.nome) || ch.siglas.some(g => r.siglas.includes(g) || r.nome === g) || r.siglas.includes(ch.nome));
+    let alvo = reg && reg.alvo;
+    if (alvo) {
+      alvo.argumentos = [...(alvo.argumentos || []), ...((x.argumentos || []).filter(g => !(alvo.argumentos || []).some(h => String(h.tese).slice(0, 60) === String(g.tese).slice(0, 60))))];
+      reg.siglas.push(...ch.siglas);
+      if (String(x.ator).length > String(alvo.ator).length && !/,/.test(x.ator)) alvo.ator = x.ator;   // fica o nome mais completo
+      if (x.posicao && alvo.posicao && String(x.posicao).toLowerCase() !== String(alvo.posicao).toLowerCase()) divergentes.push(`${alvo.ator}: "${alvo.posicao}" numa busca e "${x.posicao}" em outra; ficou a primeira.`);
+    }
+    else { alvo = { ...x }; atores.push(alvo); indice.push({ nome: ch.nome, siglas: ch.siglas, alvo }); }
+    if (antigo) mapa2[k].set(antigo, alvo);
+  } });
+  const mapa = mapa2;
+  atores.forEach((x, i) => { x.id = `Q${i + 1}`; });
+  const pal = t => new Set((String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]{5,}/g) || []));
+  const contr = [];
+  listas.forEach((p, k) => { for (const c of (p && Array.isArray(p.controversias) ? p.controversias : [])) {
+    if (!c || !c.questao) continue;
+    const ids = l => [...new Set((Array.isArray(l) ? l : []).map(id => mapa[k].get(String(id))).filter(Boolean).map(x => x.id))];
+    const nova = { questao: c.questao, favor: ids(c.favor), contra: ids(c.contra) }, pn = pal(c.questao);
+    const igual = contr.find(o => { const po = pal(o.questao); let n = 0; for (const w of pn) if (po.has(w)) n++; return pn.size >= 3 && n / Math.min(pn.size, po.size) >= 0.6; });
+    if (igual) { igual.favor = [...new Set([...igual.favor, ...nova.favor])]; igual.contra = [...new Set([...igual.contra, ...nova.contra])]; }
+    else contr.push(nova);
+  } });
+  contr.forEach((c, i) => { c.id = `D${i + 1}`; });
+  return { atores, controversias: contr, avisos: [...listas.flatMap(p => (p && Array.isArray(p.avisos) ? p.avisos : [])), ...divergentes.map(d => `Posição divergente entre as buscas — ${d}`)] };
+}
+
+function pe5AplicarRevisao(doc, correcoes, acrescimos) {
   const aplicadas = [], ignoradas = [];
   const visita = (o, fn) => { if (Array.isArray(o)) o.forEach((v, i) => { if (typeof v === 'string') o[i] = fn(v); else visita(v, fn); }); else if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'ev') continue; if (typeof o[k] === 'string') o[k] = fn(o[k]); else visita(o[k], fn); } };
   for (const c of Array.isArray(correcoes) ? correcoes : []) {
@@ -156,8 +238,29 @@ function pe5AplicarRevisao(doc, correcoes) {
     if (alvo.length < 12) { ignoradas.push({ ...c, razao: 'trecho curto demais' }); continue; }
     let n = 0; visita(doc, s => { n += s.split(alvo).length - 1; return s; });
     if (n !== 1) { ignoradas.push({ ...c, razao: n ? 'trecho aparece mais de uma vez' : 'trecho não localizado' }); continue; }
-    visita(doc, s => s.includes(alvo) ? s.replace(alvo, String(c.novo || '')).replace(/\s{2,}/g, ' ').trim() : s);
+    visita(doc, s => s.includes(alvo) ? s.replace(alvo, () => String(c.novo || '')).replace(/\s{2,}/g, ' ').trim() : s);   // função: "R$" no texto novo não é padrão de substituição
     aplicadas.push({ trecho: alvo.slice(0, 120), novo: String(c.novo || '').slice(0, 200), motivo: String(c.motivo || '') });
+  }
+  // Acréscimos: frase nova logo depois de um trecho existente, no mesmo bloco, com as referências somadas ao "ev".
+  for (const c of Array.isArray(acrescimos) ? acrescimos : []) {
+    const alvo = String(c?.depois_de || '').trim(), texto = String(c?.texto || '').replace(/\s+/g, ' ').trim();
+    if (alvo.length < 12 || texto.length < 12) { ignoradas.push({ ...c, razao: 'acréscimo sem trecho de apoio ou sem texto' }); continue; }
+    let n = 0; visita(doc, s => { n += s.split(alvo).length - 1; return s; });
+    if (n !== 1) { ignoradas.push({ ...c, razao: n ? 'trecho de apoio aparece mais de uma vez' : 'trecho de apoio não localizado' }); continue; }
+    const achar = (o, bloco) => {
+      if (Array.isArray(o)) { for (let i = 0; i < o.length; i++) { if (typeof o[i] === 'string') { if (o[i].includes(alvo)) return { obj: o, k: i, bloco }; } else { const r = achar(o[i], bloco); if (r) return r; } } return null; }
+      if (o && typeof o === 'object') { const b = Array.isArray(o.ev) ? o : bloco; for (const k of Object.keys(o)) { if (k === 'ev') continue; if (typeof o[k] === 'string') { if (o[k].includes(alvo)) return { obj: o, k, bloco: b }; } else { const r = achar(o[k], b); if (r) return r; } } }
+      return null;
+    };
+    const onde = achar(doc, null);
+    if (!onde) { ignoradas.push({ ...c, razao: 'trecho de apoio não localizado' }); continue; }
+    const s0 = onde.obj[onde.k], fim = s0.indexOf(alvo) + alvo.length;
+    let antes = s0.slice(0, fim), resto = s0.slice(fim);
+    // o trecho de apoio parou no meio da frase: o acréscimo entra depois do ponto final dela
+    if (!/[.!?…"”)]$/.test(antes.trim())) { const m = resto.match(/^[^.!?]*[.!?]/); if (m) { antes += m[0]; resto = resto.slice(m[0].length); } else { antes = `${antes.trim()}.`; } }
+    onde.obj[onde.k] = `${antes.trim()} ${texto}${resto.trim() ? ` ${resto.trim()}` : ''}`;
+    if (onde.bloco) for (const e of (Array.isArray(c.ev) ? c.ev : [])) if (/^(G|[A-Z]{1,2}\d{1,3})$/.test(String(e)) && !onde.bloco.ev.includes(e)) onde.bloco.ev.push(e);
+    aplicadas.push({ trecho: `(acréscimo depois de) ${alvo.slice(0, 90)}`, novo: texto.slice(0, 200), motivo: String(c.motivo || '') });
   }
   return { aplicadas, ignoradas };
 }
@@ -174,7 +277,7 @@ async function gerarParecerPE5(ctx, io) {
   const hojeBR = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
   const chamar = async (nome, prompt, extra = {}) => {
     const ini = Date.now();
-    const r = await io.chamarModelo({ prompt, pdfBuffers: extra.pdfBuffers || [], web: !!extra.web, etapa: nome, pensar: extra.pensar || 'medio' });
+    const r = await io.chamarModelo({ prompt, pdfBuffers: extra.pdfBuffers || [], web: !!extra.web, etapa: nome, pensar: extra.pensar || 'medio', buscas: extra.buscas || 0 });
     chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated, web: !!extra.web, ms: Date.now() - ini, tokens: r.usage || null });
     return r;
   };
@@ -212,9 +315,30 @@ async function gerarParecerPE5(ctx, io) {
   }
   passo(`lendo o texto com ${lentes.length} roteiros de especialista…`);
   const ilegiveis = documentos.filter(d => d.texto.trim().length < 400 && d.buffer).map(d => d.buffer);   // PDF de imagem vai anexado
-  const r1 = await chamar('leitura', R.pe5PromptLeitura({ identificacao: ctx.identificacao, ementa: ctx.ementa, documentos: legiveis, coleta, lentes, catalogo: R.ESPECIALISTAS, textoEmVotacao }), { pensar: 'alto', pdfBuffers: ilegiveis });
-  const Lbruta = pe5ExtrairJson(r1.text);
-  if (!Lbruta || typeof Lbruta !== 'object') return { erro: r1.truncated ? 'A leitura veio truncada: os documentos são grandes demais para uma chamada.' : 'Não consegui interpretar a leitura do modelo.', chamadas };
+  // Com mais de um documento a leitura vai em DUAS chamadas, em paralelo: o texto em votação (o que faz, o que
+  // muda, os achados) e os documentos de apoio (argumentos, estimativas, emendas, o que ficou sem resposta).
+  // Numa chamada só, com nove documentos, a resposta saía resumida demais (ver pe5-prompts.js).
+  const baseLeitura = { identificacao: ctx.identificacao, ementa: ctx.ementa, documentos: legiveis, coleta, lentes, catalogo: R.ESPECIALISTAS, textoEmVotacao };
+  const duas = legiveis.length >= 2 && ctx.leituraUnica !== true;
+  const avisosLeitura = [];
+  let r1, Lbruta;
+  if (duas) {
+    let r1b = null;
+    [r1, r1b] = await Promise.all([
+      chamar('leitura', R.pe5PromptLeitura({ ...baseLeitura, parte: 'texto' }), { pensar: 'alto', pdfBuffers: ilegiveis }),
+      chamar('leitura-apoio', R.pe5PromptLeitura({ ...baseLeitura, parte: 'apoio' }), { pensar: 'alto', pdfBuffers: ilegiveis }).catch(e => ({ text: '', erro: e.message })),
+    ]);
+    Lbruta = pe5ExtrairJson(r1.text);
+    const Lb = r1b && r1b.text ? pe5ExtrairJson(r1b.text) : null;
+    if (Lbruta && typeof Lbruta === 'object') {
+      if (Lb && typeof Lb === 'object') Lbruta = pe5JuntarLeituras(Lbruta, Lb);
+      else avisosLeitura.push(`A leitura dos documentos de apoio (argumentos, estimativas e emendas) ${r1b && r1b.erro ? `falhou: ${r1b.erro}` : r1b && r1b.truncated ? pe5MotivoTruncada(r1b) : 'não devolveu resultado utilizável'}. A nota foi feita só com a leitura do texto em votação.`);
+    }
+  } else {
+    r1 = await chamar('leitura', R.pe5PromptLeitura(baseLeitura), { pensar: 'alto', pdfBuffers: ilegiveis });
+    Lbruta = pe5ExtrairJson(r1.text);
+  }
+  if (!Lbruta || typeof Lbruta !== 'object') return { erro: r1.truncated ? `A leitura veio truncada: ${pe5MotivoTruncada(r1)}` : 'Não consegui interpretar a leitura do modelo.', chamadas };
   const tr = pe5ConferirTrechos(Lbruta, legiveis, R.pe5Norm);
   const leitura = tr.leitura;
   if (!(leitura.blocos || []).length) return { erro: `A leitura não trouxe nenhum bloco com trecho localizado nos documentos (${tr.recusados.length} recusados). O parecer não é gerado.`, chamadas, trechos: tr };
@@ -226,22 +350,56 @@ async function gerarParecerPE5(ctx, io) {
 
   // --- IA 2-5: pesquisas ---
   let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], judicializacao: [], avisos: [] } };
+  if (io.semWeb === true) pesquisa.semBusca = true;   // a conferência não cobra mínimos de pesquisa que não houve
   if (io.semWeb !== true) {
+    // Notícias das agências do Congresso: lidas pelo programa e entregues à busca do debate como fonte já coletada.
+    let noticias = [];
+    if (io.fetchFn && ctx.sigla && ctx.numero && ctx.ano && typeof R.agenciasBuscarNoticias === 'function') {
+      passo('lendo as notícias da Agência Senado e da Agência Câmara sobre a matéria…');
+      const fetchTexto = async u => { const r = await io.fetchFn(u); if (!r || !r.ok) throw new Error(`HTTP ${r && r.status}`); return typeof r.text === 'function' ? r.text() : Buffer.from(await r.arrayBuffer()).toString('utf8'); };
+      try { noticias = await R.agenciasBuscarNoticias({ sigla: ctx.sigla, numero: ctx.numero, ano: ctx.ano, idCamara: ctx.idProposicao || coleta?.proposicao?.id }, fetchTexto); } catch (_) { noticias = []; }
+    }
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
-    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR };
+    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR, noticias };
     const uma = async (nome, prompt, grupos) => {
-      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio' }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
+      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 5 }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
-    const [deb, intl, cx, cg] = await Promise.all([
-      uma('pesquisa-debate', R.pe5PromptDebate(base), { atores: 'Q' }),
+    // O debate vai em QUATRO buscas, uma por grupo de atores, cada uma com os dois lados (ver PE5_GRUPOS_DEBATE).
+    // Numa busca só, o modelo voltava com 11 atores onde havia mais de 20; em duas (apoio e crítica), entidades,
+    // entes e sociedade civil ficavam com dois ou três nomes (NTA do PLP 299/2026, 21 e 22/11/2026).
+    const grupos = Object.keys(R.PE5_GRUPOS_DEBATE || { politica: 1, economia: 1, federacao: 1, sociedade: 1 });
+    const nomeDebate = g => (g === 'politica' ? 'pesquisa-debate' : `pesquisa-debate-${g}`);
+    const [debates, intl, cx, cg] = await Promise.all([
+      Promise.all(grupos.map(g => uma(nomeDebate(g), R.pe5PromptDebate({ ...base, foco: g }), { atores: 'Q' }).then(r => ({ ...r, grupo: (R.PE5_GRUPOS_DEBATE?.[g]?.rotulo) || g })))),
       uma('pesquisa-internacional', R.pe5PromptInternacional(base), { jurisdicoes: 'W' }),
       uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
       uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', judicializacao: 'L' }),
     ]);
+    const deb = pe5JuntarDebates(...debates);
+    // Mínimos (cinco países, quatro decisões, um país de modelo oposto, a origem das leis alteradas): abaixo
+    // deles, UMA chamada complementar pede só o que falta. O país oposto e a origem da lei alterada entraram em
+    // 22/11/2026: a NTA do PLP 299/2026 não trouxe os Estados Unidos (o Executivo não pode reter gasto aprovado)
+    // nem o PLP 93/2023, projeto que criou a Lei Complementar nº 200/2023, a lei mais alterada pelo texto.
+    const PE5_MIN_PAISES = 5, PE5_MIN_DECISOES = 4;
+    const nP = (intl.jurisdicoes || []).length, nD = (cx.jurisprudencia || []).length;
+    const semContraste = !(intl.jurisdicoes || []).some(R.pe5EhContraste);
+    const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura, { anoRef: hoje.getFullYear() }), cg.historico).map(l => l.lei);
+    if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES || semContraste || faltaOrigens.length) {
+      passo('completando a pesquisa (o que ficou abaixo do mínimo ou faltou)…');
+      const eixos = Array.isArray(intl.eixos) ? intl.eixos : [];
+      const comp = await uma('pesquisa-complementar', R.pe5PromptComplementar({ ...base, faltaPaises: Math.max(0, PE5_MIN_PAISES - nP), faltaDecisoes: Math.max(0, PE5_MIN_DECISOES - nD),
+        jaPaises: (intl.jurisdicoes || []).map(j => j.lugar), jaDecisoes: (cx.jurisprudencia || []).map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !(intl.jurisdicoes || []).some(j => String(j.eixo || '') === e)), faltaContraste: semContraste, faltaOrigens }), { jurisdicoes: 'W', jurisprudencia: 'R', historico: 'H' });
+      const soma = (lista, novos, pref) => { const n0 = lista.length; return [...lista, ...(novos || []).map((x, i) => ({ ...x, id: `${pref}${n0 + i + 1}` }))]; };
+      intl.jurisdicoes = soma(intl.jurisdicoes || [], comp.jurisdicoes, 'W');
+      cx.jurisprudencia = soma(cx.jurisprudencia || [], comp.jurisprudencia, 'R');
+      cg.historico = soma(cg.historico || [], comp.historico, 'H');
+      intl.avisos = [...(intl.avisos || []), ...(comp.avisos || [])];
+    }
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];
     pesquisa.debate.controversias.forEach((c, i) => { if (c && !c.id) c.id = `D${i + 1}`; });
+    pesquisa.noticias = noticias.map(n => ({ casa: n.casa, veiculo: n.veiculo, titulo: n.titulo, data: n.data, url: n.url }));
   }
 
   // --- programa: o partido e a matéria (depois da pesquisa, que diz quais são as proposições correlatas) ---
@@ -254,27 +412,60 @@ async function gerarParecerPE5(ctx, io) {
 
   // --- IA 6-7: redação ---
   const baseRed = { identificacao: ctx.identificacao, hoje: hojeBR, leitura, pesquisa, coleta, alteracoes: lv.alteracoes, cambio };
+  // Quatro chamadas, cada uma com as seções dela (ver pe5-prompts.js): a matéria e o debate em paralelo; depois
+  // a análise, que lê a primeira metade; por último os caminhos e a abertura, que leem tudo.
   passo('redigindo a matéria, o debate e a experiência internacional…');
-  const r5 = await chamar('redacao-1', R.pe5PromptRedacao1(baseRed), { pensar: 'alto' });
-  const parte1 = pe5ExtrairJson(r5.text);
-  if (!parte1 || typeof parte1 !== 'object') return { erro: r5.truncated ? 'A primeira metade da redação veio truncada.' : 'Não consegui interpretar a primeira metade da redação.', chamadas };
-  passo('redigindo a análise, os caminhos e a abertura…');
+  const obj = r => { const j = pe5ExtrairJson(r.text); return j && typeof j === 'object' ? j : null; };
+  const falhou = (r, oQue) => ({ erro: r.truncated ? `${oQue} veio truncada: ${pe5MotivoTruncada(r)}` : `Não consegui interpretar ${oQue.charAt(0).toLowerCase() + oQue.slice(1)}.`, chamadas });
+  // "Quem se posicionou e como" tem chamada própria (redacao-1c), sem teto total: o tamanho é o número de atores.
+  const [r5, r5b, r5c] = await Promise.all([
+    chamar('redacao-1', R.pe5PromptRedacao1({ ...baseRed, parte: 'materia' }), { pensar: 'alto' }),
+    chamar('redacao-1b', R.pe5PromptRedacao1({ ...baseRed, parte: 'debate' }), { pensar: 'alto' }),
+    chamar('redacao-1c', R.pe5PromptRedacao1({ ...baseRed, parte: 'quem' }), { pensar: 'alto' }),
+  ]);
+  const j5 = obj(r5), j5b = obj(r5b), j5c = obj(r5c);
+  if (!j5) return falhou(r5, 'A redação da matéria');
+  if (!j5b) return falhou(r5b, 'A redação do debate');
+  // "Quem se posicionou e como" não tem teto e pode vir truncada com muitos atores: a nota segue sem a seção, com
+  // aviso na conferência, em vez de perder a leitura, as pesquisas e as outras redações.
+  const avisosRedacao = [];
+  if (!j5c) avisosRedacao.push(`"Quem se posicionou e como" não foi redigida: ${r5c.truncated ? `a resposta veio truncada (${pe5MotivoTruncada(r5c)})` : 'a resposta do modelo não pôde ser interpretada'}. A nota saiu sem os parágrafos de posição; o quadro de tendência, que é do programa, foi mantido. Gere de novo para obter a seção.`);
+  const quem = (j5c && j5c.quem) || {};
+  const parte1 = { materia: j5.materia || {}, debate: { ...(j5b.debate || {}), posicoes: Array.isArray(quem.posicoes) ? quem.posicoes : (j5c?.debate?.posicoes || j5b.debate?.posicoes || []), sintese: quem.sintese || null }, internacional: j5b.internacional || {} };
+  passo('redigindo a análise técnica…');
   // A lei em vigor vai inteira à análise e à revisão: é o que permite ao modelo dizer "a lei atual já tem regra
   // parecida" a partir do texto, e não de memória. Entrada é a parte barata da chamada.
   const leiIntegral = (lv.integrais || []).map(x => `<<<${x.norma} — ${x.origem}>>>\n${String(x.texto).slice(0, 160000)}`).join('\n\n').slice(0, 320000);
-  const r6 = await chamar('redacao-2', R.pe5PromptRedacao2({ ...baseRed, parte1, leiIntegral }), { pensar: 'alto' });
-  const parte2 = pe5ExtrairJson(r6.text);
-  if (!parte2 || typeof parte2 !== 'object') return { erro: r6.truncated ? 'A segunda metade da redação veio truncada.' : 'Não consegui interpretar a segunda metade da redação.', chamadas };
+  const r6 = await chamar('redacao-2', R.pe5PromptRedacao2({ ...baseRed, parte1, leiIntegral, parte: 'analise' }), { pensar: 'alto' });
+  const j6 = obj(r6);
+  if (!j6) return falhou(r6, 'A redação da análise');
+  passo('redigindo os caminhos e a abertura…');
+  const r6b = await chamar('redacao-2b', R.pe5PromptRedacao2({ ...baseRed, parte1, analise: j6.analise || {}, parte: 'caminhos' }), { pensar: 'alto' });
+  const j6b = obj(r6b);
+  if (!j6b) return falhou(r6b, 'A redação dos caminhos e da abertura');
+  const parte2 = { analise: j6.analise || {}, caminhos: j6b.caminhos || {}, abertura: j6b.abertura || {} };
   const doc = { materia: parte1.materia || {}, debate: parte1.debate || {}, internacional: parte1.internacional || {}, analise: parte2.analise || {}, caminhos: parte2.caminhos || {}, abertura: parte2.abertura || {} };
 
   // --- IA 8: revisão ---
+  // A conferência do programa corre ANTES da revisão, e o que ela aponta vai ao revisor para ser corrigido na
+  // mesma chamada (número sem base, ausência sem escopo, repetição, item lido e não usado). Antes, a conferência
+  // só avisava: a NTA do PLP 299/2026 saiu com quatro ressalvas que ninguém consertou.
+  const montar = () => ({
+    versao: 5, materia: ctx.identificacao, sigla: ctx.sigla || '', ementa: ctx.ementa || coleta?.proposicao?.ementa || '', textoAnalisado: textoEmVotacao,
+    geradoEm: hoje.toISOString(), geradoPor: ctx.geradoPor || '',
+    coleta, cambio, inventario, leitura, pesquisa, doc, alteracoes: lv.alteracoes, avisosLei: lv.avisos, revisao: { aplicadas: [], ignoradas: [], observacoes: [] },
+    trechos: { conferidos: tr.conferidos, recusados: tr.recusados },
+    base: { documentos: legiveis.map(d => d.texto).join('\n'), lei: (lv.integrais || []).map(x => x.texto).join('\n') || lv.textoBase },
+  });
   let revisao = { aplicadas: [], ignoradas: [], observacoes: [] };
   if (io.semRevisao !== true) {
-    passo('revisão: procurando erros no texto…');
+    passo('revisão: conferindo o texto e corrigindo o que o programa apontou…');
     try {
-      const r7 = await chamar('revisao', R.pe5PromptRevisao({ ...baseRed, doc, leiIntegral }), { pensar: 'medio' });
+      let apontamentos = [];
+      try { apontamentos = (R.pe5Conferir(montar(), { hoje }).itens || []).filter(i => !i.ok && i.detalhe && PE5_RE_APONTAMENTO_CORRIGIVEL.test(i.teste)).map(i => `${i.teste}: ${i.detalhe}`.slice(0, 900)); } catch (_) { /* a revisão segue sem os apontamentos */ }
+      const r7 = await chamar('revisao', R.pe5PromptRevisao({ ...baseRed, doc, leiIntegral, apontamentos }), { pensar: 'medio' });
       const j = pe5ExtrairJson(r7.text) || {};
-      revisao = { ...pe5AplicarRevisao(doc, j.correcoes), observacoes: (Array.isArray(j.observacoes) ? j.observacoes : []).filter(x => typeof x === 'string').slice(0, 12) };
+      revisao = { ...pe5AplicarRevisao(doc, j.correcoes, j.acrescimos), apontamentos: apontamentos.length, observacoes: (Array.isArray(j.observacoes) ? j.observacoes : []).filter(x => typeof x === 'string').slice(0, 12) };
     } catch (e) { revisao.observacoes.push(`A revisão não rodou: ${e.message}`); }
   }
 
@@ -290,6 +481,8 @@ async function gerarParecerPE5(ctx, io) {
     chamadas, duracaoMs: Date.now() - t0,
   };
   p.conferencia = R.pe5Conferir(p, { hoje });
+  for (const a of avisosRedacao) p.conferencia.itens.push({ teste: 'Redação de "Quem se posicionou e como"', ok: false, detalhe: a, critico: true });
+  for (const a of avisosLeitura) p.conferencia.itens.push({ teste: 'Leitura dos documentos de apoio', ok: false, detalhe: a, critico: false });
   for (const a of lv.avisos) p.conferencia.itens.push({ teste: 'Leitura da lei em vigor', ok: false, detalhe: a, critico: false });
   for (const o of revisao.observacoes) p.conferencia.itens.push({ teste: 'Observação da revisão', ok: false, detalhe: o, critico: false });
   const tok = chamadas.reduce((s, c) => ({ entrada: s.entrada + (c.tokens?.entrada || 0), saida: s.saida + (c.tokens?.saida || 0), raciocinio: s.raciocinio + (c.tokens?.raciocinio || 0), total: s.total + (c.tokens?.total || 0) }), { entrada: 0, saida: 0, raciocinio: 0, total: 0 });
@@ -300,5 +493,5 @@ async function gerarParecerPE5(ctx, io) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { gerarParecerPE5, pe5ExtrairJson, pe5ConferirTrechos, pe5Cambio, pe5LeiVigente, pe5LimparPesquisa, pe5AplicarRevisao };
+  module.exports = { gerarParecerPE5, pe5ExtrairJson, pe5ConferirTrechos, pe5JuntarLeituras, pe5JuntarDebates, pe5MotivoTruncada, pe5Cambio, pe5LeiVigente, pe5LimparPesquisa, pe5AplicarRevisao };
 }

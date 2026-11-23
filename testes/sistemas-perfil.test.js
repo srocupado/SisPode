@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Perfil dos distritos (distrital misto): o núcleo (sistemas-perfil.js) e as
 // peças do gerador (sistemas/perfil/gerar-perfil.js) que não dependem da rede.

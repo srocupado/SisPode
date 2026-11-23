@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    CONTROLE DE COMISSÕES – PODEMOS
    Liderança do Podemos – Câmara dos Deputados

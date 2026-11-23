@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções do lote 5 da varredura (15/09/2026) — bot do Telegram: falha de
 // consulta não vira fato, registro de mensagem não falha calado e ferramenta do
 // agente tem prazo.

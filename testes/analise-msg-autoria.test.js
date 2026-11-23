@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Análise de Pauta · mensagem "Itens do Podemos na Pauta" (WhatsApp): o
 // deputado do Podemos é AUTOR só quando é o 1º signatário; do 2º em diante,
 // COAUTOR — o mesmo critério do badge. Caso real: PL 2475/2025 em 03/11/2026.

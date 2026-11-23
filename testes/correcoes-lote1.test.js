@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções do lote 1 da varredura (14/09/2026) — Reunião de Líderes e
 // Congresso. Cada teste reproduz o cenário que produzia informação errada ou
 // perda de trabalho da equipe, no escopo real da página (scripts clássicos num

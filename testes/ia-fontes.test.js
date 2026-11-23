@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Captura das fontes da busca na web, em ia-comum.js.
 //
 // Quando `web` está ligado, o modelo sai do material que a gente deu e traz

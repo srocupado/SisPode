@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Prints de votação: o mesmo desenho no bot e na extensão.
 //
 // O bot manda no grupo o print de cada votação nominal encerrada e grava o

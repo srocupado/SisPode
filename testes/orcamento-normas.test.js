@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Vigência da base normativa de uma nota orçamentária (normas.js) e leitura
 // das fontes da CMO (cmo.js).
 //

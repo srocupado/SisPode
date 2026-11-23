@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Leitura da planilha oficial do Fundo Nacional de Saúde (módulo Emendas).
 //
 // Roda contra os arquivos REAIS baixados do portal em 19/08/2026:

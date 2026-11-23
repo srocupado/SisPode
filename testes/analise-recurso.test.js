@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Recurso contra apreciação conclusiva: o voto do último parecer aprovado da
 // CCJC decide o documento da nota (analise.js, apurarRecurso/votoCCJC).
 // Conclusões reais da pauta de 03/11/2026 e variações frequentes da CCJC.

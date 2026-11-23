@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Produto 4 do módulo de orçamento — os NÚMEROS do exercício.
 //
 // A ressalva registrada em b0b554d era que a nota saía sem um número do

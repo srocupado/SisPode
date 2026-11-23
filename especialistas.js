@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 /* ============================================================
    ROTEIROS DE ESPECIALISTA — v2, revisada pela Liderança
 

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Gera apuracao/index.html — o painel de apuração num ARQUIVO ÚNICO:
 // modelo (apuracao.base.html) + logo em base64 + mapa + leitura do TSE
 // (labs-apuracao.js, o mesmo código da extensão) + tela do site (apuracao-site.js).

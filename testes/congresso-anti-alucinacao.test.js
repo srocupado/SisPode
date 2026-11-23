@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Módulo de Congresso Nacional: mecanismos anti-alucinação (12/11/2026), o mesmo padrão da nota do Plenário.
 //
 // O que este teste trava:

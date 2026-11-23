@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes do módulo Reunião de Líderes.
 //
 // lideres.js roda no navegador, então aqui ele é carregado num sandbox com os

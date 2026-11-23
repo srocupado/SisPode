@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Forma da nota técnica, qualquer que seja o modelo (19/11/2026).
 //
 // CASO REAL: com o MESMO prompt, o gemini-3.1-flash-lite começava a nota em "## Objetivo", sem listas

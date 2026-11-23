@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // RECURSOS (proposições do tipo REC) — base DIFERENTE da de questões de ordem.
 //

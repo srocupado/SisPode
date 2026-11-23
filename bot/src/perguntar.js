@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // "Pergunte ao revisor" fora do painel — porte de analise.js
 // (montarContextoChat / montarPromptChat / enviarPerguntaIA).

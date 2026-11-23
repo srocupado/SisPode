@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Sistemas Eleitorais — núcleo PURO das simulações (sem DOM, sem rede): lê o
 // arquivo de resultados do TSE de um estado e distribui as vagas da Câmara (ou

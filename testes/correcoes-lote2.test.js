@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Correções do lote 2 da varredura (14/09/2026) — CCJC, gestão de comissões e
 // painel de votação. Cada teste reproduz o cenário que levava informação errada
 // à mesa do deputado ou apagava trabalho da equipe.

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Módulo de Congresso Nacional (congresso.html): pauta de Sessão Conjunta.
 //
 // O que este teste trava:

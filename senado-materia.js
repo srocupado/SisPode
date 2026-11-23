@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Matéria que está na pauta da Câmara e que a Câmara ainda não registrou: o que o Senado sabe dela.
 //
 // Nasceu em 17/11/2026, com o PLP 299/2026. A matéria entrou na pauta do Plenário da Câmara antes de o
@@ -70,6 +71,70 @@ function senadoEscolherDocumentos(lista = []) {
     if (inicial) out.push({ tipo: 'INTEIRO_TEOR', rotulo: `Texto inicial no Senado (${inicial.autoria || 'autor não informado'}${de(inicial)})`, url: inicial.url, data: inicial.data, doSenado: true });
   }
   return out;
+}
+
+/**
+ * Documentos do Senado que servem de APOIO à Nota Técnica Analítica (NTA) de matéria que passou por lá.
+ *
+ * Nasceu em 21/11/2026, com o PLP 299/2026: a Câmara só tinha o autógrafo e o parecer do relator de Plenário.
+ * A comparação entre versões, as estimativas e o destino das emendas saíram de documentos do Senado que foram
+ * juntados à mão. Aqui o programa os escolhe:
+ *   - os pareceres do relator (até três, do mais recente para o mais antigo);
+ *   - a PRIMEIRA versão do relatório, quando é anterior aos pareceres (traz o primeiro substitutivo);
+ *   - o texto inicial (o projeto como foi apresentado);
+ *   - as emendas do próprio relator (o substitutivo) e as que o registro de votação dá como aprovadas.
+ * Ficam de fora os avulsos de emendas (dezenas de megabytes), os requerimentos, as listagens de votação (o
+ * placar o programa já lê nos dados abertos) e o autógrafo (a Câmara o registra como o texto da matéria).
+ * A nota de consultoria do Senado não aparece nesta lista: é publicada em outro endereço.
+ * Devolve [{ tipo: 'APOIO_SENADO', rotulo, url, data, apoioSenado: true }], no máximo `max`.
+ */
+function senadoDocumentosDeApoio(lista = [], { max = 10 } = {}) {
+  const docs = (Array.isArray(lista) ? lista : []).filter(d => d && d.urlDocumento).map(d => ({
+    sigla: String(d.siglaTipo || '').toUpperCase(), identificacao: String(d.identificacao || '').replace(/\s+/g, ' ').trim(),
+    descricao: String(d.descricao || '').replace(/\s+/g, ' ').trim(), data: String(d.dataDocumento || d.dataRecebimento || '').slice(0, 10), autoria: String(d.autoria || '').trim(), url: _senUrl(d.urlDocumento),
+  }));
+  const de = d => d.data ? `, de ${_senDataBR(d.data)}` : '';
+  const porData = (x, y) => (x.data || '').localeCompare(y.data || '');
+  const out = [], visto = new Set();
+  const poe = (d, rotulo) => { if (d && !visto.has(d.url) && out.length < max) { visto.add(d.url); out.push({ tipo: 'APOIO_SENADO', rotulo, url: d.url, data: d.data, apoioSenado: true }); } };
+  const pareceres = docs.filter(d => d.sigla === 'PARECER').sort((x, y) => porData(y, x)).slice(0, 3);
+  for (const p of pareceres) poe(p, `Parecer no Senado (${p.identificacao || 'Parecer'}${p.autoria ? ', ' + p.autoria : ''}${de(p)})`);
+  const relatorios = docs.filter(d => d.sigla === 'RELATORIO').sort(porData);
+  const maisAntigoParecer = pareceres.length ? pareceres[pareceres.length - 1].data : '';
+  if (relatorios.length && (!pareceres.length || (relatorios[0].data && relatorios[0].data < maisAntigoParecer)))
+    poe(relatorios[0], `Relatório do relator no Senado${pareceres.length ? ', primeira versão' : ''} (${relatorios[0].autoria || 'relator'}${de(relatorios[0])})`);
+  const inicial = docs.filter(d => /^(PROJETO_|PROPOSTA_|MEDIDA_PROVISORIA)/.test(d.sigla) && !/aut[óo]grafo|reda[çc][ãa]o final|texto final/i.test(d.identificacao)).sort(porData)[0];
+  if (inicial) poe(inicial, `Texto inicial no Senado (${inicial.autoria || 'autor não informado'}${de(inicial)})`);
+  // emendas: as do relator e as que a listagem de votação registra como aprovadas
+  const numDe = d => (d.identificacao.match(/^EMENDA\s+(\d+)\b/i) || [])[1];
+  const relatores = new Set(pareceres.concat(relatorios).map(d => d.autoria).filter(Boolean));
+  const aprovadas = new Set();
+  for (const l of docs.filter(d => d.sigla === 'LISTAGEM_RELATORIO' && /aprovad[ao]s?\b/i.test(d.descricao))) {
+    const trecho = l.descricao.split(/rejeitad/i)[0];
+    for (const m of trecho.matchAll(/Emendas?\s+n[ºo°]s?\.?\s*((?:\d+\s*(?:,|e|a)?\s*)+)/gi)) for (const n of m[1].match(/\d+/g) || []) aprovadas.add(n);
+  }
+  const emendas = docs.filter(d => d.sigla === 'EMENDA' && numDe(d));
+  for (const e of emendas.filter(e => relatores.has(e.autoria)).sort((x, y) => Number(numDe(y)) - Number(numDe(x))).slice(0, 3))
+    poe(e, `Emenda do relator no Senado (${e.descricao && !/^-$/.test(e.descricao) ? e.descricao : 'Emenda nº ' + numDe(e)}${de(e)})`);
+  for (const e of emendas.filter(e => aprovadas.has(numDe(e)) && !relatores.has(e.autoria)).sort((x, y) => Number(numDe(x)) - Number(numDe(y))).slice(0, 6))
+    poe(e, `Emenda nº ${numDe(e)} aprovada no Senado (${e.autoria || 'autor não informado'})`);
+  return out;
+}
+
+/**
+ * Consulta o Senado e devolve os documentos de apoio da matéria: { id, casaIniciadora, url, documentos } ou null
+ * (sigla sem numeração única, matéria que o Senado não tem, ou ementa sem relação com a da Câmara).
+ */
+async function senadoApoioDaMateria({ sigla, numero, ano, ementa = '' } = {}, fetchJson) {
+  const sg = String(sigla || '').toUpperCase();
+  if (!senadoTemSigla(sg) || !/^\d+$/.test(String(numero || '')) || !/^\d{4}$/.test(String(ano || ''))) return null;
+  const lista = await fetchJson(`${SENADO_API}/processo?sigla=${encodeURIComponent(sg)}&numero=${Number(numero)}&ano=${ano}`);
+  const esperado = `${sg} ${Number(numero)}/${ano}`;
+  const hits = (Array.isArray(lista) ? lista : []).filter(x => x && String(x.identificacao || '').replace(/\s+/g, ' ').trim().toUpperCase() === esperado);
+  const h = hits.find(x => { const m = senadoMesmaMateria(ementa, x.ementa); return m.indefinido || m.parecida; });
+  if (!h) return null;
+  const docs = await fetchJson(`${SENADO_API}/processo/documento?idProcesso=${h.id}`);
+  return { id: h.id, casaIniciadora: String(h.casaIdentificadora || '').trim(), url: h.codigoMateria ? `https://www25.senado.leg.br/web/atividade/materias/-/materia/${h.codigoMateria}` : '', documentos: senadoDocumentosDeApoio(docs) };
 }
 
 /** Último andamento registrado: { data: 'dd/mm/aaaa', texto }. */
@@ -150,5 +215,5 @@ function provisorioAviso(prov, identificacao) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SENADO_API, SENADO_SIGLAS, SENADO_CENARIO, PROVISORIO_ROTULO, senadoTemSigla, senadoMesmaMateria, senadoEscolherDocumentos, senadoUltimoAndamento, senadoBuscar, senadoResumo, senadoInstrucao, provisorioAviso };
+  module.exports = { SENADO_API, SENADO_SIGLAS, SENADO_CENARIO, PROVISORIO_ROTULO, senadoTemSigla, senadoMesmaMateria, senadoEscolherDocumentos, senadoDocumentosDeApoio, senadoApoioDaMateria, senadoUltimoAndamento, senadoBuscar, senadoResumo, senadoInstrucao, provisorioAviso };
 }

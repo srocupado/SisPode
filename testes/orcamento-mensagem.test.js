@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Tabelas da Mensagem Presidencial (mensagem.js) — "o que subiu e o que caiu".
 //
 // A crítica que originou este arquivo: o módulo dizia ONDE o processo está e

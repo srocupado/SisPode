@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Tela de notas orçamentárias com o produto 4 (números do exercício), num
 // quadro SINTÉTICO — sem rede.
 //

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Filtros "Só não atendidas" e "Só atendidas" da aba Demandas de Deputados (lideres.html).
 //
 // O que este teste trava:

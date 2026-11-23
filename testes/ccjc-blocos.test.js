@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Pautas CCJC · blocos e números dos itens (ccjc-blocos.js): a pauta oficial da reunião
 // (link "Pauta" da página do evento) lida sem IA, a visão geral do resumo executivo e da
 // pauta comentada.

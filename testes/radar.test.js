@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Aba "Radar temático" do módulo Relatórios.
 //
 // Duas medições da API (18/09/2026, a primeira revista em 28/09) desenharam esta tela, e as duas estão

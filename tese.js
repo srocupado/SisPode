@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista — TESE, CONTRADITÓRIO e REDAÇÃO por afirmações.
 //
 // A lição das três rodadas rejeitadas: "o JS pega número inventado; não pega

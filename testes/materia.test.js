@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Testes do /materia (bot) — a ficha avulsa no formato da Reunião de Líderes.
 //
 // PORTE AUTÔNOMO de lideres.js por decisão de projeto: os módulos não

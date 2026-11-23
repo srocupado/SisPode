@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Porte do mecanismo "TEMAS DE INTERESSE DOS PARLAMENTARES" (badge laranja do
 // módulo Análise de Pauta da extensão) para o bot.

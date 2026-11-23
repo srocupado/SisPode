@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 // Relatórios · Sistemas eleitorais — a tela (só na extensão). Lê os votos
 // oficiais do TSE — servidor de resultados na eleição corrente; dados abertos

@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Plenário: responsáveis sorteados na importação da pauta e a caixa "Revisada" (12/11/2026).
 //
 // O que este teste trava:

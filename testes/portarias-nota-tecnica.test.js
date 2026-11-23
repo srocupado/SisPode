@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Orçamento · Notas de portarias — NOTA TÉCNICA DE ATO QUE ALTERA OUTRO.
 //
 // A nota técnica de uma portaria que altera outra lia os artigos ("o art. 2º-A

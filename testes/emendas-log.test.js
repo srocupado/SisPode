@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Log da coleta e detecção de mudanças (módulo Orçamento — Emendas).
 //
 // O log é o que o analista copia e manda quando algo dá errado no navegador

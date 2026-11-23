@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Teste de fumaça da TELA de notas orçamentárias.
 //
 // Por que ele existe: os arquivos desta extensão são scripts clássicos que

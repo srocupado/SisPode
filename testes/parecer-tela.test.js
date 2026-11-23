@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Parecer de Especialista v3 — a página do Plenário carrega os módulos no
 // mesmo escopo, e o pipeline roda DENTRO desse escopo (modo navegador: sem
 // require, sem eval, referências pelo identificador) com um modelo falso.
@@ -86,15 +87,19 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
     await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-haiku-4-5-20251001", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-4-carbon", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-4-carbon", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 12000, pensar: "alto" } })');
     const c = av('__corpos');
     ok(c[0].generationConfig.maxOutputTokens === 64000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 64000 (o raciocínio conta no teto) e thinkingLevel high');
+    ok(c[0].generationConfig.thinkingConfig.includeThoughts === true, 'Gemini 3 em streaming: pede os resumos do raciocínio (includeThoughts), para a conexão não ficar muda e cair antes do primeiro byte');
     ok(c[1].generationConfig.thinkingConfig === undefined && c[1].generationConfig.temperature === undefined, 'Gemini 2.5: sem thinkingBudget nem temperature (deprecados pelo Google); raciocínio padrão do modelo');
-    ok(c[2].max_tokens === 48000 && c[2].thinking?.type === 'adaptive' && c[2].thinking.budget_tokens === undefined && c[2].output_config?.effort === 'high' && c[2].temperature === undefined, 'Anthropic opus-5: thinking adaptive + effort high, sem budget_tokens nem temperature');
+    ok(c[2].max_tokens === 96000 && c[5].max_tokens === 48000 && c[2].thinking?.type === 'adaptive' && c[2].thinking.budget_tokens === undefined && c[2].output_config?.effort === 'high' && c[2].temperature === undefined, 'Anthropic opus-5: thinking adaptive + effort high, sem budget_tokens nem temperature; folga larga de saída (o raciocínio adaptativo não tem orçamento e cortava a resposta), e a folga antiga nos modelos com budget_tokens');
     ok(c[5].thinking?.type === 'enabled' && c[5].thinking.budget_tokens === 16000 && c[5].output_config === undefined, 'Anthropic haiku-4.5: ainda budget_tokens, sem output_config');
     ok(c[6].thinking?.type === 'adaptive' && c[6].output_config?.effort === 'high', 'Anthropic sonnet-5: adaptive (o erro "thinking.type.enabled is not supported" não volta)');
     for (const [m, e] of [['claude-sonnet-4-6', true], ['claude-opus-4-1-20250805', false], ['claude-3-7-sonnet-20250219', false], ['claude-fable-5-1', true], ['claude-opus-4-8', true]]) ok(av(`raciocinioAdaptativo(${JSON.stringify(m)})`) === e, `raciocinioAdaptativo(${m}) = ${e}`);
     ok(c[3].max_output_tokens === 64000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
     ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
+    ok(c[7].generationConfig.thinkingConfig.thinkingLevel === 'medium' && c[7].generationConfig.maxOutputTokens === 65536 && c[7].generationConfig.thinkingConfig.includeThoughts === true && c[8].generationConfig.thinkingConfig.thinkingLevel === 'high', 'Gemini 4 com resposta longa: raciocínio médio e teto de 65.536 (no alto, o raciocínio consumia 44 mil e a resposta vinha cortada); resposta curta segue no alto');
     const sse = av('__viaSse'), urls = av('__urls');
     ok(sse[0] && sse[2] && sse[3] && !sse[4] && /:streamGenerateContent\?alt=sse/.test(urls[0]) && c[2].stream === true && c[3].stream === true && c[4].stream === undefined, 'com raciocínio as três APIs vão em streaming (o Chrome derruba a conexão muda); a nota comum não');
     // o parser de SSE e a montagem do texto, com as respostas reais de cada provedor
@@ -135,7 +140,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     ok(/versão mais alta/.test(av(`document.querySelector('#dlg-parecer-status').textContent`)), 'o motivo da pré-seleção está escrito no diálogo');
     // aviso de custo (decisão de 08/09/2026): tempo e tokens em destaque; o botão diz o que está fazendo
     const avisoTxt = av(`(document.querySelector('#dlg-parecer .aviso-custo') || {}).textContent || ''`);
-    ok(/Pesquisa longa e de alto consumo/.test(avisoTxt) && /de 10 a 30 minutos/.test(avisoTxt) && /8 chamadas ao modelo, quatro delas com busca na internet/.test(avisoTxt) && /consumo real desta geração fica registrado/.test(avisoTxt) && !/7 a 12 minutos|250 a 350 mil tokens/.test(avisoTxt) && /Mantenha esta aba aberta/.test(avisoTxt), 'o diálogo avisa que a pesquisa é longa e cara, sem os números de setembro (três pareceres medidos em 17/11/2026 levaram 15, 22 e 33 minutos)');
+    ok(/Pesquisa longa e de alto consumo/.test(avisoTxt) && /de 25 a 45 minutos/.test(avisoTxt) && /12 chamadas ao modelo, cinco delas com busca na internet/.test(avisoTxt) && !/R\$ 10/.test(avisoTxt) && /consumo real desta geração fica registrado/.test(avisoTxt) && !/7 a 12 minutos|250 a 350 mil tokens/.test(avisoTxt) && /Mantenha esta aba aberta/.test(avisoTxt), 'o diálogo avisa que a pesquisa é longa e cara, sem os números de setembro (três pareceres medidos em 17/11/2026 levaram 15, 22 e 33 minutos)');
     ok(av(`document.querySelector('#dlg-parecer-gerar').textContent`) === 'Gerar mesmo assim' && !av(`document.querySelector('#dlg-parecer input[type=checkbox]')`), 'botão "Gerar mesmo assim"; sem caixa de opção (a busca na internet fica sempre ligada)');
     ok(!/Custo esperado: 4 a 6 chamadas/.test(av(`document.querySelector('#dlg-parecer').textContent`)), 'a estimativa antiga (4 a 6 chamadas, 60 a 90 mil tokens) saiu');
     ok(/\.aviso-custo\s*\{/.test(fs.readFileSync(path.join(RAIZ, 'panel.css'), 'utf8')), 'o estilo .aviso-custo existe no panel.css');

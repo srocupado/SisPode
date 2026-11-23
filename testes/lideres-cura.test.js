@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Teste da CURA de reuniões antigas — reproduz o bug relatado em 11/08/2026:
 // reunião consultada na Câmara antes de os campos do Podemos existirem ficava
 // sem badge, sem tarja no PDF e com o botão de WhatsApp respondendo "nenhum

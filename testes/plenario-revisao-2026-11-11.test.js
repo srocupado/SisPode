@@ -1,3 +1,4 @@
+// SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Revisão do módulo de Plenário (Análise de Pauta) de 11/11/2026 — dez correções.
 //
 // O que este teste trava (um bloco por achado):
