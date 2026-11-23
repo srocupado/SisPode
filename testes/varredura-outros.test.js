@@ -41,7 +41,7 @@ function montarCCJC(api) {
       let m = u.match(/\/deputados\/(\d+)$/);
       if (m) {
         const p = api.deputados[m[1]];
-        return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: 'SP' } } }) : erro(404);
+        return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: 'SP', idLegislatura: p.leg || 57 } } }) : erro(404);
       }
       m = u.match(/\/proposicoes\/(\d+)\/relacionadas/);
       if (m) return resp({ dados: api.relacionadas[m[1]] || [] });

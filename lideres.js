@@ -1020,7 +1020,10 @@ async function carregarDadosPeloPortal(it, erroApi) {
     it.situacaoApi    = hit.situacaoProposicao || '';
     const autores = autoresDaBusca(hit);
     it.autoresApi     = autores.map(a => a.nome + (a.siglaPartido ? ` (${a.siglaPartido}${a.siglaUF ? '-' + a.siglaUF : ''})` : '')).filter(Boolean).slice(0, 5);
-    const pode = autores.filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS);
+    // O partido da busca é o da ÉPOCA da autoria: confere com a bancada de hoje (sem ela, fica o da busca).
+    const bancadaHoje = await bancadaPodemos().catch(() => null);
+    const naBancada = a => !bancadaHoje || bancadaHoje.has(nomeChave(a.nome));
+    const pode = autores.filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS && naBancada(a));
     it.autoriaPodemos = pode.length > 0;
     it.autoresPodemos = pode.map(a => a.nome);
     // 1º signatário (numSequencial = 1) = autoria; assinou depois = coautoria — o mesmo critério da API.
@@ -1036,7 +1039,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
       if (arv) {
         it.papel = { apensada: false, temApensados: arv.apensados.length > 0 };
         it.apensadosPodemos = arv.apensados
-          .map(h => ({ chave: `${String(h.siglaProposicao).toUpperCase()} ${h.numero}/${h.ano}`, autores: autoresDaBusca(h).filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS).map(a => a.nome) }))
+          .map(h => ({ chave: `${String(h.siglaProposicao).toUpperCase()} ${h.numero}/${h.ano}`, autores: autoresDaBusca(h).filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS && naBancada(a)).map(a => a.nome) }))
           .filter(a => a.autores.length);
         it.apensadosVarreduraLimitada = arv.truncado;
       } else {
@@ -1087,6 +1090,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
 const SIGLA_PODEMOS = 'PODE';
 const _cacheDeputado = new Map();   // idDep → { nome, siglaPartido } — o mesmo autor assina várias
 
+const _legislaturaHoje = (d = new Date()) => Math.floor(((d.getMonth() >= 1 ? d.getFullYear() : d.getFullYear() - 1) - 1795) / 4);   // 57ª desde 1º/fev/2023; em janeiro, a anterior
 async function infoDeputado(idDep) {
   if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
   let info = null;
@@ -1094,7 +1098,9 @@ async function infoDeputado(idDep) {
     const r = await fetch(`${API_BASE}/deputados/${idDep}`);
     if (r.ok) {
       const us = (await r.json()).dados?.ultimoStatus || {};
-      info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
+      // ex-deputado segue com o último partido na ficha da Câmara: só conta o da legislatura em curso
+      const leg = Number(us.idLegislatura) || null;
+      info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf, foraDaLegislatura: !leg || leg < _legislaturaHoje() };
     }
   } catch (_) { /* fica sem partido */ }
   _cacheDeputado.set(idDep, info);
@@ -1115,7 +1121,7 @@ async function autoresDetalhados(idProp) {
     out.push({
       nome: a.nome || info?.nome,
       ordem: a.ordemAssinatura,
-      isPodemos: info?.siglaPartido === SIGLA_PODEMOS,
+      isPodemos: info?.siglaPartido === SIGLA_PODEMOS && !info.foraDaLegislatura,
     });
   }
   return out;

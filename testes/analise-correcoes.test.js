@@ -248,10 +248,42 @@ const respostaJson = obj => ({ ok: true, status: 200, json: async () => obj, tex
     // com a API respondendo, o partido é lido normalmente
     rotas = [
       { casa: u => /\/proposicoes\/998\/autores/.test(u), resposta: () => respostaJson({ dados: [{ nome: 'Dep. Beltrana', uri: 'https://dadosabertos.camara.leg.br/api/v2/deputados/12345', tipo: 'Deputado', ordemAssinatura: 1, proponente: 1 }] }) },
-      { casa: u => /\/deputados\/12345/.test(u), resposta: () => respostaJson({ dados: { ultimoStatus: { nome: 'Beltrana', siglaPartido: 'PODE', siglaUf: 'SP' } } }) },
+      { casa: u => /\/deputados\/12345/.test(u), resposta: () => respostaJson({ dados: { ultimoStatus: { nome: 'Beltrana', siglaPartido: 'PODE', siglaUf: 'SP', idLegislatura: 57 } } }) },
     ];
     const autores2 = await chamar('fetchAutoresProposicao', 998);
     ok(autores2[0].isPodemos === true && !autores2[0].autoriaIncerta, 'autoria do Podemos continua sendo reconhecida');
+  }
+
+  // ── Ex-deputado não é do Podemos só porque a ficha da Câmara congelou o partido ──
+  // CASO REAL (23/11/2026): o Sargento Alexandre (56ª legislatura, hoje no Avante) saiu como apensado do Podemos
+  // no PL 479/2015 — API, página e webservice da Câmara ainda dizem PODE.
+  console.log('\n== ex-deputado com "PODE" na ficha não conta como Podemos ==');
+  {
+    av('state.cacheAutoria.clear()');
+    rotas = [
+      { casa: u => /\/proposicoes\/997\/autores/.test(u), resposta: () => respostaJson({ dados: [
+        { nome: 'Sargento Alexandre', uri: 'https://dadosabertos.camara.leg.br/api/v2/deputados/219599', tipo: 'Deputado', ordemAssinatura: 1, proponente: 1 },
+        { nome: 'Gilberto Nascimento', uri: 'https://dadosabertos.camara.leg.br/api/v2/deputados/74270', tipo: 'Deputado', ordemAssinatura: 2, proponente: 0 }] }) },
+      { casa: u => /\/deputados\/219599/.test(u), resposta: () => respostaJson({ dados: { ultimoStatus: { nome: 'Sargento Alexandre', siglaPartido: 'PODE', siglaUf: 'SP', idLegislatura: 56 } } }) },
+      { casa: u => /\/deputados\/74270/.test(u), resposta: () => respostaJson({ dados: { ultimoStatus: { nome: 'Gilberto Nascimento', siglaPartido: 'PODE', siglaUf: 'SP', idLegislatura: 57 } } }) },
+    ];
+    const a = await chamar('fetchAutoresProposicao', 997);
+    ok(a[0].isPodemos === false && a[0].exPodemos === true && a[0].ultimaLegislatura === 56 && !a[0].autoriaIncerta, 'pela API: ex-deputado da 56ª com "PODE" na ficha não é autoria do Podemos (fica marcado como ex)');
+    ok(a[1].isPodemos === true, 'e o deputado da legislatura em curso continua sendo');
+    // pelo portal (API fora): a página diz "PODE" e "Não está em exercício"; o webservice dá a legislatura
+    av('_deputadoPortalCache.clear(); _deputadosPortal = Promise.resolve(new Map())');
+    rotas = [
+      { casa: u => /www\.camara\.leg\.br\/deputados\/219599/.test(u), resposta: () => ({ ok: true, status: 200, text: async () => '<html><body><h1>Sargento Alexandre</h1><p>Não está em exercício</p><p>Partido: PODE - SP</p>' + 'x'.repeat(600) + '</body></html>', headers: { get: () => 'text/html' } }) },
+      { casa: u => /ObterDetalhesDeputado\?ideCadastro=219599/.test(u), resposta: () => ({ ok: true, status: 200, text: async () => '<?xml version="1.0"?><Deputados><Deputado><numLegislatura>56</numLegislatura><nomeParlamentarAtual>Sargento Alexandre</nomeParlamentarAtual><ufRepresentacaoAtual>SP</ufRepresentacaoAtual><partidoAtual><sigla>PODE</sigla></partidoAtual></Deputado></Deputados>', headers: { get: () => 'text/xml' } }) },
+      { casa: u => /firebaseio/.test(u), resposta: () => respostaJson(null) },
+    ];
+    const ip = await av(`deputadoPortal('219599')`);
+    ctx.__ip = ip;
+    const jp = av('juizoPodemos(__ip)');
+    ok(ip && ip.foraDaLegislatura === true && ip.ultimaLegislatura === 56 && jp.isPodemos === false && jp.exPodemos === true, `pelo portal: fora de exercício e da 56ª → não é Podemos (${JSON.stringify(ip)})`);
+    ok(av(`juizoPodemos({ siglaPartido: 'PODE', legislaturaIncerta: true }).incerta`) === true && av(`juizoPodemos({ siglaPartido: 'PODE' }).isPodemos`) === true,
+      'sem a legislatura (página fora de exercício e webservice fora): autoria não verificada; em exercício: Podemos');
+    ok(av('legislaturaHoje(new Date(2027, 0, 20))') === 57 && av('legislaturaHoje(new Date(2027, 1, 1))') === 58 && av('legislaturaHoje(new Date(2026, 10, 23))') === 57, 'legislatura em curso: 57ª até janeiro de 2027, 58ª a partir de 1º/fev/2027');
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');

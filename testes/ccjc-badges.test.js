@@ -46,7 +46,7 @@ const ctx = {
     let m = u.match(/\/deputados\/(\d+)/);
     if (m) {
       const p = api.deputados[m[1]];
-      return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: p.uf } } }) : erro(404);
+      return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: p.uf, idLegislatura: p.leg || 57 } } }) : erro(404);
     }
     if (/\/deputados\?siglaPartido=PODE/.test(u)) return resp({ dados: api.bancada });
     m = u.match(/\/proposicoes\/(\d+)\/relacionadas/);
@@ -76,6 +76,8 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     // Só do caso de falha: precisa de um deputado ainda NÃO consultado, senão
     // o cache responde e a queda da API nem chega a acontecer.
     '44': { nome: 'Décio Rocha', partido: 'PODE', uf: 'PR' },
+    // ex-deputado: a ficha da Câmara congela o último partido (Sargento Alexandre, 23/11/2026)
+    '55': { nome: 'Sargento Alexandre', partido: 'PODE', uf: 'SP', leg: 56 },
   };
 
   console.log('== autoria do Podemos ==');
@@ -91,6 +93,13 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     const b = await av(`badgeAutoria({ autoria: ${JSON.stringify(r.autoria)} })`);
     ok(b.texto === '★ Autoria Podemos', `badge por extenso (${b.texto})`);
     ok(b.cls === 'pode', 'na cor do Podemos');
+  }
+
+  console.log('\n== ex-deputado com "PODE" na ficha não é autoria do Podemos ==');
+  {
+    api.autores['105'] = [dep('55', 1)];
+    const r = await av(`apurarAutoria('105')`);
+    ok(r.autoria.podemos === false && r.autoria.incerta === false, 'autor da 56ª legislatura, com o último partido PODE na ficha: não é autoria do Podemos');
   }
 
   console.log('\n== coautoria: o Podemos assina depois ==');

@@ -183,6 +183,7 @@ const MAX_APENSADOS_VARRIDOS = 15;
 const _cacheDeputado = new Map();
 const _cacheDetalheProp = new Map();
 
+const _legislaturaHoje = (d = new Date()) => Math.floor(((d.getMonth() >= 1 ? d.getFullYear() : d.getFullYear() - 1) - 1795) / 4);   // 57ª desde 1º/fev/2023; em janeiro, a anterior
 async function infoDeputado(idDep) {
   if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
   let info = null;
@@ -190,7 +191,9 @@ async function infoDeputado(idDep) {
     const r = await fetch(`${API_BASE}/deputados/${idDep}`);
     if (r.ok) {
       const us = (await r.json()).dados?.ultimoStatus || {};
-      info = { nome: us.nome, siglaPartido: us.siglaPartido };
+      // ex-deputado segue com o último partido na ficha da Câmara: só conta o da legislatura em curso
+      const leg = Number(us.idLegislatura) || null;
+      info = { nome: us.nome, siglaPartido: us.siglaPartido, foraDaLegislatura: !leg || leg < _legislaturaHoje() };
     }
   } catch (_) { /* fica sem partido */ }
   _cacheDeputado.set(idDep, info);
@@ -209,7 +212,7 @@ async function autoresDetalhados(idProp) {
     if (!m) { out.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
     const info = await infoDeputado(m[1]);
     out.push({ nome: a.nome || info?.nome, ordem: a.ordemAssinatura,
-               isPodemos: info?.siglaPartido === SIGLA_PODEMOS });
+               isPodemos: info?.siglaPartido === SIGLA_PODEMOS && !info.foraDaLegislatura });
   }
   return out;
 }
