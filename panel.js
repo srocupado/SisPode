@@ -759,6 +759,10 @@ async function adicionarProposicaoManual() {
 // conforme a época; tentamos ambas antes de desistir.
 const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
+// Ementa vinda do Senado chega à Câmara com "?" no lugar do espaço depois de "nº" ("Lei Complementar nº?200" —
+// é assim na própria API, PLP 299/2026, 23/11/2026): o espaço especial do Senado se perdeu na conversão.
+const limparEmentaCamara = s => (s == null ? s : String(s).replace(/(\bn[º°o]s?\.?)\?\s*(?=\d)/gi, '$1 ').replace(/[\u00a0\u202f]/g, ' '));
+
 async function buscarProposicaoAPI(sigla, numero, ano) {
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
   let item = null;
@@ -783,7 +787,7 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
 
   return {
     id:         item.id,
-    ementa:     item.ementa,
+    ementa:     limparEmentaCamara(item.ementa),
     autor,
     statusDesc: item.statusProposicao?.descricaoSituacao || null,
   };
@@ -1747,8 +1751,10 @@ async function buscarTextoEmenda(d, prop) {
 
     // Padrão "constante no Art. X do substitutivo/emenda" → artigo DENTRO do documento
     // Ex: "artigo 92, constante no artigo 2° do substitutivo adotado pela CCJC"
+    // "que consta do Art 1º" (DVS do PLP 299/2026, 23/11/2026) é o mesmo que "constante do art. 1º"
     const constanteMatch =
-      descricao.match(/constante\s+(?:n[ao]\s+)?art(?:igo)?\s*(\d+\s*[°º]?)/i) ||
+      descricao.match(/constante\s+(?:n[ao]\s+|d[ao]\s+)?art(?:igo)?\.?\s*(\d+\s*[°º]?)/i) ||
+      descricao.match(/(?:que\s+)?consta\s+(?:d[ao]|n[ao])\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)/i) ||
       descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
       descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i) ||
       descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
@@ -1756,8 +1762,13 @@ async function buscarTextoEmenda(d, prop) {
     const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/g, '°') : null;
 
     // Artigo da lei original sendo alterada (primeiro mencionado na descrição)
-    const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)/i);
+    // "Art. 6º-F" é o art. 6º-F, não o 6º (DVS do PLP 299/2026, 23/11/2026): a letra fica na referência.
+    const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+)\s*[°º]?(?:\s*-\s*([A-Z])\b)?/i);
     const numArtigo = artMatch ? parseInt(artMatch[1]) : null;
+    const rotuloArt = artMatch ? `${artMatch[1]}${parseInt(artMatch[1]) < 10 ? 'º' : ''}${artMatch[2] ? '-' + artMatch[2].toUpperCase() : ''}` : null;
+    // a lei que o dispositivo altera, quando a descrição a nomeia ("da Lei Complementar nº 200 de 2023")
+    const leiMatch  = descricao.match(/\b(Lei(?:\s+Complementar)?|Decreto-Lei)\s+n?[º°o.]*\s*([\d.]+)(?:\s*,?\s*de\s*(\d{4})|\/(\d{4}))/i);
+    const leiAlvo   = leiMatch ? `${/complementar/i.test(leiMatch[1]) ? 'Lei Complementar' : leiMatch[1]} nº ${leiMatch[2]}/${leiMatch[3] || leiMatch[4]}` : null;
 
     // Inciso referenciado (romano)
     const incisoMatch = descricao.match(/inciso\s+([IVXLCDM]+)/i);
@@ -1780,16 +1791,20 @@ async function buscarTextoEmenda(d, prop) {
     // numArtigo + inciso descrevem o que está sendo votado (para contexto da IA).
     let referenciaLeg;
     if (artNoDoc) {
-      // Ex: "Artigo 2° do substitutivo (trata do Artigo 92, Inciso IV)"
-      const alvo    = numArtigo  ? `Artigo ${numArtigo}${numInciso ? `, Inciso ${numInciso}` : ''}` : null;
-      const sufPar  = numPar ? ` e § ${numPar}°` : '';
-      referenciaLeg = `Artigo ${artNoDoc} do substitutivo`
-                    + (alvo ? ` — que altera o ${alvo}${sufPar} da lei original` : '');
+      // Ex: "Artigo 2° do substitutivo (trata do Artigo 92, Inciso IV)"; sem substitutivo na descrição, o artigo
+      // é do texto em votação ("§ 5º do art. 5º da LC 200/2023, que consta do art. 1º" — PLP 299/2026)
+      const alvo    = !numArtigo ? null
+                    : numPar && !numInciso ? `§ ${numPar}º do Artigo ${rotuloArt}`
+                    : `Artigo ${rotuloArt}${numInciso ? `, Inciso ${numInciso}` : ''}`;
+      const sufPar  = numPar && numInciso ? ` e § ${numPar}°` : '';
+      const doc     = /substitutiv/i.test(descricao) ? 'do substitutivo' : 'do texto em votação';
+      referenciaLeg = `Artigo ${artNoDoc} ${doc}`
+                    + (alvo ? ` — que altera o ${alvo}${sufPar} da ${leiAlvo || 'lei original'}` : '');
     } else {
       const sufixoArt = numInciso ? `, Inciso ${numInciso}`
                       : numPar    ? `, § ${numPar}°`
                       : '';
-      referenciaLeg = numArtigo  ? `Artigo ${numArtigo}${sufixoArt}`
+      referenciaLeg = numArtigo  ? `Artigo ${rotuloArt}${sufixoArt}${leiAlvo ? ` da ${leiAlvo}` : ''}`
                     : numCapitulo ? `Capítulo ${numCapitulo}`
                     : numTitulo   ? `Título ${numTitulo}`
                     : null;
@@ -1989,15 +2004,15 @@ async function buscarTextoEmenda(d, prop) {
             return resolverUrlCamara(candidatos[0].href);
           };
 
-          // 1ª tentativa: links cujo filename casa com SBT ou PRLP (padrão Câmara)
-          const cand1 = [];
+          // 1ª tentativa: links cujo filename casa com SBT (padrão Câmara); só sem SBT, o PRLP — o parecer de
+          // Plenário com substitutivo tem SBT com o mesmo codteor, e PRLP sem SBT é parecer sem texto normativo.
+          const cand1 = [], cand1p = [];
           for (const a of docPar1a.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
             const href = a.getAttribute('href') || '';
-            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) {
-              cand1.push({ href, codteor: extraiCodteor(href) });
-            }
+            if (/filename[=+%]*SBT/i.test(href)) cand1.push({ href, codteor: extraiCodteor(href) });
+            else if (/filename[=+%]*PRLP/i.test(href)) cand1p.push({ href, codteor: extraiCodteor(href) });
           }
-          link1a = escolheMaisRecente(cand1);
+          link1a = escolheMaisRecente(cand1.length ? cand1 : cand1p);
 
           // 2ª tentativa: linha que contém "substitut" mas NÃO só "parecer" — evita Parecer do Relator
           if (!link1a) {
@@ -2095,11 +2110,14 @@ async function buscarTextoEmenda(d, prop) {
         if (htmlFb) {
           const docFb           = new DOMParser().parseFromString(htmlFb, 'text/html');
           const extraiCodteorFb = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
-          const candFb = [];
+          let candFb = [];
+          const candFbP = [];
           for (const a of docFb.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
             const href = a.getAttribute('href') || '';
-            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) candFb.push({ href, codteor: extraiCodteorFb(href) });
+            if (/filename[=+%]*SBT/i.test(href)) candFb.push({ href, codteor: extraiCodteorFb(href) });
+            else if (/filename[=+%]*PRLP/i.test(href)) candFbP.push({ href, codteor: extraiCodteorFb(href) });
           }
+          if (!candFb.length) candFb = candFbP;   // SBT primeiro; PRLP só sem ele
           if (!candFb.length) {
             for (const row of docFb.querySelectorAll('tr, li, p')) {
               if (/substitut/i.test(row.textContent)) {
@@ -2191,13 +2209,16 @@ async function buscarTextoEmenda(d, prop) {
         }
       }
       // Dispositivo "apresentado ao PL" sem citar o texto original: presume-se o
-      // substitutivo — lê o ÚLTIMO (maior codteor entre SBT/PRLP). Sem ele, o original.
+      // substitutivo — lê o ÚLTIMO SBT (maior codteor). Sem ele, o original.
+      // Só SBT: quando o parecer de Plenário traz substitutivo, a Câmara o registra como "SBT n" com o MESMO
+      // codteor do PRLP (PL 2475/2025: PRLP 2 e SBT 1 → 3193619). PRLP sem SBT é parecer sem substitutivo — o
+      // do PLP 299/2026 aprova "sem emendas" e era lido como substitutivo: "Art. 6º-F não encontrado" (23/11/2026).
       if (!ehMPV && !/original/i.test(descricao)) {
         const htmlSbt = await fetchCamara(`https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`);
         if (htmlSbt) {
           const cod = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
           const sbt = Array.from(new DOMParser().parseFromString(htmlSbt, 'text/html').querySelectorAll('a[href*="codteor"]'))
-            .map(a => a.getAttribute('href') || '').filter(h => /filename[=+%]*(SBT|PRLP)/i.test(h))
+            .map(a => a.getAttribute('href') || '').filter(h => /filename[=+%]*SBT/i.test(h))
             .sort((a, b) => cod(b) - cod(a))[0];
           if (sbt) {
             console.log('[IA] Caso 3: DVS de dispositivo sem citar o texto — último substitutivo:', resolverUrlCamara(sbt));
