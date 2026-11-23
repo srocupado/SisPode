@@ -46,6 +46,8 @@ const rejeita = async p => { try { await p; return null; } catch (e) { return e;
     ${fn('tipoLabel')}
     ${fn('ehMPV')}
     ${fn('ehPDL')}
+    ${fn('ehUrgenciaComProjeto')}
+    ${fn('itemComoProjeto')}
     ${fn('classificarCenario')}
     ${fn('operativosAtuais')}
     ${fn('desatualizacaoOperativa')}

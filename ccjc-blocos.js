@@ -63,6 +63,112 @@ function pautaBlocosDoTexto(texto) {
   return { blocos, itens };
 }
 
+/**
+ * Itens de texto do pdf.js → texto com UMA LINHA por linha da página (o que pautaBlocosDoTexto lê). Antes, o
+ * módulo juntava a página inteira numa linha só, e na pauta de 24/11/2026 achou 18 "projetos" — os apensados
+ * citados no meio das ementas, escritos com sigla — dos 77 itens. A linha muda quando o pdf.js marca fim de
+ * linha (hasEOL) ou quando a altura (y) do item muda.
+ */
+function textoComLinhas(itens) {
+  let out = '', y = null;
+  for (const it of itens || []) {
+    const yi = it && it.transform ? it.transform[5] : null;
+    if (y !== null && yi !== null && Math.abs(yi - y) > 2 && !out.endsWith('\n')) out += '\n';
+    out += (it && it.str) || '';
+    if (it && it.hasEOL) out += '\n'; else if (it && it.str && !/\s$/.test(it.str)) out += ' ';
+    if (yi !== null) y = yi;
+  }
+  return out.replace(/[ \t]+\n/g, '\n');
+}
+
+/**
+ * Projetos da pauta oficial (PDF ou página): um por item numerado, com o número do item, o bloco e o regime.
+ * Apensado citado na ementa não é item. O requerimento da própria comissão (sigla REQ) não vai à análise: a
+ * busca na API por "REQ nº/ano" traria outro requerimento. Devolve a lista de refs, com .lido (a leitura
+ * inteira, para pautaBlocosAplicar) e .requerimentos (os itens deixados de fora).
+ */
+function pautaRefsDoTexto(texto) {
+  const lido = pautaBlocosDoTexto(texto);
+  const nomeBloco = l => (lido.blocos.find(b => b.letra === l) || {}).nome || '';
+  const refs = [], requerimentos = [], vistos = new Set();
+  for (const it of lido.itens) {
+    if (it.sigla === 'REQ') { requerimentos.push(it); continue; }
+    if (vistos.has(it.chave)) continue; vistos.add(it.chave);
+    refs.push({ sigla: it.sigla, numero: it.numero, ano: it.ano, chave: it.chave, redacaoFinal: /reda[çc][õo]es?\s+fina/i.test(nomeBloco(it.letra)), item: it.n, bloco: it.letra, ...(it.regime ? { regimeBloco: it.regime } : {}) });
+  }
+  refs.lido = lido; refs.requerimentos = requerimentos;
+  return refs;
+}
+
+// ── PLANO B: O SITE DA CÂMARA QUANDO A API FALHA ────────────────────────────
+// MEDIDO em 23/11/2026: a API de Dados Abertos devolvia 504 em qualquer endpoint (inclusive /orgaos/2003) e o
+// calendário ficava vazio. O site continua no ar e traz o mesmo: a lista "Sessões e reuniões" filtrada pela CCJC
+// (gerada no servidor, 20 eventos por página, ?pagina=N) e, na página de cada evento, o link da pauta oficial.
+
+const _desent = s => String(s || '').replace(/&#x3D;/gi, '=').replace(/&amp;/g, '&').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&nbsp;/g, ' ');
+const _limpo = s => _desent(String(s || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+
+/** Endereço da lista "Sessões e reuniões" da CCJC entre duas datas (dd/mm/aaaa). */
+function agendaCcjcUrl(inicio, fim, pagina = 1, idOrgao = 2003) {
+  return `https://www.camara.leg.br/sessoesereunioes?idOrgaosSuperiores=${idOrgao}&dataInicial=${encodeURIComponent(inicio)}&dataFinal=${encodeURIComponent(fim)}${pagina > 1 ? `&pagina=${pagina}` : ''}`;
+}
+
+/** Eventos da lista "Sessões e reuniões": { total, eventos: [{ id, data (aaaa-mm-dd), hora (hh:mm), nome, tipo, situacao, local }] }. */
+function agendaCcjcDoHtml(html) {
+  const h = String(html || '');
+  const total = Number((/Exibindo\s+\d+\s+a\s+\d+\s+de\s+(\d+)/i.exec(h) || [])[1] || 0);
+  const eventos = [];
+  for (const m of h.matchAll(/<li class="g-agenda__evento">([\s\S]*?)<\/li>/g)) {
+    const li = m[1];
+    const campo = c => _limpo((new RegExp(`class="g-agenda__${c}"[^>]*>([\\s\\S]*?)</(?:span|a)>`).exec(li) || [])[1]);
+    const id = Number((/evento-legislativo\/(\d+)/.exec(li) || [])[1] || 0);
+    const d = /(\d{2})\/(\d{2})\/(\d{4})/.exec(campo('data'));
+    if (!id || !d) continue;
+    const hm = /(\d{1,2})h(\d{2})?/.exec(campo('hora'));
+    eventos.push({ id, data: `${d[3]}-${d[2]}-${d[1]}`, hora: hm ? `${hm[1].padStart(2, '0')}:${hm[2] || '00'}` : '', nome: campo('nome'), tipo: campo('tipo'), situacao: campo('situacao'), local: campo('local') });
+  }
+  return { total, eventos };
+}
+
+/** Link da pauta oficial (prop_mostrarintegra?codteor=…) na página do evento; '' se não houver. */
+function linkPautaDoEvento(html) {
+  const m = /href="([^"]+)"\s+class="[^"]*links-adicionais__link-pauta/.exec(String(html || ''))
+    || /<a[^>]+href="([^"]*prop_mostrarintegra\?codteor[^"]*)"[^>]*>\s*Pauta\s*</i.exec(String(html || ''));
+  return m ? _desent(m[1]).replace(/^http:/, 'https:') : '';
+}
+
+/** Reuniões do mês pelo site (todas as páginas), no formato do calendário: { 'aaaa-mm-dd': [evento] }. */
+async function buscarEventosMesSite(ano, mes, fetchFn = fetch) {
+  const dd = n => String(n).padStart(2, '0');
+  const ini = `01/${dd(mes + 1)}/${ano}`, fim = `${new Date(ano, mes + 1, 0).getDate()}/${dd(mes + 1)}/${ano}`;
+  const todos = [];
+  for (let pagina = 1; pagina <= 10; pagina++) {
+    const r = await fetchFn(agendaCcjcUrl(ini, fim, pagina));
+    if (!r.ok) throw new Error(`site da Câmara: HTTP ${r.status}`);
+    const { total, eventos } = agendaCcjcDoHtml(await r.text());
+    todos.push(...eventos);
+    if (!eventos.length || todos.length >= total) break;
+  }
+  const mapa = {};
+  for (const ev of todos) {
+    if (!/reuni[ãa]o deliberativa/i.test(ev.tipo)) continue;
+    (mapa[ev.data] = mapa[ev.data] || []).push({ id: ev.id, dataHoraInicio: ev.hora ? `${ev.data}T${ev.hora}` : ev.data, dataHoraFim: '', descricao: ev.nome, situacao: ev.situacao, local: ev.local, fonte: 'site' });
+  }
+  return mapa;
+}
+
+/** Pauta oficial do evento pelo site: { url, lido } (lido de pautaBlocosDoTexto) ou null. */
+async function pautaOficialDoEvento(eventoId, fetchFn = fetch) {
+  const pg = await fetchFn(`https://www.camara.leg.br/evento-legislativo/${eventoId}`);
+  if (!pg.ok) throw new Error(`página do evento: HTTP ${pg.status}`);
+  const url = linkPautaDoEvento(await pg.text());
+  if (!url) return null;
+  const r = await fetchFn(url);
+  if (!r.ok) throw new Error(`pauta oficial: HTTP ${r.status}`);
+  const doc = new TextDecoder('windows-1252').decode(await r.arrayBuffer());
+  return { url, texto: pautaTextoDoHtml(doc) };
+}
+
 /** HTML da pauta oficial → texto com uma linha por elemento (o que pautaBlocosDoTexto lê). */
 function pautaTextoDoHtml(html) {
   const semScripts = String(html || '').replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '');
@@ -113,20 +219,13 @@ async function garantirBlocosPauta(pauta) {
   const ev = pauta.origem?.eventoId;
   if (ev) {
     try {
-      const pg = await fetch(`https://www.camara.leg.br/evento-legislativo/${ev}`);
-      const html = pg.ok ? await pg.text() : '';
-      const m = /href="([^"]+)"\s+class="[^"]*links-adicionais__link-pauta/.exec(html);
-      if (m) {
-        const url = m[1].replace(/&#x3D;/g, '=').replace(/&amp;/g, '&').replace(/^http:/, 'https:');
-        const r = await fetch(url);
-        if (r.ok) {
-          const doc = new TextDecoder('windows-1252').decode(await r.arrayBuffer());
-          const lido = pautaBlocosDoTexto(pautaTextoDoHtml(doc));
-          if (lido.blocos.length && lido.itens.length && pautaBlocosAplicar(pauta, lido, 'oficial')) {
-            pauta.blocosUrl = url;
-            try { salvarPauta(); } catch (_) {}
-            return pauta.blocos;
-          }
+      const of = await pautaOficialDoEvento(ev);
+      if (of) {
+        const lido = pautaBlocosDoTexto(of.texto);
+        if (lido.blocos.length && lido.itens.length && pautaBlocosAplicar(pauta, lido, 'oficial')) {
+          pauta.blocosUrl = of.url;
+          try { salvarPauta(); } catch (_) {}
+          return pauta.blocos;
         }
       }
     } catch (e) { console.warn('[CCJC] pauta oficial (blocos):', e.message); }
@@ -218,5 +317,5 @@ function pautaVisaoGeral(pauta, { comAnalise, rotina, posGov = () => '', remissa
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pautaBlocosDoTexto, pautaBlocosAplicar, pautaBlocosDaApi, faixasItens, pautaVisaoGeral, blocoDe, blocoRotulo, ehBlocoRF, numeroItem };
+  module.exports = { agendaCcjcUrl, agendaCcjcDoHtml, linkPautaDoEvento, buscarEventosMesSite, pautaOficialDoEvento, textoComLinhas, pautaRefsDoTexto, pautaBlocosDoTexto, pautaBlocosAplicar, pautaBlocosDaApi, faixasItens, pautaVisaoGeral, blocoDe, blocoRotulo, ehBlocoRF, numeroItem };
 }

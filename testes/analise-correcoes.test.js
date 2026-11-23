@@ -155,6 +155,43 @@ const respostaJson = obj => ({ ok: true, status: 200, json: async () => obj, tex
       `o parecer é buscado sob demanda quando falta (chamadas: ${av('__chamou')}; tipos: ${docs.map(d => d.tipo).join(', ')})`);
   }
 
+  // ── 6b. Requerimento de urgência: documentos do projeto-alvo ────────────
+  // Pedido da equipe (23/11/2026): a nota do requerimento lia só o inteiro teor do projeto original, embora,
+  // aprovada a urgência, o projeto seja votado no texto do parecer de Plenário ou do substitutivo adotado.
+  console.log('\n== requerimento de urgência analisa o texto que será votado, não só o original ==');
+  {
+    const parReq = { comissoes: [{ comissao: 'CCJC', dataBR: '10/09/2026', data: '2026-09-10', url: 'http://x/par-ccjc.pdf', votado: true }],
+      prlp: { url: 'http://x/prlp2.pdf', sequencial: '2', dataBR: '18/11/2026', data: '2026-11-18' }, prle: null,
+      sbtA: { url: 'http://x/sbt-a.pdf', sequencial: '1', comissao: 'CSAUDE', dataBR: '05/05/2026', data: '2026-05-05' }, autografo: null, prlEspecial: null, sbtAEspecial: null };
+    const req = enr => ({ sigla: 'REQ', numero: '4504', ano: '2026', tipoCategoria: 'requerimento', chave: 'REQ 4504/2026', ementa: 'Requer urgência para o PL 4822/2025.',
+      projetoUrgenciado: { sigla: 'PL', numero: '4822', ano: '2025' }, enriquecimento: { idProposicao: 123456, urlInteiroTeor: 'http://x/teor.pdf', apensadosPodemos: [], emendasSenado: { ems: null, ssp: null }, ...enr } });
+    ctx.__req = req({ pareceresPlenario: parReq });
+    const docs = await av('escolherDocumentos(__req)');
+    const tipos = docs.map(d => d.tipo);
+    ok(tipos.includes('PRLP') && tipos.includes('SBT_A') && tipos.includes('REDACAO_ORIGINAL') && tipos.includes('PARECER_COMISSAO') && !tipos.includes('INTEIRO_TEOR'),
+      `com parecer de Plenário e substitutivo, o requerimento lê o PRLP, o SBT-A, a redação original e o parecer da comissão (tipos: ${tipos.join(', ')})`);
+    ctx.__docs = docs;
+    ok(/Cenário 4/.test(av('classificarCenario(__docs)')), 'e o cenário é o do projeto: ' + av('classificarCenario(__docs)'));
+    const prompt = av('montarPrompt(__req, __docs, "")');
+    ok(/REQUERIMENTO DE URGÊNCIA 4504\/2026 para o PL 4822\/2025/.test(prompt) && /votado no texto indicado pelos documentos/.test(prompt) && /PRLP\) aprova na forma do substitutivo adotado/.test(prompt) && !/inteiro teor da proposição cuja urgência/.test(prompt),
+      'o prompt diz que é o requerimento, que o projeto vai a voto no texto dos documentos e segue a instrução do cenário');
+    // sem parecer: continua o inteiro teor (Cenário 1)
+    ctx.__req1 = req({ pareceresPlenario: { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null } });
+    const d1 = await av('escolherDocumentos(__req1)');
+    ok(d1.map(d => d.tipo).join() === 'INTEIRO_TEOR', 'sem parecer nem substitutivo: o inteiro teor, como antes');
+    // decreto legislativo urgenciado: o inteiro teor (o prompt geral, não o do PDL)
+    ctx.__reqPdl = { ...req({ pareceresPlenario: { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null } }), projetoUrgenciado: { sigla: 'PDL', numero: '10', ano: '2026' } };
+    const dp = await av('escolherDocumentos(__reqPdl)');
+    ok(dp.map(d => d.tipo).join() === 'INTEIRO_TEOR', 'PDL urgenciado: inteiro teor do decreto, tratado como o projeto');
+    // nota do requerimento feita sobre o original fica desatualizada quando surge o parecer
+    ctx.__reqVelho = { ...req({ pareceresPlenario: parReq }), analise: { documentos: [{ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: 'http://x/teor.pdf' }] } };
+    const des = av('desatualizacaoOperativa(__reqVelho)');
+    ok(des && des.novos.map(n => n.tipo).sort().join() === 'PRLP,SBT_A', `nota antiga do requerimento (só o original) é apontada como desatualizada (novos: ${des && des.novos.map(n => n.tipo).join(', ')})`);
+    // recurso (REC) segue a regra própria
+    ok(!av(`ehUrgenciaComProjeto({ sigla: 'REC', tipoCategoria: 'requerimento', projetoUrgenciado: { sigla: 'PL', numero: '1', ano: '2026' } })`) && !av(`ehUrgenciaComProjeto({ sigla: 'REQ', tipoCategoria: 'requerimento', projetoUrgenciado: { sigla: 'REQ', numero: '1', ano: '2026' } })`),
+      'recurso (REC) e requerimento sem projeto identificado ficam fora da regra');
+  }
+
   // ── 7. Redação Final não localizada ─────────────────────────────────────
   console.log('\n== Redação Final não localizada não é apresentada como aprovada ==');
   {

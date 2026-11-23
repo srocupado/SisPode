@@ -297,7 +297,7 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 | 8b — MPV com PLV (Comissão Mista) | **Parecer da Comissão Mista** (relatório + conclusão + PLV anexo) ou **Relatório Legislativo do Senado + PLV**, mais o texto original para o cotejo |
 | 9 — PEC (Proposta de Emenda à Constituição) | **PRL + substitutivo adotado pela Comissão Especial** (texto de mérito) + redação original; o parecer de admissibilidade da CCJC entra como parecer de comissão |
 | 10 — PDL (Projeto de Decreto Legislativo) | **Inteiro teor do decreto** (texto + justificação) + parecer(es) de comissão — com nota técnica **moldada ao subtipo**: sustação de ato do Executivo, outorga de rádio/TV ou ato internacional |
-| Requerimento de urgência | Inteiro teor da proposição cuja urgência é solicitada |
+| Requerimento de urgência | Os **documentos do projeto-alvo, pelos mesmos cenários do projeto** (parecer de Plenário, substitutivo adotado, subemenda, emendas do Senado e redação original; sem parecer, o inteiro teor): aprovada a urgência, o projeto é votado no texto do parecer ou do substitutivo. A nota feita antes sobre o texto original é apontada como desatualizada quando surge o parecer |
 | Redação Final | **Documento da Redação Final** (raspado da ficha de tramitação) |
 
 - O prompt-base de projetos/requerimentos produz uma **nota técnica** com as seções **Objetivo · Justificativa · Pareceres e substitutivos · Principais Disposições do último substitutivo apresentado · Argumentos favoráveis e contrários**, sob princípios de clareza, objetividade, imparcialidade e fundamentação
@@ -422,8 +422,8 @@ Além da nota técnica, cada card pode gerar uma **Nota Técnica Analítica (NTA
 Gere resumos e análises dos projetos de lei da **Comissão de Constituição e Justiça e de Cidadania**, revise os textos e exporte a pauta consolidada em PDF.
 
 **Importação da pauta**
-- **Via PDF**: carregue o PDF da pauta da CCJC — o parser identifica automaticamente os projetos listados
-- **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional
+- **Via PDF**: carregue o PDF da pauta da CCJC — o texto é extraído linha a linha e lido como a pauta oficial da reunião (`pautaRefsDoTexto`, em `ccjc-blocos.js`): um projeto por **item numerado**, com o número do item, o bloco (A, B…) e o regime; apensado citado na ementa não é item, e o requerimento da própria comissão fica fora da análise (é informado no diálogo). Na pauta de 24/11/2026: 77 itens, 76 projetos (antes, 18 "projetos" — os apensados). PDF de outro formato cai na busca por sigla
+- **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional. **Se a API de Dados Abertos falhar** (502/503/504 ou rede), as reuniões do mês vêm da lista "Sessões e reuniões" do site da Câmara, filtrada pela CCJC, e a pauta da reunião, da pauta oficial ligada à página do evento — o status do calendário diz quando a fonte é o site
 
 **Geração por IA (Gemini, OpenAI ou Anthropic)**
 - O usuário escolhe **um** provedor ativo por vez (chave configurada, compartilhando a mesma configuração do módulo de Plenário); a lista de modelos pode ser carregada ao vivo da API de cada um

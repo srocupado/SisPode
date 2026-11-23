@@ -47,6 +47,8 @@ const A = new Function('console', 'resolverMPVDeclarando', 'buscarEmendasSenadoE
   ${trecho(/function tipoLabel\([\s\S]*?\n}/)}
   ${trecho(/function ehMPV\([\s\S]*?\n}/)}
   ${trecho(/function ehPDL\([\s\S]*?\n}/)}
+  ${trecho(/function ehUrgenciaComProjeto\([\s\S]*?\n}/)}
+  ${trecho(/function itemComoProjeto\([\s\S]*?\n}/)}
   ${trecho(/function classificarCenario\([\s\S]*?\n}/)}
   ${trecho(/function operativosAtuais\([\s\S]*?\n}/)}
   ${trecho(/function desatualizacaoOperativa\([\s\S]*?\n}/)}

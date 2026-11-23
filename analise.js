@@ -4,7 +4,7 @@
    Painel que importa a Pauta da Semana (PDF), identifica projetos
    e requerimentos, marca autoria do Podemos (principal e apensados),
    e gera análise técnica via IA sobre o parecer mais recente do
-   relator (projetos) ou o inteiro teor (requerimentos).
+   relator; o requerimento de urgência, sobre os documentos do projeto-alvo.
    ============================================================ */
 
 'use strict';
@@ -3135,10 +3135,10 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     }
 
     // Requerimento de urgência e o projeto que ele urgencia costumam cair na
-    // MESMA análise: o requerimento é sempre analisado sobre o inteiro teor do
-    // projeto-alvo. Quando o projeto também está em Cenário 1 (sem parecer), os
-    // dois leem exatamente os mesmos PDFs — e a segunda chamada à IA paga por
-    // um texto que já existe. Reaproveita, desde que os documentos batam.
+    // MESMA análise: desde 23/11/2026 o requerimento é analisado sobre os mesmos
+    // documentos do projeto-alvo (escolherDocumentos), em qualquer cenário — os
+    // dois leem os mesmos PDFs, e a segunda chamada à IA pagaria por um texto
+    // que já existe. Reaproveita, desde que os documentos batam.
     if (!forcar && !comAnalista) {
       const irma = analiseIrmaAproveitavel(it, docs);
       if (irma) {
@@ -3300,7 +3300,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 /**
  * Lista de documentos a enviar à IA, com rótulo descritivo.
  * Para projetos: PRLP mais recente + PRLE mais recente (quando existir).
- * Para requerimentos: inteiro teor da proposição alvo.
+ * Para requerimento de urgência: os documentos do projeto-alvo, pelos mesmos cenários.
  * Fallback: inteiro teor do projeto se nenhum parecer for encontrado.
  */
 function promptContinuar(parcial) {
@@ -3473,7 +3473,10 @@ function operativosAtuais(it) {
 // evita falso positivo com documentos antigos não-operativos naquele cenário,
 // ex.: PRLP anterior ao retorno do Senado). novos=[] → em dia. null → N/A.
 function desatualizacaoOperativa(it) {
-  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos || it.analise.docsDoAnalista) return null;
+  if (!it.analise?.documentos || it.analise.docsDoAnalista) return null;
+  // requerimento de urgência: o texto operativo é o do projeto-alvo
+  if (ehUrgenciaComProjeto(it)) it = Object.assign(itemComoProjeto(it), { analise: it.analise });
+  if (it.tipoCategoria !== 'projeto') return null;
   const salvos = it.analise.documentos.filter(d => TIPOS_OPERATIVOS.includes(d.tipo));
   const urlsSalvas = new Set(salvos.map(d => d.url));
   const datasSalvas = salvos
@@ -3513,7 +3516,10 @@ async function escolherDocumentos(it) {
     return (it.provisorio.senado?.documentos || []).map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url, data: d.data, doSenado: true }));
   }
 
-  if (it.tipoCategoria === 'projeto') {
+  // Requerimento de urgência: os documentos são os do projeto-alvo, pelos mesmos cenários (PRLP, SBT-A, SSP,
+  // EMS, MPV, PEC, PDL). `p` é o item visto como projeto; o enriquecimento é o mesmo objeto.
+  const p = ehUrgenciaComProjeto(it) ? itemComoProjeto(it) : it;
+  if (p.tipoCategoria === 'projeto') {
     // Corrida ao gerar logo após importar (ou com a pauta recém-carregada do
     // Firebase): a espera de 30 s em gerarAnaliseItem pode estourar antes de o
     // enriquecimento chegar aos pareceres, que é sua última etapa. Sem isto o
@@ -3529,7 +3535,7 @@ async function escolherDocumentos(it) {
     }
     // Página de pareceres que não veio NÃO é "sem parecer": seguir daria uma
     // nota de Cenário 1 sobre o inteiro teor com PRLP/SBT-A publicados.
-    if (enr.idProposicao && !ehMPV(it) && (!enr.pareceresPlenario || enr.pareceresPlenario.falha)) {
+    if (enr.idProposicao && !ehMPV(p) && (!enr.pareceresPlenario || enr.pareceresPlenario.falha)) {
       throw new Error('Não consegui ler a página de pareceres na Câmara — tente de novo em instantes (sem ela a nota sairia como "sem parecer").');
     }
     const par = enr.pareceresPlenario || {};
@@ -3537,7 +3543,7 @@ async function escolherDocumentos(it) {
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
     // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
     // PECs e PDLs seguem rito próprio (sem retorno do Senado).
-    if (it.sigla !== 'PEC' && !ehPDL(it) && !ehMPV(it) && (enr.emendasSenado === undefined || enr.emendasSenado.falha) && enr.idProposicao) {
+    if (p.sigla !== 'PEC' && !ehPDL(p) && !ehMPV(p) && (enr.emendasSenado === undefined || enr.emendasSenado.falha) && enr.idProposicao) {
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null, falha: true }; }
       // Página de emendas que não veio NÃO é "sem emendas do Senado": seguir daria uma nota sobre o
@@ -3558,7 +3564,7 @@ async function escolherDocumentos(it) {
     const rotuloEMS  = ems && `Emendas do Senado (EMS)${ems.dataBR ? ' de ' + ems.dataBR : ''}`;
     const rotuloSSP  = ssp && `Subemenda Substitutiva de Plenário (SSP)${ssp.dataBR ? ' de ' + ssp.dataBR : ''}`;
 
-    if (ehMPV(it)) {
+    if (ehMPV(p)) {
       // ── Cenário 8 (MPV) ───────────────────────────────────────────────
       // O acervo é do Senado/Congresso (Comissão Mista) — ver mpv.js. Ordem:
       //  - PAR da Câmara: relatório + conclusão ("Emendas nºs … acolhidas") +
@@ -3570,7 +3576,7 @@ async function escolherDocumentos(it) {
       //  - texto original da MPV sempre (8a é só ele; em 8b é a base do cotejo).
       // Enriquecimento ainda sem mpv (corrida ao gerar logo após importar) →
       // resolve sob demanda, como EMS/SSP.
-      if (enr.mpv === undefined) enr.mpv = await resolverMPVDeclarando(it, enr.idProposicao);
+      if (enr.mpv === undefined) enr.mpv = await resolverMPVDeclarando(p, enr.idProposicao);
       const m = enr.mpv || {};
       const dataBR = o => o?.data ? ' de ' + o.data.split('-').reverse().join('/') : '';
       if (m.par) {
@@ -3582,7 +3588,7 @@ async function escolherDocumentos(it) {
       if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: `Parecer proferido em Plenário (${rotuloPRLP})`, url: par.prlp.url });
       const original = m.original?.url || enr.urlInteiroTeor;
       if (original) docs.push({ tipo: 'MPV_TEOR', rotulo: 'Texto original da Medida Provisória (inteiro teor)', url: original });
-    } else if (it.sigla === 'PEC') {
+    } else if (p.sigla === 'PEC') {
       // ── Cenário 9 (PEC) ───────────────────────────────────────────────
       // Proposta de Emenda à Constituição: o texto que vai a Plenário é o do
       // parecer de mérito da Comissão Especial. Anexa o ÚLTIMO PRL (parecer do
@@ -3603,7 +3609,7 @@ async function escolherDocumentos(it) {
         if (par.sbtA) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
       }
       if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
-    } else if (ehPDL(it)) {
+    } else if (ehPDL(p)) {
       // ── Cenário 10 (PDL) ──────────────────────────────────────────────
       // Decreto Legislativo: o texto votado é o próprio decreto (inteiro teor,
       // que inclui a justificação — descreve o ato aprovado/sustado). Os
@@ -3664,8 +3670,8 @@ async function escolherDocumentos(it) {
     // documento operativo (PRL_ESPECIAL) e não se repete aqui.
     // Na MPV o parecer da Comissão Mista já entrou acima (PAR/RELATORIO); a
     // página de pareceres da Câmara não é a fonte dela.
-    const comissoesCron = ehMPV(it) ? [] : [...(par.comissoes || [])]
-      .filter(pc => !(it.sigla === 'PEC' && pc.especial))
+    const comissoesCron = ehMPV(p) ? [] : [...(par.comissoes || [])]
+      .filter(pc => !(p.sigla === 'PEC' && pc.especial))
       .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
     for (const pc of comissoesCron) {
       const nomeCom = pc.especial ? 'Comissão Especial' : `Comissão ${pc.comissao}`;
@@ -3752,6 +3758,8 @@ async function escolherDocumentos(it) {
     }
   }
 
+  // No requerimento, o decreto legislativo é "o projeto" (a nota do requerimento usa o prompt geral, não o do PDL).
+  if (p !== it) for (const d of docs) if (d.tipo === 'PDL_TEOR') { d.tipo = 'INTEIRO_TEOR'; d.rotulo = 'Inteiro teor da proposição'; }
   return docs;
 }
 
@@ -3760,15 +3768,13 @@ async function escolherDocumentos(it) {
 // ============================================================
 // Uma pauta traz, com frequência, o requerimento de urgência de um projeto e
 // o próprio projeto. O requerimento NÃO tem texto próprio a analisar: o módulo
-// já o analisa sobre o inteiro teor do projeto-alvo (ver escolherDocumentos).
-// Logo, quando o projeto está em Cenário 1 — sem parecer de plenário, sem
-// substitutivo adotado, sem emendas do Senado —, as duas análises leem os
-// MESMOS PDFs e a segunda chamada à IA é desperdício.
+// o analisa sobre os documentos do projeto-alvo (ver escolherDocumentos; até
+// 23/11/2026, só sobre o inteiro teor). As duas análises leem os MESMOS PDFs e
+// a segunda chamada à IA é desperdício.
 //
 // O que NÃO se pode fazer é reaproveitar por identidade ("é o mesmo projeto").
-// Se o projeto tiver parecer, ele é votado na forma do substitutivo, e a
-// análise do requerimento — feita sobre o texto original — descreveria outra
-// coisa. Seria o mesmo erro que desatualizacaoOperativa existe para pegar. Por
+// Uma análise salva antes de o parecer sair foi feita sobre o texto original e
+// descreveria outra coisa. Seria o mesmo erro que desatualizacaoOperativa existe para pegar. Por
 // isso a condição é a IGUALDADE DOS DOCUMENTOS, verificada pela URL, e não o
 // parentesco entre os itens.
 
@@ -4097,10 +4103,16 @@ REGRAS RÍGIDAS:
           : 'Traga o conteúdo do projeto original (inteiro teor anexado) e explique o que a CCJC decidiu.');
   }
 
+  // Requerimento de urgência: aprovada a urgência, o projeto vai a voto no texto indicado pelos documentos.
+  if (ehUrgenciaComProjeto(it)) {
+    const pu = it.projetoUrgenciado;
+    cenarioHint = `O item é o REQUERIMENTO DE URGÊNCIA ${it.numero}/${it.ano} para o ${tipoLabel(pu.sigla)} ${pu.numero}/${pu.ano}. Aprovada a urgência, o projeto passa a tramitar em regime de urgência e é votado no texto indicado pelos documentos anexados; a nota descreve ESSE texto. ` + cenarioHint;
+  }
+
   const tipoDoc = rec
     ? `documentos do ${alvoRec}, objeto do recurso: o texto aprovado pelas comissões e o parecer da CCJC`
     : it.tipoCategoria === 'requerimento'
-    ? 'inteiro teor da proposição cuja urgência é solicitada'
+    ? 'documentos do projeto cuja urgência é solicitada: o texto que será votado — parecer de Plenário, substitutivo adotado, subemenda ou emendas do Senado, quando houver — e a redação original'
     : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
 
   // Seções próprias do Cenário 8b (MPV com parecer da Comissão Mista). A lista
@@ -6245,6 +6257,19 @@ function notaMd(it) {
 // Relatoria do Podemos em Plenário (o relator do item é deputado(a) do partido).
 function relatoriaPodemos(it) {
   return /\bPODE\b/i.test(it.relator?.partido || '');
+}
+
+// Requerimento de urgência com o projeto identificado (o recurso, REC, tem regra própria: apurarRecurso).
+function ehUrgenciaComProjeto(it) {
+  return !!(it && it.tipoCategoria === 'requerimento' && it.sigla !== 'REC' && it.projetoUrgenciado && it.projetoUrgenciado.sigla && it.projetoUrgenciado.sigla !== 'REQ');
+}
+// O requerimento "visto como" o projeto que ele urgencia: mesma sigla, número e ano do projeto, categoria de
+// projeto e o MESMO objeto de enriquecimento (o que se apura nele fica no requerimento). Aprovada a urgência,
+// vota-se o projeto no texto do parecer de Plenário, do substitutivo adotado ou das emendas do Senado; a nota do
+// requerimento lia só o inteiro teor do projeto original (pedido da equipe, 23/11/2026).
+function itemComoProjeto(it) {
+  const a = it.projetoUrgenciado;
+  return { ...it, sigla: a.sigla, numero: a.numero, ano: a.ano, tipoCategoria: 'projeto', enriquecimento: it.enriquecimento || (it.enriquecimento = {}) };
 }
 
 // Proposição "alvo" do item (para requerimento, é o projeto cuja urgência se pede).
