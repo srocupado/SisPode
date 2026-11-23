@@ -761,7 +761,9 @@ const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
 // Ementa vinda do Senado chega à Câmara com "?" no lugar do espaço depois de "nº" ("Lei Complementar nº?200" —
 // é assim na própria API, PLP 299/2026, 23/11/2026): o espaço especial do Senado se perdeu na conversão.
-const limparEmentaCamara = s => (s == null ? s : String(s).replace(/(\bn[º°o]s?\.?)\?\s*(?=\d)/gi, '$1 ').replace(/[\u00a0\u202f]/g, ' '));
+// Só o "?" COLADO entre um caractere e um dígito é trocado: interrogação de verdade vem seguida de espaço.
+// Depois de "nº", também o "?" seguido de espaço ("nº? 224", quando a quebra de linha vira espaço).
+const limparEmentaCamara = s => (s == null ? s : String(s).replace(/(\bn[º°o]s?\.?)\?\s*(?=\d)/gi, '$1 ').replace(/(?<=[^\s?])\?(?=\d)/g, ' ').replace(/[\u00a0\u202f]/g, ' '));
 
 async function buscarProposicaoAPI(sigla, numero, ano) {
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
@@ -857,6 +859,8 @@ function selecionarProposicao(chave) {
   if (!prop) return;
 
   app.proposicaoAtiva = prop;
+  // proposição salva antes de 23/11/2026 guarda a ementa como a Câmara a serve ("nº?200")
+  if (prop.ementa) prop.ementa = limparEmentaCamara(prop.ementa);
   mostrarTela('tela-destaques');
 
   document.querySelectorAll('.prop-item').forEach(el =>
@@ -970,7 +974,7 @@ function renderizarProposicoesSidebar() {
 
     // Ementa da API; se ainda não veio, usa a ementa extraída do PDF; só então
     // "Carregando…". Evita o estado "Carregando…" eterno quando a API não acha.
-    const ementaBase = p.ementa || p.ementaPauta || 'Carregando...';
+    const ementaBase = limparEmentaCamara(p.ementa || p.ementaPauta) || 'Carregando...';
     const ementa = termo ? destacarTermo(ementaBase, termo) : ementaBase;
     // Redação Final: sinaliza que não é votação de mérito de destaque.
     const rfTag = p.tipoCategoria === 'redacao_final'
@@ -1634,6 +1638,58 @@ async function buscarDocumento(url, infoExtra = {}) {
   }
 }
 
+/**
+ * PDF do destaque pela página "Destaques" da proposição (prop_destaques?idProposicao=…): a página que o módulo
+ * lê (pplen/destaques.html) lista número, autor e descrição, mas NÃO traz o link do PDF (PLP 299/2026,
+ * 23/11/2026). Casa pelo número ("DTQ 1 => PLP 299/2026"). '' se não achar.
+ */
+async function urlPdfDoDestaque(d, prop) {
+  const num = String(d?.numero || '').replace(/\s+/g, ' ').trim();
+  if (!num || !prop?.idCamara) return '';
+  try {
+    const html = await fetchCamara(`https://www.camara.leg.br/proposicoesWeb/prop_destaques?idProposicao=${prop.idCamara}`);
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const re = new RegExp(`^${num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s*')}\\s*(=>|$)`, 'i');
+    for (const tr of doc.querySelectorAll('tr')) {
+      const primeira = (tr.querySelector('td')?.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!re.test(primeira)) continue;
+      const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+      if (a) return resolverUrlCamara(a.getAttribute('href'));
+    }
+  } catch (e) { console.warn('[IA] PDF do destaque não localizado:', e.message); }
+  return '';
+}
+
+/**
+ * O parecer de Plenário (PRLP) traz um substitutivo? Lê o PDF inteiro (o substitutivo vem no fim) e procura o
+ * título em maiúsculas — "SUBSTITUTIVO AO PROJETO DE LEI Nº…", "SUBEMENDA SUBSTITUTIVA…". "SUBSTITUTIVO DO SENADO
+ * FEDERAL AO PROJETO" é o nome do texto examinado, não um substitutivo do relator (PLP 68/2024, PRLP 4).
+ * Devolve { proprio, adota } — adota: aprova "na forma do substitutivo" de outro — ou null se não deu para ler.
+ */
+const RE_TITULO_SUBSTITUTIVO = /SUBSTITUTIVO(?:\s+GLOBAL)?(?:\s+DE\s+PLEN[ÁA]RIO)?\s+(?:AO|À|AOS|ÀS)\s+(?:PROJETOS?|PROPOSTAS?|MEDIDA)|SUBEMENDA\s+SUBSTITUTIVA/;
+function textoTrazSubstitutivo(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  return { proprio: RE_TITULO_SUBSTITUTIVO.test(t), adota: /na\s+forma\s+d[oae]s?\s+(?:[^.;]{0,60}\s)?substitutiv/i.test(t) };
+}
+async function parecerTrazSubstitutivo(url) {
+  try {
+    const r = await fetchCamaraResponse(url);
+    if (!r || typeof pdfjsLib === 'undefined' || typeof pdfjsLib.getDocument !== 'function') return null;
+    const pdf = await pdfjsLib.getDocument({ data: await r.arrayBuffer() }).promise;
+    let texto = '';
+    for (let i = 1; i <= Math.min(pdf.numPages, 300); i++) {
+      const c = await (await pdf.getPage(i)).getTextContent();
+      texto += c.items.map(it => it.str).join(' ') + '\n';
+    }
+    if (texto.replace(/\s+/g, '').length < 200) return null;   // PDF de imagem: não dá para afirmar
+    return textoTrazSubstitutivo(texto);
+  } catch (e) {
+    console.warn('[IA] parecerTrazSubstitutivo falhou:', e);
+    return null;
+  }
+}
+
 async function fetchTextoIntegra(url, preResponse = null) {
   const r = preResponse !== null ? preResponse : await fetchCamaraResponse(url);
   if (!r) return null;
@@ -1763,11 +1819,14 @@ async function buscarTextoEmenda(d, prop) {
 
     // Artigo da lei original sendo alterada (primeiro mencionado na descrição)
     // "Art. 6º-F" é o art. 6º-F, não o 6º (DVS do PLP 299/2026, 23/11/2026): a letra fica na referência.
-    const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+)\s*[°º]?(?:\s*-\s*([A-Z])\b)?/i);
+    // A letra só vale colada ao número e em maiúscula: "art. 5º - a fim de suprimir" não é o art. 5º-A.
+    const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+)\s*[°º]?(?:-([A-Za-z])(?![A-Za-zÀ-ú]))?/i);
     const numArtigo = artMatch ? parseInt(artMatch[1]) : null;
-    const rotuloArt = artMatch ? `${artMatch[1]}${parseInt(artMatch[1]) < 10 ? 'º' : ''}${artMatch[2] ? '-' + artMatch[2].toUpperCase() : ''}` : null;
+    const letraArt  = artMatch && artMatch[2] && artMatch[2] === artMatch[2].toUpperCase() ? artMatch[2] : '';
+    const rotuloArt = artMatch ? `${artMatch[1]}${parseInt(artMatch[1]) < 10 ? 'º' : ''}${letraArt ? '-' + letraArt : ''}` : null;
     // a lei que o dispositivo altera, quando a descrição a nomeia ("da Lei Complementar nº 200 de 2023")
-    const leiMatch  = descricao.match(/\b(Lei(?:\s+Complementar)?|Decreto-Lei)\s+n?[º°o.]*\s*([\d.]+)(?:\s*,?\s*de\s*(\d{4})|\/(\d{4}))/i);
+    // "Projeto de Lei nº 3278/2021" é a proposição, não uma lei; a data pode vir por extenso ("de 30 de agosto de 2023").
+    const leiMatch  = descricao.match(/(?<!projetos?\s+de\s+)\b(Lei(?:\s+Complementar)?|Decreto-Lei)\s+n?[º°o.]*\s*(\d[\d.]*\d|\d)(?:\s*,?\s*de\s+(?:\d{1,2}[º°]?\s+de\s+[a-zç]+\s+de\s+)?(\d{4})|\/(\d{4}))/i);
     const leiAlvo   = leiMatch ? `${/complementar/i.test(leiMatch[1]) ? 'Lei Complementar' : leiMatch[1]} nº ${leiMatch[2]}/${leiMatch[3] || leiMatch[4]}` : null;
 
     // Inciso referenciado (romano)
@@ -2004,15 +2063,15 @@ async function buscarTextoEmenda(d, prop) {
             return resolverUrlCamara(candidatos[0].href);
           };
 
-          // 1ª tentativa: links cujo filename casa com SBT (padrão Câmara); só sem SBT, o PRLP — o parecer de
-          // Plenário com substitutivo tem SBT com o mesmo codteor, e PRLP sem SBT é parecer sem texto normativo.
-          const cand1 = [], cand1p = [];
+          // 1ª tentativa: links cujo filename casa com SBT ou PRLP (padrão Câmara)
+          const cand1 = [];
           for (const a of docPar1a.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
             const href = a.getAttribute('href') || '';
-            if (/filename[=+%]*SBT/i.test(href)) cand1.push({ href, codteor: extraiCodteor(href) });
-            else if (/filename[=+%]*PRLP/i.test(href)) cand1p.push({ href, codteor: extraiCodteor(href) });
+            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) {
+              cand1.push({ href, codteor: extraiCodteor(href) });
+            }
           }
-          link1a = escolheMaisRecente(cand1.length ? cand1 : cand1p);
+          link1a = escolheMaisRecente(cand1);
 
           // 2ª tentativa: linha que contém "substitut" mas NÃO só "parecer" — evita Parecer do Relator
           if (!link1a) {
@@ -2110,14 +2169,11 @@ async function buscarTextoEmenda(d, prop) {
         if (htmlFb) {
           const docFb           = new DOMParser().parseFromString(htmlFb, 'text/html');
           const extraiCodteorFb = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
-          let candFb = [];
-          const candFbP = [];
+          const candFb = [];
           for (const a of docFb.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
             const href = a.getAttribute('href') || '';
-            if (/filename[=+%]*SBT/i.test(href)) candFb.push({ href, codteor: extraiCodteorFb(href) });
-            else if (/filename[=+%]*PRLP/i.test(href)) candFbP.push({ href, codteor: extraiCodteorFb(href) });
+            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) candFb.push({ href, codteor: extraiCodteorFb(href) });
           }
-          if (!candFb.length) candFb = candFbP;   // SBT primeiro; PRLP só sem ele
           if (!candFb.length) {
             for (const row of docFb.querySelectorAll('tr, li, p')) {
               if (/substitut/i.test(row.textContent)) {
@@ -2208,18 +2264,29 @@ async function buscarTextoEmenda(d, prop) {
           console.log('[IA] Caso 3-MPV: sem PLV adotado — o DVS é sobre o texto original da MPV.');
         }
       }
-      // Dispositivo "apresentado ao PL" sem citar o texto original: presume-se o
-      // substitutivo — lê o ÚLTIMO SBT (maior codteor). Sem ele, o original.
-      // Só SBT: quando o parecer de Plenário traz substitutivo, a Câmara o registra como "SBT n" com o MESMO
-      // codteor do PRLP (PL 2475/2025: PRLP 2 e SBT 1 → 3193619). PRLP sem SBT é parecer sem substitutivo — o
-      // do PLP 299/2026 aprova "sem emendas" e era lido como substitutivo: "Art. 6º-F não encontrado" (23/11/2026).
+      // Dispositivo "apresentado ao PL" sem citar o texto original: presume-se o substitutivo mais recente —
+      // o maior codteor entre SBT e PRLP. O PRLP só vale se o PDF dele TROUXER um substitutivo (título
+      // "SUBSTITUTIVO AO PROJETO…"): o do PLP 299/2026 aprova o texto do Senado sem emendas e era lido como
+      // substitutivo — "Art. 6º-F não encontrado" (23/11/2026). A lista da Câmara não decide: o PL 5229/2025 tem
+      // substitutivo dentro do PRLP 4 sem "SBT" registrado; o PL 4822/2025 tem SBT 1 em arquivo à parte.
+      // PRLP sem substitutivo próprio que aprova "na forma do substitutivo" de comissão → o último SBT.
       if (!ehMPV && !/original/i.test(descricao)) {
         const htmlSbt = await fetchCamara(`https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`);
         if (htmlSbt) {
           const cod = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
-          const sbt = Array.from(new DOMParser().parseFromString(htmlSbt, 'text/html').querySelectorAll('a[href*="codteor"]'))
-            .map(a => a.getAttribute('href') || '').filter(h => /filename[=+%]*SBT/i.test(h))
-            .sort((a, b) => cod(b) - cod(a))[0];
+          const links = Array.from(new DOMParser().parseFromString(htmlSbt, 'text/html').querySelectorAll('a[href*="codteor"]'))
+            .map(a => a.getAttribute('href') || '').filter(h => /filename[=+%]*(SBT|PRLP)/i.test(h))
+            .sort((a, b) => cod(b) - cod(a) || (/filename[=+%]*SBT/i.test(b) ? 1 : 0) - (/filename[=+%]*SBT/i.test(a) ? 1 : 0));
+          const ehSbt = h => /filename[=+%]*SBT/i.test(h);
+          let sbt = links[0] || null;
+          if (sbt && !ehSbt(sbt)) {
+            const q = await parecerTrazSubstitutivo(resolverUrlCamara(sbt));
+            if (q && !q.proprio) {   // q nulo (PDF ilegível): fica o parecer, como antes
+              const anterior = q.adota ? links.find(ehSbt) : null;
+              console.log(`[IA] Caso 3: o parecer mais recente não traz substitutivo${anterior ? ' e aprova na forma de um — último SBT' : ' — vale o texto da proposição'}.`);
+              sbt = anterior || null;
+            }
+          }
           if (sbt) {
             console.log('[IA] Caso 3: DVS de dispositivo sem citar o texto — último substitutivo:', resolverUrlCamara(sbt));
             const info = await buscarDocumento(resolverUrlCamara(sbt), { tipo: 'substitutivo', numArtigo, numInciso, numPar, referenciaLeg });
@@ -2228,25 +2295,45 @@ async function buscarTextoEmenda(d, prop) {
         }
       }
       console.log('[IA] Caso 3: DVS de dispositivo do PL original');
-      const infoBase = { tipo: 'pl_original', numArtigo, numInciso, numPar, referenciaLeg };
+      // Matéria vinda do Senado (Câmara como revisora): o inteiro teor na Câmara é o texto APROVADO PELO SENADO —
+      // no PLP 299/2026, o substitutivo do Senado —, e é ele que está em votação.
+      const doSenado = /^\s*Senado\s+Federal/i.test(prop.autor || '');
+      const infoBase = { tipo: 'pl_original', numArtigo, numInciso, numPar, referenciaLeg, ...(doSenado ? { textoDoSenado: true } : {}) };
 
-      if (d.urlLink) {
-        const info = await buscarDocumento(d.urlLink, infoBase);
-        if (info) return info;
+      // O PDF do destaque NÃO traz o texto do dispositivo: só o pedido ("destaque do § 5º do art. 5º…") e, às
+      // vezes, a justificação (PLP 299/2026: DTQ 1 com uma página de pedido, DTQ 2 com a justificação). Antes ele
+      // era o documento lido, e a IA não achava o dispositivo. Agora o documento é o texto em votação (inteiro
+      // teor) e o destaque vai junto, como texto auxiliar.
+      let textoDestaque = '';
+      const urlDestaque = d.urlLink || await urlPdfDoDestaque(d, prop);
+      if (urlDestaque) {
+        try { textoDestaque = String((await fetchTextoIntegra(urlDestaque)) || '').trim(); } catch (_) { textoDestaque = ''; }
       }
+      const comDestaque = textoDestaque.length >= 100 ? { textoDestaque: textoDestaque.slice(0, 12000) } : {};
 
+      let urlInteiroTeor = null;
       try {
         const respApi = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}`);
-        if (respApi.ok) {
-          const json = await respApi.json();
-          const urlInteiroTeor = json?.dados?.urlInteiroTeor;
-          if (urlInteiroTeor) {
-            const info = await buscarDocumento(urlInteiroTeor, infoBase);
-            if (info) return info;
-          }
-        }
+        if (respApi.ok) urlInteiroTeor = (await respApi.json())?.dados?.urlInteiroTeor || null;
       } catch (e) {
         console.warn('[IA] Caso 3 — fetch da API falhou:', e);
+      }
+      if (!urlInteiroTeor) {
+        // API fora do ar: o link do inteiro teor pelo webservice do portal
+        try {
+          const xml = await fetchCamara(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicaoPorID?IdProp=${prop.idCamara}`);
+          const m = String(xml || '').match(/<LinkInteiroTeor>\s*([^<\s]+)\s*</i);
+          if (m) urlInteiroTeor = m[1].replace(/&amp;/g, '&').replace(/^http:/, 'https:');
+        } catch (_) { /* segue sem */ }
+      }
+      if (urlInteiroTeor) {
+        const info = await buscarDocumento(urlInteiroTeor, { ...infoBase, ...comDestaque });
+        if (info) return info;
+      }
+      // sem o inteiro teor, fica o PDF do destaque (como antes) — melhor que nada, e a explicação avisa
+      if (urlDestaque) {
+        const info = await buscarDocumento(urlDestaque, infoBase);
+        if (info) return info;
       }
 
       console.warn('[IA] Caso 3 falhou — documento não encontrado.');
@@ -2609,7 +2696,7 @@ function montarPrompt(d, prop, infoEmenda) {
       : '';
   const tipoDoc = (infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
                : infoEmenda?.tipo === 'substitutivo' ? 'SUBSTITUTIVO'
-               : infoEmenda?.tipo === 'pl_original'  ? 'PROJETO DE LEI ORIGINAL'
+               : infoEmenda?.tipo === 'pl_original'  ? (infoEmenda.textoDoSenado ? 'TEXTO APROVADO PELO SENADO FEDERAL (o texto em votação na Câmara, Casa revisora)' : 'PROJETO DE LEI ORIGINAL')
                : isPreferencia                       ? 'DESTAQUE DE PREFERÊNCIA'
                : 'DOCUMENTO') + autoriaDoc;
 
@@ -2621,6 +2708,15 @@ Leia atentamente antes de responder. Sua análise deve ser baseada EXCLUSIVAMENT
 ${infoEmenda.textoCompleto}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FIM DO DOCUMENTO FONTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : '';
+
+  // Texto do próprio destaque (pedido e justificação do autor), quando o documento principal é o texto em votação.
+  const blocoDestaque = infoEmenda?.textoDestaque ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TEXTO DO PRÓPRIO DESTAQUE — pedido e justificação do autor (NÃO é o texto do dispositivo; use para saber o que se pede e por quê)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${infoEmenda.textoDestaque}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : '';
 
@@ -2666,8 +2762,8 @@ ${temPDFPreferencia && temPDFComparado ? '' : temPDFPreferencia
 → NÃO invente, NÃO infira, NÃO use conhecimento externo aos PDFs anexados.`
     : isPLOriginal && referenciaLeg
     ? `
-REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do PL original):
-→ Este destaque trata especificamente do ${referenciaLeg.toUpperCase()} do projeto original.
+REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do ${infoEmenda.textoDoSenado ? 'texto aprovado pelo Senado' : 'PL original'}):
+→ Este destaque trata especificamente do ${referenciaLeg.toUpperCase()} do ${infoEmenda.textoDoSenado ? 'texto aprovado pelo Senado Federal, que é o texto em votação na Câmara (não há substitutivo da Câmara: nos campos de voto, escreva "texto do Senado", nunca "substitutivo do relator")' : 'projeto original'}.
 → Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no ${fonteRef}.
 → Descreva o conteúdo normativo concreto desse dispositivo: o que determina/autoriza/proíbe/regula, quem é afetado, quais condições e exceções existem.
 → Use verbos normativos: "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
@@ -2697,7 +2793,7 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`;
 
   return `Você é um assessor legislativo da Câmara dos Deputados do Brasil. Seja direto e objetivo — o deputado precisa entender o essencial em segundos.
-${blocoFonte}${avisPDF}
+${blocoFonte}${avisPDF}${blocoDestaque}
 TAREFA: Analise o destaque abaixo ${instrucaoBase}.
 
 DESTAQUE A ANALISAR:
@@ -2708,7 +2804,7 @@ DESTAQUE A ANALISAR:
 
 INSTRUÇÕES PARA CADA CAMPO DO JSON:
 
-"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = rejeita o destaque, mantém o texto do relator/substitutivo.
+"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = rejeita o destaque, mantém ${infoEmenda?.textoDoSenado ? 'o dispositivo no texto aprovado pelo Senado' : 'o texto do relator/substitutivo'}.
 
 "votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = aprova o destaque (suprime/altera o dispositivo destacado).
 
