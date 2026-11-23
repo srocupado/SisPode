@@ -394,13 +394,17 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
 /** Cache por deputado. A FALHA não entra: a próxima apuração tenta de novo. */
 const _cacheDeputado = new Map();
 
+const _legislaturaHoje = (d = new Date()) => Math.floor(((d.getMonth() >= 1 ? d.getFullYear() : d.getFullYear() - 1) - 1795) / 4);   // 57ª desde 1º/fev/2023; em janeiro, a anterior
 async function infoDeputado(idDep) {
   if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
   try {
     const res = await fetch(`${API_BASE}/deputados/${idDep}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const us = (await res.json()).dados?.ultimoStatus || {};
-    const info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
+    // A Câmara congela o partido de quem sai: ex-deputado segue "PODE" na ficha depois de mudar de partido
+    // fora dela (Sargento Alexandre, 56ª legislatura, hoje no Avante — 23/11/2026). Só vale o da legislatura em curso.
+    const leg = Number(us.idLegislatura) || null;
+    const info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf, ultimaLegislatura: leg, foraDaLegislatura: !!leg && leg < _legislaturaHoje(), legislaturaIncerta: !leg };
     _cacheDeputado.set(idDep, info);
     return info;
   } catch (e) {
@@ -432,11 +436,12 @@ async function apurarAutoria(idProp) {
     if (!m) { autores.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
     const info = await infoDeputado(m[1]);
     const falhou = !!info.falhou;
+    const pode = !falhou && info.siglaPartido === SIGLA_PODEMOS_CCJC;
     autores.push({
       nome:       a.nome || info.nome,
       ordem:      a.ordemAssinatura,      // 1 = 1º signatário (autor); >1 = coautor
-      isPodemos:  !falhou && info.siglaPartido === SIGLA_PODEMOS_CCJC,
-      incerta:    falhou,
+      isPodemos:  pode && !info.foraDaLegislatura && !info.legislaturaIncerta,
+      incerta:    falhou || (pode && !info.foraDaLegislatura && !!info.legislaturaIncerta),
     });
   }
 

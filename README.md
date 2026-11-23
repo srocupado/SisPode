@@ -264,6 +264,8 @@ Uma aba por colegiado e uma aba **Semana**: calendário das reuniões deliberati
 
 Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerimentos de urgência e redações finais, identificando autoria do Podemos e apensados do partido.
 
+- **Quem conta como do Podemos** (Plenário, CCJC, Colégio de Líderes e bot): o deputado com partido PODE **na legislatura em curso**. A Câmara congela o partido de quem sai — o ex-deputado continua "PODE" na ficha, na página e no webservice depois de mudar de partido fora dela (Sargento Alexandre, 56ª legislatura, hoje no Avante, saía como apensado do Podemos no PL 479/2015). Pela API, vale o `idLegislatura` do `ultimoStatus`; pelo portal, a página diz se está em exercício e o webservice dá a última legislatura; sem a legislatura, a autoria fica **não verificada**. Na busca do portal (Colégio de Líderes), o partido é o da época da autoria e é conferido com a bancada de hoje
+
 **Importação e enriquecimento**
 - Aceita os dois formatos de pauta: **dashboard compacto** da Liderança e **pauta extensa** oficial da Câmara
 - O parser identifica **PL, PLP, PEC, PDL/PDC, MPV, PRC, REQ, Recursos (REC, contra apreciação conclusiva de comissão — entram junto dos requerimentos, vinculados ao projeto recorrido) e Redações Finais** (categoria própria, RICD art. 83, I), captando ordem, número, ano e ementa

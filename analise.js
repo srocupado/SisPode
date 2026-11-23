@@ -13,6 +13,21 @@
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const SIGLA_PODEMOS = 'PODE';
+// Legislatura em curso: posse em 1º/fev de 2023 (57ª), 2027 (58ª)… — em janeiro ainda vale a anterior.
+const legislaturaHoje = (d = new Date()) => Math.floor(((d.getMonth() >= 1 ? d.getFullYear() : d.getFullYear() - 1) - 1795) / 4);
+/**
+ * Autoria do Podemos pelo partido do deputado, SÓ para quem está na legislatura em curso. A Câmara congela o
+ * partido de quem sai: o ex-deputado continua "PODE" na ficha (Dados Abertos, página e webservice) depois de ter
+ * mudado de partido fora da Câmara. CASO REAL (23/11/2026): o Sargento Alexandre (56ª legislatura, hoje no
+ * Avante) saiu como apensado do Podemos no PL 479/2015. Devolve { isPodemos, incerta, exPodemos }.
+ */
+function juizoPodemos(info) {
+  const pode = !!info && String(info.siglaPartido || '').toUpperCase() === SIGLA_PODEMOS;
+  if (!pode) return { isPodemos: false, incerta: false, exPodemos: false };
+  if (info.foraDaLegislatura) return { isPodemos: false, incerta: false, exPodemos: true };
+  if (info.legislaturaIncerta) return { isPodemos: false, incerta: true, exPodemos: false };
+  return { isPodemos: true, incerta: false, exPodemos: false };
+}
 
 
 // ---------- PROVEDORES DE IA (listagem de modelos) ----------
@@ -1614,6 +1629,7 @@ async function fetchAutoresProposicao(idProp) {
       // Falha na consulta NÃO é "não é do Podemos": fica registrada como
       // autoria não verificada, para o card não afirmar o que não apurou.
       const falhou = !!(info && info.falhou);
+      const j = falhou ? { isPodemos: false, incerta: true, exPodemos: false } : juizoPodemos(info);
       out.push({
         idDeputado: idDep,
         nome:       a.nome || info?.nome,
@@ -1622,8 +1638,9 @@ async function fetchAutoresProposicao(idProp) {
         tipo:       a.tipo,
         ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
         proponente: a.proponente,
-        isPodemos:  (!falhou && info?.siglaPartido === SIGLA_PODEMOS),
-        autoriaIncerta: falhou,
+        isPodemos:  j.isPodemos,
+        autoriaIncerta: j.incerta,
+        ...(j.exPodemos ? { exPodemos: true, ultimaLegislatura: info.ultimaLegislatura || null } : {}),
       });
     } else {
       out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
@@ -1637,10 +1654,14 @@ async function fetchInfoDeputado(idDep) {
   try {
     const json = await fetchJson(`${API_BASE}/deputados/${idDep}`);
     const us   = json.dados?.ultimoStatus || {};
+    const leg  = Number(us.idLegislatura) || null;
     const info = {
       nome:        us.nome || json.dados?.nomeCivil,
       siglaPartido: us.siglaPartido,
       siglaUf:     us.siglaUf,
+      ultimaLegislatura: leg,
+      // sem a legislatura na ficha, não se afirma que o partido é o de hoje
+      ...(leg ? (leg < legislaturaHoje() ? { foraDaLegislatura: true } : {}) : { legislaturaIncerta: true }),
     };
     state.cacheAutoria.set(idDep, info);
     return info;
@@ -1718,14 +1739,19 @@ async function deputadoPortal(idDep) {
 async function _detalheDeputadoPortal(id) {
   // 1º a página do deputado (www.camara.leg.br/deputados/{id}): HTML comum,
   // no ar quando API e SitCamaraWS caem (05/11/2026); traz "Partido: PODE - SP"
-  // de quem está em exercício e o último partido de quem saiu.
+  // de quem está em exercício e o ÚLTIMO partido de quem saiu — que não é o de
+  // hoje (o Sargento Alexandre segue "PODE" na página, já no Avante). Fora de
+  // exercício, a legislatura vem do webservice: só a da legislatura em curso
+  // vale como partido atual (suplente ou licenciado); a de antes, não.
   const pag = await _deputadoPaginaPortal(id);
-  if (pag) return pag;
+  if (pag && pag.emExercicio) return pag;
   const url = `${FIREBASE_URL}/cache_camara/deputados_detalhe/${encodeURIComponent(id)}.json`;
+  const comLeg = o => ({ ...o, ...(o.ultimaLegislatura ? (o.ultimaLegislatura < legislaturaHoje() ? { foraDaLegislatura: true } : {}) : { legislaturaIncerta: true }) });
   const info = await _detalheDeputadoWs(id);
-  if (info) { fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...info, em: new Date().toISOString() }) }).catch(() => {}); return info; }
+  if (info) { fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...info, em: new Date().toISOString() }) }).catch(() => {}); return comLeg(info); }
+  if (pag) return { ...pag, legislaturaIncerta: true };   // fora de exercício e sem a legislatura: partido atual não verificado
   const c = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
-  return c && c.siglaPartido ? { nome: c.nome, siglaPartido: c.siglaPartido, siglaUf: c.siglaUf, fonte: 'portal' } : null;
+  return c && c.siglaPartido ? comLeg({ nome: c.nome, siglaPartido: c.siglaPartido, siglaUf: c.siglaUf, ultimaLegislatura: c.ultimaLegislatura || null, fonte: 'portal' }) : null;
 }
 async function _deputadoPaginaPortal(id) {
   try {
@@ -1737,7 +1763,7 @@ async function _deputadoPaginaPortal(id) {
     const m = txt.match(/Partido:\s*([A-Za-zÀ-ÿ]{2,20})\s*-\s*([A-Z]{2})\b/);
     if (!m) return null;
     const nome = (doc.querySelector('h1, .nome-deputado')?.textContent || '').replace(/\s+/g, ' ').trim();
-    return { nome, siglaPartido: m[1], siglaUf: m[2], fonte: 'portal' };
+    return { nome, siglaPartido: m[1], siglaUf: m[2], emExercicio: !/N[ãa]o est[áa] em exerc[íi]cio/i.test(txt), fonte: 'portal' };
   } catch (_) { return null; }
 }
 async function _detalheDeputadoWs(id) {
@@ -1750,7 +1776,7 @@ async function _detalheDeputadoWs(id) {
     const sigla = (dep?.getElementsByTagName('partidoAtual')[0]?.getElementsByTagName('sigla')[0]?.textContent || '').trim();
     if (!sigla) return null;
     const t = tag => (dep.getElementsByTagName(tag)[0]?.textContent || '').trim();
-    return { nome: t('nomeParlamentarAtual') || t('nomeCivil'), siglaPartido: sigla, siglaUf: t('ufRepresentacaoAtual'), fonte: 'portal' };
+    return { nome: t('nomeParlamentarAtual') || t('nomeCivil'), siglaPartido: sigla, siglaUf: t('ufRepresentacaoAtual'), ultimaLegislatura: num(dep) || null, fonte: 'portal' };
   } catch (_) { return null; }
 }
 
@@ -1772,11 +1798,13 @@ async function fetchAutoresPortal(idProp) {
     const m = (li.querySelector('a')?.getAttribute('href') || '').match(/\/deputados\/(\d+)/);
     if (!m) return { nome, tipo: '', ordem: i + 1, proponente: i === 0 ? 1 : 0, isPodemos: false, fonte: 'portal' };
     const info = await deputadoPortal(m[1]);
+    const j = info ? juizoPodemos(info) : { isPodemos: false, incerta: true, exPodemos: false };
     return {
       idDeputado: m[1], nome: info?.nome || nome, siglaPartido: info?.siglaPartido, siglaUf: info?.siglaUf,
       tipo: 'Deputado', ordem: i + 1, proponente: i === 0 ? 1 : 0,
-      isPodemos: !!info && info.siglaPartido === SIGLA_PODEMOS,
-      autoriaIncerta: !info,
+      isPodemos: j.isPodemos,
+      autoriaIncerta: j.incerta,
+      ...(j.exPodemos ? { exPodemos: true, ultimaLegislatura: info.ultimaLegislatura || null } : {}),
       fonte: 'portal',
     };
   }));
