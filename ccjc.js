@@ -2386,8 +2386,7 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
 
   const analisados = projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido').length;
   const meta = `${projetos.length} projeto(s) · ${analisados} com análise`
-    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '')
-    + (pauta.responsavel ? ` · Servidor responsável: ${escHtml(pauta.responsavel)}` : '');
+    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -2407,6 +2406,7 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
     .pi-cab .pi-sp { width:42px; }
     .pi-rule { border-bottom:2px solid #00A859; margin:6px 30px 8px; }
     .pi-meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    ${typeof CSS_RESPONSAVEL_PAUTA === 'string' ? CSS_RESPONSAVEL_PAUTA : ''}
     /* Índice: o "ld" é a linha pontilhada e o nº de página vem do
        target-counter, que só o paged.js resolve. Sem a lib, o índice sai
        clicável e sem número — degradação aceitável, nunca página em branco. */
@@ -2467,6 +2467,7 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
     </div>
     ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="pi-sp"></div>'}
   </div>
+  ${typeof linhaResponsavelPauta === 'function' ? linhaResponsavelPauta(pauta) : ''}
   <div class="pi-rule"></div>
   <div class="pi-meta">${meta}</div>
   <div class="pi-body">

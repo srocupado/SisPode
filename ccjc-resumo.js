@@ -1,6 +1,17 @@
 // SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 'use strict';
 
+// Assinatura da pauta (pedido de 23/11/2026): o servidor responsável vai no CABEÇALHO do documento, logo abaixo do
+// título. Sem nome preenchido, sai um traço em branco, para assinar à mão no impresso. O rodapé "gerado pelo
+// SisPode" continua como está. Usado aqui (resumo executivo) e no PDF da pauta (ccjc.js).
+const CSS_RESPONSAVEL_PAUTA = `.resp-pauta { text-align:center; font-size:10.5pt; color:#003c1f; margin:6px 30px 0; }
+    .resp-pauta b { font-weight:700; }
+    .resp-pauta .assin { display:inline-block; min-width:75mm; border-bottom:1px solid #003c1f; height:1.1em; vertical-align:bottom; }`;
+function linhaResponsavelPauta(pauta, estilo = '') {
+  const nome = String(pauta?.responsavel || '').trim();
+  return `<div class="resp-pauta"${estilo ? ` style="${estilo}"` : ''}>Servidor responsável pela pauta: ${nome ? `<b>${escHtml(nome)}</b>` : '<span class="assin"></span>'}</div>`;
+}
+
 // ── RESUMO EXECUTIVO DA PAUTA (Pautas CCJC) ─────────────────────────────────
 // Leitura rápida da pauta para a liderança: visão geral, tabela dos itens
 // comentados (tema, relator, parecer na CCJC, potencial de debate), um bloco
@@ -222,12 +233,14 @@ function resumoHTML(pauta, res, logo) {
   .aten { background:#fff8e8; border-left:3px solid #e0a800; border-radius:6px; padding:8px 12px; margin-top:10px; }
   .aten b { color:#a16207; font-size:9pt; } .aten p { margin:3px 0 0; }
   .leit { background:#eef8f1; border-left:3px solid #0b8a4b; border-radius:6px; padding:10px 14px; }
+  ${CSS_RESPONSAVEL_PAUTA}
   .rod { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
   @page { size:A4; margin:14mm; }
   @media print { body { padding:0; } .filete, .tab th, .tab td, .db, .par, .aten, .leit { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
   </style></head><body>
   <div class="cab"><div class="tx"><div class="org">LIDERANÇA DO PODEMOS NA CÂMARA DOS DEPUTADOS</div><h1>${escHtml(pauta.titulo)}</h1>
-    <div class="sub">Resumo executivo · ${(pauta.projetos || []).length} projeto(s) em pauta · ${g.com} com análise · ${g.sem} sem análise${pauta.responsavel ? ` · Servidor responsável: ${escHtml(pauta.responsavel)}` : ''}</div></div>
+    <div class="sub">Resumo executivo · ${(pauta.projetos || []).length} projeto(s) em pauta · ${g.com} com análise · ${g.sem} sem análise</div>
+    ${linhaResponsavelPauta(pauta, 'text-align:left;margin:6px 0 0')}</div>
     ${logo ? `<img src="${logo}" alt="Podemos">` : ''}</div>
   <div class="filete"></div>
   <h2 class="sec">Visão geral</h2>
@@ -292,5 +305,5 @@ async function gerarResumoExecutivo() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { resumoEhRotina, resumoComAnalise, resumoAssinatura, resumoJSON, resumoPromptItem, resumoGerarItem, resumoTextosGerais, resumoHTML };
+  module.exports = { CSS_RESPONSAVEL_PAUTA, linhaResponsavelPauta, resumoEhRotina, resumoComAnalise, resumoAssinatura, resumoJSON, resumoPromptItem, resumoGerarItem, resumoTextosGerais, resumoHTML };
 }

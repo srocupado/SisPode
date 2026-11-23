@@ -56,7 +56,9 @@ global.aiCall = async () => '```json\n' + JSON.stringify({ tema: 'Busca de desap
   ok((h.match(/<section class="item">/g) || []).length === 8, 'um bloco por item + a leitura geral');
   ok(/Sem resumo \(a IA falhou\): PL 1\/2026/.test(h), 'item que a IA não resumiu é dito, não omitido');
   const hr = R.resumoHTML({ ...pauta, responsavel: 'Maria <Silva>' }, { itens: dados }, null);
-  ok(/· Servidor responsável: Maria &lt;Silva&gt;<\/div>/.test(hr) && !/Servidor responsável/.test(h), 'servidor responsável pela pauta na linha de contagem (escapado), só quando preenchido');
+  ok(/<div class="cab">[\s\S]*Servidor responsável pela pauta: <b>Maria &lt;Silva&gt;<\/b>[\s\S]*<div class="filete">/.test(hr) && !/· Servidor responsável/.test(hr),
+    'servidor responsável no CABEÇALHO do resumo (escapado), não na linha de contagem');
+  ok(/Servidor responsável pela pauta: <span class="assin"><\/span>/.test(h), 'sem nome preenchido: traço em branco para assinar');
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
