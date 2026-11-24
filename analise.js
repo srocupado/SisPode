@@ -248,82 +248,94 @@ async function onPdfSelecionado(ev) {
   const file = ev.target.files?.[0];
   if (!file) return;
   ev.target.value = '';
-
   mostrarToast('Lendo PDF...', 'info');
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const texto       = await extrairTextoPdf(arrayBuffer);
-    const parsed      = parsearPauta(texto);
-
-    // Item que o leitor não reconheceu (grafia nova da Câmara) não pode sumir
-    // em silêncio: a numeração do próprio texto acusa a lacuna e o trecho vai
-    // para a IA, com conferência no texto e na Câmara (pauta-parser.js).
-    const lacunas = await recuperarLacunasImportacao(texto, parsed);
-
-    if (!parsed.itens.length) {
-      mostrarToast('Não foi possível identificar itens na pauta.', 'aviso');
-      return;
-    }
-
-    // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
-    // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
-    // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
-    const idPauta = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed);
-    if (!idPauta) {
-      mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
-      return;
-    }
-
-    state.pauta = {
-      id:         idPauta,
-      titulo:     parsed.titulo || 'Pauta da Semana',
-      periodo:    parsed.periodo || '',
-      sessao:     parsed.sessao || null,
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: state.config?.nomeUsuario || 'equipe',
-      pdfNome:    file.name,
-      itens:      parsed.itens.map(normalizarItem),
-      ...(lacunas ? { lacunas } : {}),
-    };
-    // Responsáveis sorteados entre os servidores da equipe (já gravados com a pauta, logo abaixo)
-    const distribuidos = distribuirResponsaveis(state.pauta.itens, await carregarServidores());
-
-    renderizarPauta();
-    document.getElementById('btn-exportar-pdf').disabled = false;
-    document.getElementById('btn-exportar-docx').disabled = false;
-    document.getElementById('btn-salvar-firebase').disabled = false;
-    document.getElementById('btn-adicionar-item').disabled = false;
-    document.getElementById('btn-gerar-todas').disabled = false;
-    document.getElementById('btn-verificar-atualizacoes').disabled = false;
-    document.getElementById('btn-prop-partido').disabled = false;
-    document.getElementById('btn-resumo-sessao').disabled = false;
-    document.getElementById('btn-apelidos').disabled = false;
-    document.getElementById('btn-recategorizar').disabled = false;
-    state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
-    state.dirty = false;
-    atualizarStatusSync('ok');
-
-    if (lacunas?.pendentes.length) {
-      mostrarToast(`⚠ ${parsed.itens.length} itens identificados — item(ns) ${lacunas.pendentes.map(p => p.ordem).join(', ')} ainda faltando: veja o aviso no topo da pauta.`, 'aviso');
-    } else if (lacunas) {
-      mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
-    } else {
-      mostrarToast(`✓ ${parsed.itens.length} itens identificados${distribuidos ? ` · responsáveis sorteados entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
-    }
-
-    // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
-    enriquecerItens();
-
-    // Marca como dirty e persiste imediatamente (auto-save tenta de novo se falhar)
-    marcarSujo();
-    fbSalvarPauta(state.pauta).catch(e => {
-      console.warn('Firebase indisponível:', e.message);
-      mostrarToast('⚠ Não foi possível salvar a pauta no Firebase', 'aviso');
-    });
+    await importarPautaPdf(await file.arrayBuffer(), file.name);
   } catch (e) {
     console.error(e);
     mostrarToast('Erro ao processar o PDF: ' + e.message, 'erro');
   }
+}
+
+/**
+ * Importa a pauta a partir do PDF: o que o usuário escolheu no computador ou o que o calendário baixou do site
+ * da Câmara (plenario-calendario.js). O caminho é um só — leitura, lacunas, id, responsáveis, gravação —, para
+ * a pauta do calendário sair igual à do PDF carregado à mão. `sessaoOficial` (opcional) fica gravada na pauta:
+ * { eventoId, url, data } — a sessão e o link da pauta oficial de onde o PDF veio. (Não é `origem`: esse campo
+ * já existe na pauta, como texto — 'avulsa' —, e é lido por fbSalvarPauta e pelo bot.) Erros sobem para quem chamou.
+ */
+async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) {
+  const file = { name: nomeArquivo };   // mesmo nome que o PDF escolhido à mão usava
+  const texto       = await extrairTextoPdf(arrayBuffer);
+  const parsed      = parsearPauta(texto);
+
+  // Item que o leitor não reconheceu (grafia nova da Câmara) não pode sumir
+  // em silêncio: a numeração do próprio texto acusa a lacuna e o trecho vai
+  // para a IA, com conferência no texto e na Câmara (pauta-parser.js).
+  const lacunas = await recuperarLacunasImportacao(texto, parsed);
+
+  if (!parsed.itens.length) {
+    mostrarToast('Não foi possível identificar itens na pauta.', 'aviso');
+    return;
+  }
+
+  // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
+  // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
+  // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
+  const idPauta = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed);
+  if (!idPauta) {
+    mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
+    return;
+  }
+
+  state.pauta = {
+    id:         idPauta,
+    titulo:     parsed.titulo || 'Pauta da Semana',
+    periodo:    parsed.periodo || '',
+    sessao:     parsed.sessao || null,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: state.config?.nomeUsuario || 'equipe',
+    pdfNome:    file.name,
+    itens:      parsed.itens.map(normalizarItem),
+    ...(lacunas ? { lacunas } : {}),
+    ...(sessaoOficial ? { sessaoOficial } : {}),
+  };
+  // Responsáveis sorteados entre os servidores da equipe (já gravados com a pauta, logo abaixo)
+  const distribuidos = distribuirResponsaveis(state.pauta.itens, await carregarServidores());
+
+  renderizarPauta();
+  document.getElementById('btn-exportar-pdf').disabled = false;
+  document.getElementById('btn-exportar-docx').disabled = false;
+  document.getElementById('btn-salvar-firebase').disabled = false;
+  document.getElementById('btn-adicionar-item').disabled = false;
+  document.getElementById('btn-gerar-todas').disabled = false;
+  document.getElementById('btn-verificar-atualizacoes').disabled = false;
+  document.getElementById('btn-prop-partido').disabled = false;
+  document.getElementById('btn-resumo-sessao').disabled = false;
+  document.getElementById('btn-apelidos').disabled = false;
+  document.getElementById('btn-recategorizar').disabled = false;
+  state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
+  state.dirty = false;
+  atualizarStatusSync('ok');
+
+  if (lacunas?.pendentes.length) {
+    mostrarToast(`⚠ ${parsed.itens.length} itens identificados — item(ns) ${lacunas.pendentes.map(p => p.ordem).join(', ')} ainda faltando: veja o aviso no topo da pauta.`, 'aviso');
+  } else if (lacunas) {
+    mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
+  } else {
+    mostrarToast(`✓ ${parsed.itens.length} itens identificados${distribuidos ? ` · responsáveis sorteados entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
+  }
+
+  // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
+  enriquecerItens();
+
+  // Marca como dirty e persiste imediatamente (auto-save tenta de novo se falhar)
+  marcarSujo();
+  fbSalvarPauta(state.pauta).catch(e => {
+    console.warn('Firebase indisponível:', e.message);
+    mostrarToast('⚠ Não foi possível salvar a pauta no Firebase', 'aviso');
+  });
+  return true;
 }
 
 

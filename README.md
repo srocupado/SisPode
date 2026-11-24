@@ -268,6 +268,7 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 
 **Importação e enriquecimento**
 - Aceita os dois formatos de pauta: **dashboard compacto** da Liderança e **pauta extensa** oficial da Câmara
+- **Calendário** (botão ao lado de "Carregar pauta (PDF)", no padrão da CCJC): o mês com as **sessões deliberativas do Plenário** (sessões solenes ficam de fora); escolhido o dia e a sessão, o programa baixa a **pauta oficial** da sessão — o PDF do link "Pauta" da página da sessão no site da Câmara, o mesmo que a equipe baixava — e importa **pelo mesmo caminho do PDF carregado à mão** (`importarPautaPdf`): mesmo leitor, lacunas, id, sorteio de responsáveis e gravação. A pauta guarda a sessão e o link de onde veio (`sessaoOficial`). Sessão cuja pauta a Câmara ainda não publicou é avisada no próprio calendário. **Se a API de Dados Abertos falhar**, as sessões do mês vêm da lista "Sessões e reuniões" do site (órgão 180), e o calendário diz a fonte. Medido em 24/11/2026: 9 sessões deliberativas em novembro pela API e pelo site; a pauta da sessão de 24/11 (13h55) entrou com os 13 itens, os mesmos do PDF carregado à mão (`plenario-calendario.js`)
 - O parser identifica **PL, PLP, PEC, PDL/PDC, MPV, PRC, REQ, Recursos (REC, contra apreciação conclusiva de comissão — entram junto dos requerimentos, vinculados ao projeto recorrido) e Redações Finais** (categoria própria, RICD art. 83, I), captando ordem, número, ano e ementa
 - Suporte a requerimentos de urgência **sem número de protocolo** ("Requerimento s/nº") — a identidade do item vem do projeto cuja urgência é solicitada
 - **Projeto da urgência apurado em três fontes**, não só no texto do PDF (que quebrou a cada grafia nova da Câmara): **(1)** a pauta estruturada da sessão nos Dados Abertos (`/eventos/{id}/pauta`, campo `proposicaoRelacionada_`), que existe no dia da sessão; **(2)** a **ficha do próprio requerimento**, cuja ementa nomeia o projeto ("…regime de urgência do Projeto de Lei nº 1.381, de 2026") e existe desde a apresentação do REQ, antes do PDF; **(3)** o texto do PDF. O vínculo feito à mão (🔗 Vincular projeto) vale sobre todas. O card diz **de onde veio** o vínculo e, quando as fontes **discordam**, mostra o que cada uma diz; no topo da lista, um aviso conta os requerimentos **sem projeto** depois das três fontes e os **com fontes divergentes** — nada fica "sem projeto" em silêncio. Pautas já salvas se corrigem ao serem reabertas
@@ -832,6 +833,7 @@ sispode/
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
+├── plenario-calendario.js         # Plenário · calendário das sessões deliberativas e pauta oficial da sessão
 ├── analise.css                    # Estilos dos cards de análise (usados também nas pautas de comissões)
 ├── ia-comum.js                    # Cliente de IA compartilhado (3 provedores, SSE, PDF, utilidades)
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
