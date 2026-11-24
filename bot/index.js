@@ -28,7 +28,7 @@ const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
-const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
+const { faltamVotar, formatarFaltantes, formatarFaltantesTexto } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
 const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
@@ -1529,13 +1529,15 @@ async function cmdFaltamVotar(ctx) {
   }
   return responderFaltantes(ctx);
 }
-// Mesma mensagem para o comando e para a pergunta em texto livre ("quem falta votar?"). Pelo agente, a lista
-// ia para o modelo, que reescrevia a resposta e cortava o "(2/27 já votaram)" — a lista de 25 parecia a bancada
-// inteira (24/11/2026, PL 1969/2022). Agora o agente só dispara esta ação e o texto sai como no /faltamvotar.
-async function responderFaltantes(ctx) {
+// Comando e pergunta em texto livre ("quem falta votar?") leem o mesmo painel. Pelo agente, a lista ia para o
+// modelo, que reescrevia a resposta e cortava o "(2/27 já votaram)" — a lista de 25 parecia a bancada inteira
+// (24/11/2026, PL 1969/2022). Agora o agente só dispara esta ação e o texto é montado pelo programa: o comando
+// no formato do /faltamvotar; a pergunta em texto livre no texto pedido ("Até o momento, 19 de 27…").
+async function responderFaltantes(ctx, { textoLivre = false } = {}) {
   await ctx.replyWithChatAction('typing');
   try {
     const r = await faltamVotar('PODE');
+    if (textoLivre) return ctx.reply(formatarFaltantesTexto(r));
     return ctx.reply(formatarFaltantes(r, { sigla: 'PODE' }), { parse_mode: 'Markdown' });
   } catch (e) {
     console.error('/faltamvotar falhou:', e);
@@ -2086,7 +2088,7 @@ async function executarDecisao(ctx, decisao) {
     case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'resumo':             return cmdResumo(ctx, decisao.argumentos.pergunta || '');
-    case 'faltam_votar':       return responderFaltantes(ctx);
+    case 'faltam_votar':       return responderFaltantes(ctx, { textoLivre: true });
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
     case 'nota_avulsa':        return cmdAvulsa(ctx, { entrada: entradaDoTexto(String(decisao.argumentos.pergunta || '')) });   // idem
     case 'digest':             return cmdDigest(ctx);

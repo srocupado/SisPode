@@ -187,7 +187,7 @@ AÇÕES DO BOT (executam um fluxo pronto e encerram sua vez — use quando o usu
 - "baixar_documentos" {"pergunta":"PL 1234/2026"}: enviar os PDFs da matéria.
 - "votacao" {"pergunta":"dd/mm/aaaa"}: votações nominais do Plenário + imagem do placar da bancada.
 - "resumo" {"pergunta":"dd/mm/aaaa"}: resumo oficial da sessão do dia (matérias apreciadas).
-- "faltam_votar" {}: numa votação NOMINAL em curso, envia a lista pronta do /faltamvotar — quantos da bancada do Podemos já votaram, do total, e quem ainda NÃO votou. Use para "quem do Podemos falta votar?", "a bancada já votou toda?", "fulano já votou?". Não reescreva a lista: a ação a envia como está.
+- "faltam_votar" {}: numa votação NOMINAL em curso, envia a resposta pronta — quantos da bancada do Podemos já votaram, do total, e quem ainda NÃO votou. Use para "quem do Podemos falta votar?", "a bancada já votou toda?", "fulano já votou?". Não reescreva a lista: a ação a envia como está.
 - "digest" {}: radar de imprensa (assinantes).
 - "analisar" {}: gerar as notas técnicas da pauta (caro; pede confirmação).
 - "nota_avulsa" {"pergunta":"PLP 42/2023"}: gerar a nota técnica, em PDF, de UMA proposição que NÃO está na pauta (pede confirmação). Use quando pedirem para GERAR, FAZER ou PRODUZIR a nota de uma proposição específica, ou falarem em nota "avulsa". "ver_nota" só EXIBE nota que já existe de item da pauta.

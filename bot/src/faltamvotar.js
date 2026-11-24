@@ -85,4 +85,17 @@ function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
   return linhas.join('\n\n');
 }
 
-module.exports = { faltamVotar, formatarFaltantes };
+/** Resposta à pergunta em texto livre ("quem falta votar?"), no texto pedido em 24/11/2026:
+ *  "Até o momento, 19 de 27 deputados do Podemos votaram no PL nº 1969/2022. Segue a relação…".
+ *  Montada pelo programa, sem passar pelo modelo: reescrita por ele, a contagem chegou a sumir. */
+function formatarFaltantesTexto(r) {
+  if (!r.aberta) return `Sem lista de faltantes agora — ${r.motivo}.`;
+  const prop = String(r.prop || '').replace(/\bN[ºo°]\s*/i, 'nº ').replace(/\s+/g, ' ').trim();
+  const art = /^(PEC|MPV?|MSC|INC|RCP)\b/i.test(prop) ? 'na' : 'no';
+  const onde = prop ? ` ${art} ${prop}` : ' na votação em curso';
+  const cab = `Até o momento, ${r.votaram} de ${r.total} deputados do Podemos votaram${onde}.`;
+  if (!r.naoVotaram.length) return `${cab} Toda a bancada já votou.`;
+  return `${cab} Segue a relação dos parlamentares da bancada que ainda não registraram voto:\n\n${r.naoVotaram.map(n => `• ${n}`).join('\n')}`;
+}
+
+module.exports = { faltamVotar, formatarFaltantes, formatarFaltantesTexto };

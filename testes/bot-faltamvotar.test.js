@@ -15,7 +15,7 @@ const RAIZ = path.join(__dirname, '..');
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
 
-const { faltamVotar, formatarFaltantes } = require(path.join(RAIZ, 'bot', 'src', 'faltamvotar.js'));
+const { faltamVotar, formatarFaltantes, formatarFaltantesTexto } = require(path.join(RAIZ, 'bot', 'src', 'faltamvotar.js'));
 const PAINEL = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'faltamvotar', 'painel-14017-2257.json'), 'utf8'));
 const SESSAO = { sessaoAtual: { numSessao: 184, nomSessao: 'EXTRAORDINÁRIA Nº 184 - 23/11/2026' },
   votacaoAtual: { tipo: 'Votacao', idVotacao: 14017, tituloVotacao: 'PLP  Nº 299/2026 - DTQ 1 - FDR PSOL-REDE', tipoVotacao: 'E' } };
@@ -57,8 +57,18 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
   const acoes = AG.slice(AG.indexOf('const CATALOGO_ACOES'), AG.indexOf('`;', AG.indexOf('const CATALOGO_ACOES')));
   ok(/- "faltam_votar" \{\}:/.test(acoes) && /const ACOES = \[[^\]]*'faltam_votar'/.test(AG), 'agente: "faltam_votar" é AÇÃO (envia a lista pronta), não consulta que o modelo reescreve');
   ok((AG.match(/- "faltam_votar"/g) || []).length === 1 && !/faltam_votar: async/.test(IX), 'saiu das ferramentas de consulta');
-  ok(/case 'faltam_votar':\s+return responderFaltantes\(ctx\);/.test(IX) && /async function cmdFaltamVotar[\s\S]*?return responderFaltantes\(ctx\);/.test(IX),
-    'a ação e o /faltamvotar mandam a mesma mensagem (responderFaltantes)');
+  ok(/case 'faltam_votar':\s+return responderFaltantes\(ctx, \{ textoLivre: true \}\);/.test(IX) && /async function cmdFaltamVotar[\s\S]*?return responderFaltantes\(ctx\);/.test(IX),
+    'a ação usa o texto da pergunta livre; o /faltamvotar, o formato dele');
+
+  console.log('\n== 4. texto da pergunta livre, como pedido em 24/11/2026 ==');
+  const pedido = 'Até o momento, 19 de 27 deputados do Podemos votaram no PL nº 1969/2022. Segue a relação dos parlamentares da bancada que ainda não registraram voto:\n\n'
+    + ['Felipe Becari (SP)', 'Gilberto Nascimento (SP)', 'Glaustin da Fokus (GO)', 'Luiz Carlos Hauly (PR)', 'Nely Aquino (MG)', 'Rafael Fera (RO)', 'Renata Abreu (SP)', 'Rodrigo Gambale (SP)'].map(n => `• ${n}`).join('\n');
+  const r19 = { ...r2, votaram: 19, naoVotaram: ['Felipe Becari (SP)', 'Gilberto Nascimento (SP)', 'Glaustin da Fokus (GO)', 'Luiz Carlos Hauly (PR)', 'Nely Aquino (MG)', 'Rafael Fera (RO)', 'Renata Abreu (SP)', 'Rodrigo Gambale (SP)'] };
+  ok(formatarFaltantesTexto(r19) === pedido, 'sai exatamente o texto pedido (19 de 27, PL nº 1969/2022, 8 nomes)');
+  ok(formatarFaltantesTexto(r2).startsWith('Até o momento, 2 de 27 deputados do Podemos votaram no PL nº 1969/2022. Segue'), 'o caso dos 25: "2 de 27" na primeira linha');
+  ok(formatarFaltantesTexto({ ...r2, votaram: 27, naoVotaram: [] }) === 'Até o momento, 27 de 27 deputados do Podemos votaram no PL nº 1969/2022. Toda a bancada já votou.', 'toda a bancada votou');
+  ok(/votaram na MPV nº 1300\/2026\./.test(formatarFaltantesTexto({ ...r19, prop: 'MPV Nº 1300/2026' })) && /votaram na PEC nº 66\/2023\./.test(formatarFaltantesTexto({ ...r19, prop: 'PEC Nº 66/2023' })), '"na" para MPV e PEC');
+  ok(formatarFaltantesTexto({ aberta: false, motivo: 'não há votação em curso' }) === 'Sem lista de faltantes agora — não há votação em curso.', 'sem votação nominal: a mensagem de sempre');
 
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
