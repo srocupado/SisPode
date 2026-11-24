@@ -2,7 +2,8 @@
 // Comissões · Pedidos de vagas (comissoes-pedidos-vagas.js + aba "Pedidos" em comissoes.html / comissoes.js).
 //
 // Pedido de 24/11/2026: registrar quais deputados pediram vaga em quais Comissões Permanentes, com tipo de vaga,
-// ordem de preferência e situação; inacumulabilidade (RICD, art. 26, § 2º) aplicada NO REGISTRO, bloqueando.
+// ordem de preferência e situação; inacumulabilidade (RICD, art. 26, § 2º) verificada NO REGISTRO.
+// Ajuste de 24/11/2026: o conflito não bloqueia mais — alerta quem cadastra e fica marcado ao lado do nome do deputado.
 // Uso: node testes/comissoes-pedidos-vagas.test.js
 const fs = require('fs'), path = require('path'), http = require('http');
 const RAIZ = path.join(__dirname, '..');
@@ -30,8 +31,10 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   const v = (p, pedidos) => PV.pvValidarPedido(Object.assign({ ordem: 1, legislatura: 57 }, p), ctx(pedidos));
 
   let r = v({ depId: '1', sigla: 'CFT', tipo: 'titular' });
-  ok(!r.ok && r.inacumulavel === 'CCJC' && /Inacumulável: o deputado já é titular em CCJC/.test(r.erro) && /RICD, art\. 26, § 2º/.test(r.erro),
-    'titular na CCJC pede titular na CFT: BLOQUEADO, com a comissão e o artigo');
+  ok(r.ok && r.conflitos.map(c => c.sigla + ':' + c.origem).join() === 'CCJC:composicao' && /já é titular em CCJC/.test(r.alerta) && /RICD, art\. 26, § 2º/.test(r.alerta) && /pode ser registrado/.test(r.alerta),
+    'titular na CCJC pede titular na CFT: REGISTRÁVEL, com alerta do conflito (comissão e artigo)');
+  ok(!v({ depId: '1', sigla: 'CE', tipo: 'suplente' }).conflitos.length && !v({ depId: '3', sigla: 'CE', tipo: 'titular' }).conflitos.length && !v({ depId: '1', sigla: 'CCULT', tipo: 'titular' }).conflitos.length,
+    'sem conflito: suplência, deputado sem titularidade, comissão ressalvada');
   ok(v({ depId: '1', sigla: 'CFT', tipo: 'suplente' }).ok === false && /já é suplente em CFT/.test(v({ depId: '1', sigla: 'CFT', tipo: 'suplente' }).erro), 'já é suplente na CFT: não pede suplência de novo');
   ok(v({ depId: '1', sigla: 'CE', tipo: 'suplente' }).ok, 'suplência numa inacumulável: aceita (o limite é só para titular)');
   ok(v({ depId: '1', sigla: 'CCULT', tipo: 'titular' }).ok, 'titular numa ressalvada (Cultura), sendo titular na CCJC: aceito');
@@ -40,7 +43,12 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   ok(v({ depId: '3', sigla: 'CCJC', tipo: 'titular' }).ok && v({ depId: '3', sigla: 'CFT', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'pendente' }]).ok,
     'sem titularidade: pode pedir titular em duas inacumuláveis como opções (pendentes)');
   r = v({ depId: '3', sigla: 'CFT', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'atendido' }]);
-  ok(!r.ok && /já é titular em CCJC \(pedido atendido, \d+ª legislatura\)/.test(r.erro), 'pedido de titular já ATENDIDO numa inacumulável conta como titularidade: bloqueia outra');
+  ok(r.ok && r.conflitos[0].origem === 'atendido' && /já é titular em CCJC \(pedido atendido, \d+ª legislatura\)/.test(r.alerta), 'pedido de titular já ATENDIDO numa inacumulável conta como titularidade: conflito com a outra');
+  ok(!PV.pvConflitosInacumulaveis({ id: 'x', depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'atendido' }, ctx([{ id: 'x', depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'atendido' }])).length,
+    'o pedido atendido não conflita com ele mesmo');
+  ok(PV.pvNovoRegistro({ depId: '1', sigla: 'CFT', tipo: 'titular', ordem: 1, legislatura: 57, conflitos: [{ sigla: 'CCJC', origem: 'composicao' }] }, '2026-11-24T12:00:00.000Z').conflitoRegistro.join() === 'CCJC'
+    && !('conflitoRegistro' in PV.pvNovoRegistro({ depId: '3', sigla: 'CE', tipo: 'titular', ordem: 1, legislatura: 57 }, '2026-11-24T12:00:00.000Z')),
+    'o registro guarda o colegiado em conflito no momento do cadastro (só quando há)');
   ok(/Já há um pedido pendente de titular em CCJC/.test(v({ depId: '3', sigla: 'CCJC', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'pendente' }]).erro), 'pedido pendente igual: recusado');
   ok(v({ depId: '3', sigla: 'CCJC', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'negado' }]).ok, 'pedido igual já negado não impede um novo');
   ok(/Comissão Permanente/.test(v({ depId: '3', sigla: 'CPIXYZ', tipo: 'titular' }).erro), 'só Comissões Permanentes');
@@ -50,10 +58,10 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   ok(PV.pvLegislaturaDe(new Date(2026, 10, 24)) === 57 && PV.pvLegislaturaDe(new Date(2027, 0, 31)) === 57 && PV.pvLegislaturaDe(new Date(2027, 1, 1)) === 58,
     'legislatura pela data: a 58ª começa em 1º/2/2027');
   ok(PV.pvLegislaturaPadrao(new Date(2026, 10, 24)) === 58 && PV.pvLegislaturaPadrao(new Date(2026, 5, 1)) === 57, 'o formulário oferece a próxima a partir de outubro do ano da eleição');
-  ok(v({ depId: '1', sigla: 'CFT', tipo: 'titular', legislatura: 58 }).ok, 'titular na CCJC HOJE pede titular na CFT para a 58ª: aceito (a composição de hoje não vale para a próxima)');
+  ok(v({ depId: '1', sigla: 'CFT', tipo: 'titular', legislatura: 58 }).ok && !v({ depId: '1', sigla: 'CFT', tipo: 'titular', legislatura: 58 }).conflitos.length, 'titular na CCJC HOJE pede titular na CFT para a 58ª: aceito (a composição de hoje não vale para a próxima)');
   r = v({ depId: '1', sigla: 'CFT', tipo: 'titular', legislatura: 58 }, [{ depId: '1', sigla: 'CE', tipo: 'titular', situacao: 'atendido', legislatura: 58 }]);
-  ok(!r.ok && /já é titular em CE \(pedido atendido, 58ª legislatura\)/.test(r.erro), 'na 58ª, pedido de titular já atendido para a 58ª bloqueia outra inacumulável');
-  ok(v({ depId: '3', sigla: 'CFT', tipo: 'titular', legislatura: 57 }, [{ depId: '3', sigla: 'CE', tipo: 'titular', situacao: 'atendido', legislatura: 58 }]).ok, 'o atendido da 58ª não bloqueia pedido da 57ª');
+  ok(r.ok && /já é titular em CE \(pedido atendido, 58ª legislatura\)/.test(r.alerta), 'na 58ª, pedido de titular já atendido para a 58ª dá conflito com outra inacumulável');
+  ok(!v({ depId: '3', sigla: 'CFT', tipo: 'titular', legislatura: 57 }, [{ depId: '3', sigla: 'CE', tipo: 'titular', situacao: 'atendido', legislatura: 58 }]).conflitos.length, 'o atendido da 58ª não dá conflito com pedido da 57ª');
   ok(v({ depId: '3', sigla: 'CCJC', tipo: 'titular', legislatura: 58 }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'pendente' }]).ok,
     'pedido igual pendente de OUTRA legislatura (o antigo, sem legislatura, é da atual) não é repetido');
   ok(/Legislatura inválida/.test(v({ depId: '3', sigla: 'CE', tipo: 'titular', legislatura: 59 }).erro), 'só a atual ou a próxima');
@@ -73,7 +81,7 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   const at = PV.pvComSituacao(reg, 'atendido', '2026-11-25T12:00:00.000Z');
   ok(at.situacao === 'atendido' && at.historico.map(h => h.situacao).join() === 'pendente,atendido' && reg.historico.length === 1, 'mudar a situação acrescenta ao histórico, sem alterar o registro anterior');
 
-  console.log('\n== 4. no navegador: aba "Pedidos", registro e bloqueio ==');
+  console.log('\n== 4. no navegador: aba "Pedidos", registro e alerta ==');
   let chromium; try { ({ chromium } = require('playwright')); } catch (_) { console.log('  (playwright indisponível: bloco 4 não executado)'); }
   if (chromium) {
     const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' };
@@ -112,17 +120,42 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     const sit = await pg.textContent('#pv-dep-situacao');
     ok(/Hoje: titular em CCJC inacumulável/.test(sit), 'ao escolher o deputado, a tela mostra onde ele já é titular');
     await pg.selectOption('#pv-com', 'CFT'); await pg.selectOption('#pv-tipo', 'titular');
+    const alerta = await pg.evaluate(() => ({ vis: document.getElementById('pv-alerta').style.display, txt: document.getElementById('pv-alerta').textContent }));
+    ok(alerta.vis === '' && /já é titular em CCJC/.test(alerta.txt) && /CFT também é comissão/.test(alerta.txt), 'ao escolher titular na CFT, o formulário já alerta o conflito com a CCJC');
+    // na confirmação, "Cancelar": nada é gravado
+    const dialogos = []; let aceitar = false;
+    pg.on('dialog', d => { if (d.type() !== 'confirm') return d.dismiss(); dialogos.push(d.message()); return aceitar ? d.accept() : d.dismiss(); });
     await pg.click('#pv-registrar');
-    const erro = await pg.evaluate(() => ({ vis: document.getElementById('pv-erro').style.display, txt: document.getElementById('pv-erro').textContent }));
-    ok(erro.vis === '' && /Inacumulável: o deputado já é titular em CCJC/.test(erro.txt) && !fb.gravacoes.length, 'registro bloqueado: a mensagem aparece e nada é gravado');
+    await pg.waitForTimeout(150);
+    ok(dialogos.length === 1 && /Inacumulabilidade/.test(dialogos[0]) && /titular em CCJC/.test(dialogos[0]) && /Registrar o pedido mesmo assim\?/.test(dialogos[0]) && !fb.gravacoes.length,
+      'ao registrar, pede confirmação com o conflito; cancelado, nada é gravado');
 
-    // como suplente, passa
+    // como suplente, passa sem alerta
     await pg.selectOption('#pv-tipo', 'suplente');
+    ok(await pg.$eval('#pv-alerta', e => e.style.display) === 'none', 'suplente: o alerta some');
     await pg.click('#pv-registrar');
     await pg.waitForFunction(() => Object.keys(state.pedidosVagas).length === 1);
+    ok(dialogos.length === 1, 'suplente: registra sem pedir confirmação');
     const g1 = fb.gravacoes[0], c1 = JSON.parse(g1.corpo);
     ok(g1.met === 'PUT' && /^\/pedidos-vagas\/pv_\d+$/.test(g1.caminho) && c1.depId === 'a1' && c1.sigla === 'CFT' && c1.tipo === 'suplente' && c1.ordem === 1 && c1.situacao === 'pendente',
       'suplente na CFT: gravado em /pedidos-vagas (interceptado no teste), pendente, 1ª preferência');
+
+    // titular na CFT, confirmando: gravado com o conflito, e a lista mostra o colegiado ao lado do nome
+    aceitar = true;
+    await pg.selectOption('#pv-leg', String(await pg.evaluate(() => pvLegislaturaDe())));
+    await pg.selectOption('#pv-dep', 'a1'); await pg.selectOption('#pv-com', 'CFT'); await pg.selectOption('#pv-tipo', 'titular');
+    await pg.click('#pv-registrar');
+    await pg.waitForFunction(() => Object.keys(state.pedidosVagas).length === 2);
+    const cConf = JSON.parse(fb.gravacoes[1].corpo);
+    ok(dialogos.length === 2 && cConf.tipo === 'titular' && cConf.sigla === 'CFT' && cConf.conflitoRegistro.join() === 'CCJC', 'confirmado: o pedido é gravado, com o colegiado em conflito (conflitoRegistro: CCJC)');
+    const linhaAna = (await pg.$$eval('.pv-tabela tbody tr', trs => trs.map(t => t.innerText.replace(/\s+/g, ' ').trim()))).find(l => /^Ana Teste.*Titular/.test(l)) || '';
+    ok(/^Ana Teste \(SP\) ⚠ CCJC /.test(linhaAna), `na lista, ao lado do nome: badge "⚠ CCJC" (${linhaAna})`);
+    const badge = await pg.evaluate(() => { const e = [...document.querySelectorAll('.pv-conflito')][0]; const cs = getComputedStyle(e); return { txt: e.textContent, bg: cs.backgroundColor, dica: e.title }; });
+    ok(badge.txt === '⚠ CCJC' && badge.bg === 'rgb(192, 57, 43)' && /já é titular em CCJC/.test(badge.dica), `badge vermelho com o colegiado, explicação na dica (${badge.bg})`);
+    // limpeza: o pedido de titular da Ana sai, para o resto do roteiro seguir como antes
+    const idAnaTit = await pg.evaluate(() => Object.entries(state.pedidosVagas).find(([, r]) => r.depId === 'a1' && r.tipo === 'titular')[0]);
+    await pg.click(`[data-pv-del="${idAnaTit}"]`);
+    await pg.waitForFunction(() => Object.keys(state.pedidosVagas).length === 1);
 
     // Bruno: duas opções de titular, a preferência avança sozinha
     await pg.selectOption('#pv-dep', 'b2');
@@ -143,7 +176,10 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     const hist = await pg.evaluate(id => state.pedidosVagas[id].historico.map(h => h.situacao).join(), idCcjc);
     ok(hist === 'pendente,atendido', '"Atendido" muda a situação e guarda o histórico');
     const novo = await pg.evaluate(id => pvValidarPedido({ depId: 'b2', sigla: 'CE', tipo: 'titular', ordem: 3, legislatura: state.pedidosVagas[id].legislatura }, pvCtx()), idCcjc);
-    ok(!novo.ok && /já é titular em CCJC \(pedido atendido, \d+ª legislatura\)/.test(novo.erro), 'com a CCJC atendida, novo pedido de titular em outra inacumulável é bloqueado');
+    ok(novo.ok && /já é titular em CCJC \(pedido atendido, \d+ª legislatura\)/.test(novo.alerta), 'com a CCJC atendida, novo pedido de titular em outra inacumulável vem com o alerta');
+    const linhaCft = (await pg.$$eval('.pv-tabela tbody tr', trs => trs.map(t => t.innerText.replace(/\s+/g, ' ').trim()))).find(l => /^Bruno Teste.*CFT/.test(l)) || '';
+    const linhaCcjc = (await pg.$$eval('.pv-tabela tbody tr', trs => trs.map(t => t.innerText.replace(/\s+/g, ' ').trim()))).find(l => /^Bruno Teste.*\dª CCJC/.test(l)) || '';
+    ok(/⚠ CCJC/.test(linhaCft) && !/⚠/.test(linhaCcjc), `atendida a CCJC, o pedido pendente da CFT passa a mostrar o conflito; o atendido, não (${linhaCft})`);
     // próxima legislatura: deputado digitado
     const legAtualPg = await pg.evaluate(() => pvLegislaturaDe());
     await pg.selectOption('#pv-leg', String(legAtualPg + 1));
