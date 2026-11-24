@@ -19,18 +19,11 @@ const PRESENCA = 'https://infoleg.camara.leg.br/ws-plenario/presenca';
 const SESSAO   = 'https://cosev-api-prod.camara.leg.br/parlamentar/sessao-atual';
 const ITENS    = 'https://cosev-api-prod.camara.leg.br/parlamentar/votacao/itens-em-votacao-na-sessao';
 
-// User-Agent PRÓPRIO, obrigatório: o cosev-api-prod responde HTTP 403 (página de erro do proxy da
-// Câmara) a quem chega com o User-Agent padrão do fetch do Node, que é "node" — medido em
-// 23/11/2026, na nominal do PLP 299/2026: "node" → 403; "SisPode-Bot/1.0", "undici", navegador → 200.
-// Com o 403, sessaoAtual() devolvia null e o /faltamvotar respondia "não há sessão aberta" no meio
-// da votação (o agente ainda enfeitou: "a nominal foi encerrada, todos já votaram").
-const HEADERS = { Accept: 'application/json', 'User-Agent': 'SisPode-Bot/1.0' };
-
 async function getJson(url, ms = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch(url, { signal: ctrl.signal, headers: HEADERS });
+    const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
     if (!r.ok) return null;
     const txt = await r.text();
     if (!txt) return null;                       // corpo vazio (ex.: sem sessão)
@@ -117,4 +110,4 @@ async function itensEmVotacao() {
   }));
 }
 
-module.exports = { statusPlenario, sessaoAtual, itensEmVotacao, PRESENCA, SESSAO, ITENS, HEADERS };
+module.exports = { statusPlenario, sessaoAtual, itensEmVotacao, PRESENCA, SESSAO, ITENS };
