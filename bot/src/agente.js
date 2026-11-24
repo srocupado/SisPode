@@ -171,7 +171,6 @@ FERRAMENTAS DE CONSULTA (o resultado volta para você continuar raciocinando):
   Se a observação disser que NENHUMA peça daquela fase menciona o termo, essa É a resposta: diga que não há, e diga em quantas peças foi procurado. NÃO substitua por questões de ordem de outra fase apresentando-as como se fossem a peça pedida.
 - "recurso" {"termo":"prejudicialidade de adiamento de discussão"}: busca os RECURSOS PROTOCOLADOS — proposições do tipo REC, com número próprio ("REC 260/2013"). São 2.493 desde 1990, em 27 subtipos regimentais (recurso contra apreciação conclusiva de comissão, contra apensação, contra declaração de prejudicialidade, contra decisão do Presidente em questão de ordem, contra indeferimento de RIC…). Busca na ementa, no subtipo, no autor, nos despachos que decidem E NO INTEIRO TEOR da petição.
   ATENÇÃO — "recurso" tem dois sentidos e são bases DIFERENTES. Quando alguém pergunta "tem algum recurso sobre X?", quase sempre quer ESTA ferramenta (a peça protocolada, com número). A fase "recurso" de "questao_ordem" é outra coisa: o recurso anotado dentro do registro de uma questão de ordem. Na dúvida, consulte as duas e diga de qual base veio cada achado.
-- "faltam_votar" {}: numa votação NOMINAL em curso, quem da bancada do Podemos ainda NÃO votou (lista "Não votaram"). Só funciona com nominal aberta. Use para "quem do Podemos falta votar?", "a bancada já votou toda?".
 - "oradores_sessao" {"data":"dd/mm/aaaa","filtro":""}: quem FALOU / foi chamado / aguarda para falar na sessão do Plenário, por lista (Breves Comunicações, Comunicações de Liderança, Discussão/Encaminhamento por matéria) — com partido e UF. Sem data = hoje; "filtro" restringe (ex.: "breves", "liderança", "PL 2581/2026"). Use para "quem já falou hoje?", "quem discutiu a MPV X?", "alguém do Podemos falou?".
 - "situacao_proposicao" {"sigla":"PL","numero":"1234","ano":"2026"}: ementa, autoria, situação e última tramitação de QUALQUER proposição (API oficial da Câmara) — mesmo fora da pauta.
 - "pagina_oficial" {"url":"https://www.camara.leg.br/..."}: lê uma página de site OFICIAL (só camara.leg.br, senado.leg.br, planalto.gov.br, in.gov.br). Use quando souber a URL exata; para proposições prefira situacao_proposicao.`;
@@ -188,6 +187,7 @@ AÇÕES DO BOT (executam um fluxo pronto e encerram sua vez — use quando o usu
 - "baixar_documentos" {"pergunta":"PL 1234/2026"}: enviar os PDFs da matéria.
 - "votacao" {"pergunta":"dd/mm/aaaa"}: votações nominais do Plenário + imagem do placar da bancada.
 - "resumo" {"pergunta":"dd/mm/aaaa"}: resumo oficial da sessão do dia (matérias apreciadas).
+- "faltam_votar" {}: numa votação NOMINAL em curso, envia a resposta pronta — quantos da bancada do Podemos já votaram, do total, e quem ainda NÃO votou. Use para "quem do Podemos falta votar?", "a bancada já votou toda?", "fulano já votou?". Não reescreva a lista: a ação a envia como está.
 - "digest" {}: radar de imprensa (assinantes).
 - "analisar" {}: gerar as notas técnicas da pauta (caro; pede confirmação).
 - "nota_avulsa" {"pergunta":"PLP 42/2023"}: gerar a nota técnica, em PDF, de UMA proposição que NÃO está na pauta (pede confirmação). Use quando pedirem para GERAR, FAZER ou PRODUZIR a nota de uma proposição específica, ou falarem em nota "avulsa". "ver_nota" só EXIBE nota que já existe de item da pauta.
@@ -243,7 +243,7 @@ async function conversar({ userId, perfil, texto, dados = {} }) {
   // consultas" com 9 comissões por olhar. Como DADO, resolve em UMA consulta e
   // ainda sobra volta para o agente ler o resultado.
   const ACOES = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'ver_nota',
-    'perguntar', 'listar_documentos', 'baixar_documentos', 'votacao', 'resumo',
+    'perguntar', 'listar_documentos', 'baixar_documentos', 'votacao', 'resumo', 'faltam_votar',
     'digest', 'analisar', 'nota_avulsa', 'exportar', 'ajuda'];
   const DADOS = { ...dados, situacao_proposicao: situacaoProposicao, pagina_oficial: paginaOficial };
 
