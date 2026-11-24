@@ -89,7 +89,7 @@ const TEXTO_AJUDA =
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
-  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
+  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou. Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
   '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +

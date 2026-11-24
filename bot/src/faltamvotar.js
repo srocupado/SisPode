@@ -65,6 +65,10 @@ async function faltamVotar(sigla = 'PODE') {
     votaram: bancada.filter(x => x.dataRegistroVoto).length,
     presentesNaoVotaram: bancada.filter(x => x.indPresente && !x.dataRegistroVoto).map(nomeDe).sort(),
     foraDaCasa: bancada.filter(x => !x.indPresente && !x.dataRegistroVoto).map(nomeDe).sort(),
+    // Todos os que ainda não votaram, numa lista só — é ela que o /faltamvotar mostra. O painel só marca
+    // o deputado como presente (indPresente) depois que ele vota (medido em 23/11/2026, votação 14017), então
+    // a divisão presentes × fora da Casa punha todo mundo que faltava em "Fora da Casa".
+    naoVotaram: bancada.filter(x => !x.dataRegistroVoto).map(nomeDe).sort(),
     casaRegistrou: pv.filter(x => x.dataRegistroVoto).length,
     casaTotal: pv.length,
     idVotacao: v.id,
@@ -75,14 +79,9 @@ async function faltamVotar(sigla = 'PODE') {
 function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
   if (!r.aberta) return `Sem lista de faltantes agora — ${r.motivo}.`;
   const linhas = [`🗳 *${r.prop}* — bancada ${sigla} (${r.votaram}/${r.total} já votaram)`];
-  if (r.presentesNaoVotaram.length) {
-    linhas.push(`🔴 *Presentes e ainda NÃO votaram (${r.presentesNaoVotaram.length}):*\n${r.presentesNaoVotaram.map(n => `• ${n}`).join('\n')}`);
-  } else {
-    linhas.push('✅ Todos os presentes da bancada já votaram.');
-  }
-  if (r.foraDaCasa.length) {
-    linhas.push(`⚫ Fora da Casa (${r.foraDaCasa.length}):\n${r.foraDaCasa.map(n => `• ${n}`).join('\n')}`);
-  }
+  linhas.push(r.naoVotaram.length
+    ? `🔴 Não votaram (${r.naoVotaram.length}):\n${r.naoVotaram.map(n => `• ${n}`).join('\n')}`
+    : '✅ Toda a bancada já votou.');
   return linhas.join('\n\n');
 }
 

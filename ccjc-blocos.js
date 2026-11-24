@@ -137,13 +137,15 @@ function linkPautaDoEvento(html) {
   return m ? _desent(m[1]).replace(/^http:/, 'https:') : '';
 }
 
-/** Reuniões do mês pelo site (todas as páginas), no formato do calendário: { 'aaaa-mm-dd': [evento] }. */
-async function buscarEventosMesSite(ano, mes, fetchFn = fetch) {
+/** Reuniões do mês pelo site (todas as páginas), no formato do calendário: { 'aaaa-mm-dd': [evento] }.
+ *  `opcoes` serve ao calendário do Plenário: { idOrgao: 180, deliberativa: ev => … } (padrão: CCJC, "Reunião Deliberativa"). */
+async function buscarEventosMesSite(ano, mes, fetchFn = fetch, opcoes = {}) {
+  const { idOrgao = 2003, deliberativa = ev => /reuni[ãa]o deliberativa/i.test(ev.tipo) } = opcoes;
   const dd = n => String(n).padStart(2, '0');
   const ini = `01/${dd(mes + 1)}/${ano}`, fim = `${new Date(ano, mes + 1, 0).getDate()}/${dd(mes + 1)}/${ano}`;
   const todos = [];
   for (let pagina = 1; pagina <= 10; pagina++) {
-    const r = await fetchFn(agendaCcjcUrl(ini, fim, pagina));
+    const r = await fetchFn(agendaCcjcUrl(ini, fim, pagina, idOrgao));
     if (!r.ok) throw new Error(`site da Câmara: HTTP ${r.status}`);
     const { total, eventos } = agendaCcjcDoHtml(await r.text());
     todos.push(...eventos);
@@ -151,7 +153,7 @@ async function buscarEventosMesSite(ano, mes, fetchFn = fetch) {
   }
   const mapa = {};
   for (const ev of todos) {
-    if (!/reuni[ãa]o deliberativa/i.test(ev.tipo)) continue;
+    if (!deliberativa(ev)) continue;
     (mapa[ev.data] = mapa[ev.data] || []).push({ id: ev.id, dataHoraInicio: ev.hora ? `${ev.data}T${ev.hora}` : ev.data, dataHoraFim: '', descricao: ev.nome, situacao: ev.situacao, local: ev.local, fonte: 'site' });
   }
   return mapa;

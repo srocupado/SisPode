@@ -386,6 +386,14 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     }
 
     // Cabeçalho institucional no lugar da faixa verde.
+    // assinatura da pauta no cabeçalho (23/11/2026): com nome, o nome; sem nome, traço para assinar à mão
+    ctx.__pautaResp = { ...ctx.__pauta, responsavel: 'Maria <Silva>' };
+    const docResp = av('gerarHTMLImpressao(__pautaResp, null)');
+    const cab = d => d.slice(d.indexOf('<div class="pi-cab">'), d.indexOf('<div class="pi-rule">'));
+    ok(/Servidor responsável pela pauta: <b>Maria &lt;Silva&gt;<\/b>/.test(cab(docResp)) && !/· Servidor responsável/.test(docResp),
+      'servidor responsável no CABEÇALHO do PDF da pauta (escapado), e não mais na linha de contagem');
+    ok(/Servidor responsável pela pauta: <span class="assin"><\/span>/.test(cab(doc)), 'sem nome preenchido: traço em branco para assinar');
+    ok(/Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados/.test(docResp), 'o rodapé "gerado pelo SisPode" continua');
     ok(/class="pi-cab"/.test(doc) && /Liderança do Podemos na Câmara dos Deputados/.test(doc),
        'cabeçalho institucional');
     ok(!/class="pi-capa"/.test(doc), 'a faixa verde antiga saiu');
