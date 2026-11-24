@@ -1,10 +1,9 @@
 // SisPode — Sistemas Legislativos · Autor: Vinicius Lara (VLQ) · © 2025-2026
 // Bot: /faltamvotar e a ferramenta "faltam_votar" do agente (23/11/2026, nominal do PLP 299/2026).
 //
-// O bug: com a votação 14016 ABERTA e a bancada toda já tendo votado, a saída "(27/27 já votaram) ✅ Todos
-// os presentes da bancada já votaram." virou, na resposta do agente, "A votação nominal foi encerrada".
-// Junto: o cosev-api-prod respondeu 403 ao User-Agent padrão do Node no ambiente de desenvolvimento, e
-// falha de consulta era dita "não há sessão aberta" — as duas coisas levariam ao mesmo erro.
+// O bug: o cosev-api-prod responde HTTP 403 ao User-Agent padrão do fetch do Node ("node"); sessaoAtual()
+// voltava null, o /faltamvotar dizia "não há sessão aberta" no meio da nominal e o agente respondeu
+// "a votação nominal foi encerrada, todos já registraram seus votos".
 //
 // O que este teste trava:
 //   1. toda consulta ao cosev e ao infoleg vai com User-Agent próprio (nunca o padrão "node");

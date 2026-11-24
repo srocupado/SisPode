@@ -19,10 +19,11 @@ const PRESENCA = 'https://infoleg.camara.leg.br/ws-plenario/presenca';
 const SESSAO   = 'https://cosev-api-prod.camara.leg.br/parlamentar/sessao-atual';
 const ITENS    = 'https://cosev-api-prod.camara.leg.br/parlamentar/votacao/itens-em-votacao-na-sessao';
 
-// User-Agent próprio, por precaução: o cosev-api-prod respondeu HTTP 403 ao User-Agent padrão do fetch do
-// Node ("node") quando testado do ambiente de desenvolvimento em 23/11/2026 ("SisPode-Bot/1.0", "undici" e
-// navegador → 200). No servidor do bot a mesma consulta funcionou na mesma noite (o espião leu a votação
-// 14016), então o bloqueio não é geral — mas um 403 aqui deixaria o bot cego para sessão e votação.
+// User-Agent PRÓPRIO, obrigatório: o cosev-api-prod responde HTTP 403 (página de erro do proxy da
+// Câmara) a quem chega com o User-Agent padrão do fetch do Node, que é "node" — medido em
+// 23/11/2026, na nominal do PLP 299/2026: "node" → 403; "SisPode-Bot/1.0", "undici", navegador → 200.
+// Com o 403, sessaoAtual() devolvia null e o /faltamvotar respondia "não há sessão aberta" no meio
+// da votação (o agente ainda enfeitou: "a nominal foi encerrada, todos já votaram").
 const HEADERS = { Accept: 'application/json', 'User-Agent': 'SisPode-Bot/1.0' };
 
 async function getJson(url, ms = 12000) {
