@@ -128,6 +128,18 @@ function aderResumoAno(periodo, ctx, recortar = false) {
 const legSomar = anos => anos.reduce((s, a) => ({ a: s.a + a.tot.a, d: s.d + a.tot.d, x: s.x + a.tot.x, n: s.n + a.tot.n, v: s.v + a.vot.length }),
   { a: 0, d: 0, x: 0, n: 0, v: 0 });
 
+/**
+ * O contexto só com as votações marcadas na lista (checkbox de cada votação, 24/11/2026). Sem nenhuma marcada, o
+ * próprio contexto. aderResumoAno recorta pelo período e reconta os deputados pela bancada de cada votação
+ * (e.membros), então consolidado, deputados e contagens saem sobre as marcadas.
+ */
+function aderRecorteSelecao(ctx) {
+  const sel = ctx.selecionadas;
+  if (!sel || !sel.size) return ctx;
+  const qualifying = ctx.qualifying.filter(e => sel.has(String(e.votacao.id)));
+  return Object.assign({}, ctx, { qualifying, selecao: { n: qualifying.length, total: ctx.qualifying.length } });
+}
+
 /** O documento do relatório comum (o período pedido), a partir do seu contexto. */
 function legDoRelatorio(ctx) {
   const periodos = [];
@@ -136,7 +148,7 @@ function legDoRelatorio(ctx) {
       fim: a === +ctx.dataFim.slice(0, 4) ? ctx.dataFim : a + '-12-31' });
   }
   const anos = periodos.map(p => aderResumoAno(p, ctx, true)).filter(a => a.vot.length);
-  return { modo: 'periodo', sigla: ctx.sigla, ini: ctx.dataIni, fim: ctx.dataFim, hoje: isoLocal(new Date()),
+  return { modo: 'periodo', sigla: ctx.sigla, ini: ctx.dataIni, fim: ctx.dataFim, hoje: isoLocal(new Date()), selecao: ctx.selecao || null,
     leg: aderLegislaturaDaData(ctx.dataFim), anos, todos: legSomar(anos),
     desconsiderados: ctx.desconsiderados || [], falhasHistorico: ctx.falhasHistorico || 0, falhasVotacoes: ctx.falhasVotacoes || 0 };
 }
@@ -147,7 +159,8 @@ function legRotulos(L) {
   const ini = L.anos.length ? L.anos[0].ini : L.ini, fim = L.anos.length ? L.anos[L.anos.length - 1].fim : L.fim;
   if (L.modo === 'periodo') {
     const per = `${legDataBR(L.ini)} a ${legDataBR(L.fim)}`;
-    return { escopo: per, sub: `Período de ${per}${L.anos.length > 1 ? ', ano a ano' : ''}`, resumo: 'Resumo do período',
+    const sel = L.selecao ? ` · ${L.selecao.n} de ${L.selecao.total} votações do período, escolhidas para este relatório` : '';
+    return { escopo: per, sub: `Período de ${per}${L.anos.length > 1 ? ', ano a ano' : ''}${sel}`, resumo: 'Resumo do período',
       kpiTotal: 'Aderência no período', linhaTotal: 'Período', periodoTotal: per, arquivo: `${L.ini}-a-${L.fim}` };
   }
   return { escopo: `${L.leg}ª legislatura`, sub: `${L.leg}ª legislatura, ano a ano (${legDataBR(ini)} a ${legDataBR(fim)})`,
@@ -316,6 +329,7 @@ function legNotaMetodo(L) {
     ['Contagens: ', 'em cada votação, os votos da bancada aparecem como Sim, Não, abstenção/obstrução/Art. 17 e ausência; no quadro por deputado, o voto de cada um. Só o Sim e o Não entram na aderência.'],
     ['Bancada de cada votação: ', `quem era do ${P} naquele dia — para quem votou, a sigla registrada no voto; para quem não votou, o histórico de partido e situação (em exercício) na Câmara. Quem entrou ou saiu no meio do ano é medido só no período em que esteve no partido.`],
   ];
+  if (L.selecao) itens.push(['Votações escolhidas: ', `este relatório traz ${L.selecao.n} das ${L.selecao.total} votações qualificadas do período, marcadas na lista do relatório; consolidado, deputados e contagens são calculados só sobre elas.`]);
   const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
   if (L.sigla === 'PODE' && fim >= '2023-08-22' && ini <= '2027-01-31') {
     itens.push(['Ex-PSC: ', 'os deputados eleitos pelo PSC passam a contar a partir de 22/08/2023, data em que a Câmara registrou a incorporação do PSC ao Podemos.']);
