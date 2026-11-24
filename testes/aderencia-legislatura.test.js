@@ -234,6 +234,31 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
     } else console.log('  (lib docx indisponível no teste: Word não conferido)');
     ok(av(`legNomeArquivo(__um, 'pdf')`) === 'Aderencia-PODE-2026-03-20-a-2026-04-10.pdf', 'nome do arquivo com o período');
 
+    // Seleção de votações (24/11/2026): checkbox em cada votação da lista; sem nenhuma marcada, entram todas
+    {
+      const caixas = document.querySelectorAll('#votingsList .vote-sel input');
+      ok(caixas.length === c1.qualifying.length && /Sem nenhuma marcada, entram todas/.test(document.getElementById('selAviso').textContent),
+        `um checkbox por votação (${caixas.length}) e o aviso de que, sem marcação, entram todas`);
+      const semSel = av('legDoRelatorio(aderRecorteSelecao(window._relatorioCtx))');
+      ok(semSel.anos[0].vot.length === c1.qualifying.length && !semSel.selecao, 'nenhuma marcada: o documento leva todas, sem a menção de recorte');
+      caixas[0].checked = true;
+      caixas[0].dispatchEvent(new Event('change'));
+      const vid = caixas[0].getAttribute('data-vid');
+      ok(av('window._relatorioCtx.selecionadas.size') === 1 && /1 de 2/.test(document.getElementById('selAviso').textContent) && /o PDF e o Word levam só ela/.test(document.getElementById('selAviso').textContent),
+        'marcar uma: o aviso diz "1 de 2" e que o PDF e o Word levam só ela');
+      const um1 = av('legDoRelatorio(aderRecorteSelecao(window._relatorioCtx))');
+      const e1 = c1.qualifying.find(e => String(e.votacao.id) === vid);
+      ok(um1.anos[0].vot.length === 1 && um1.anos[0].vot[0].id === vid && um1.todos.a === e1.adherentCount && um1.todos.n === e1.adherentCount + e1.divergentCount && um1.todos.v === 1,
+        'o documento traz só a marcada, com o consolidado recalculado sobre ela');
+      ok(um1.anos[0].deps.every(d => d.n === 1), 'deputados contados só na votação marcada');
+      ctx.__um1 = um1;
+      await av('legGarantirProposicoes(__um1)');
+      const pSel = av('legHtmlPDF(__um1, null)');
+      ok(/1 de 2 votações do período, escolhidas para este relatório/.test(pSel) && /Votações escolhidas: <\/b>este relatório traz 1 das 2 votações/.test(pSel), 'o PDF diz que é um recorte (cabeçalho e nota de método)');
+      document.querySelector('#selAviso .sel-limpar').dispatchEvent(new Event('click'));
+      ok(av('window._relatorioCtx.selecionadas.size') === 0 && !document.querySelector('#votingsList .vote-sel input').checked, '"Limpar seleção" volta a todas');
+    }
+
     // Período que atravessa o ano: dezembro de 2025 a abril de 2026.
     V.push({ id: '300-1', data: '2025-12-10', dataHoraRegistro: '2025-12-10T19:00:00', siglaOrgao: 'PLEN', descricao: 'Aprovada a MPV', proposicaoObjeto: 'MPV 3/2025' });
     VOTOS['300-1'] = [{ deputado_: dep(1, 'Ana', 'PODE'), tipoVoto: 'Não' }];

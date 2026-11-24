@@ -749,6 +749,12 @@
   .dep-individual-list .vote.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
 
   /* ── LISTA DE VOTAÇÕES ── */
+  .vote-sel { flex-shrink: 0; display: flex; align-items: center; padding: 6px; margin: -6px 0 -6px -6px; cursor: pointer; }
+  .vote-sel input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .vote-row.selecionada { border-color: var(--accent); }
+  .sel-aviso { font-size: 11.5px; color: var(--text-dim); margin: -4px 4px 10px; line-height: 1.5; }
+  .sel-aviso.ativa { color: var(--text); background: rgba(31,165,165,0.10); border: 1px solid var(--accent); border-radius: 6px; padding: 7px 10px; margin: 0 0 10px; }
+  .sel-aviso .sel-limpar { margin-left: 8px; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent); background: none; color: var(--accent-light); cursor: pointer; }
   .list-header { font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin: 8px 4px 10px; }
 
   .vote-row { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; transition: border-color 0.2s; }

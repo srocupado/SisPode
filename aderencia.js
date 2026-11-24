@@ -889,12 +889,20 @@ function renderRelatorio(ctx) {
 
     // ── Lista de votações
     '<div class="list-header">Votações consideradas (' + qualifying.length + ')</div>' +
+    '<div class="sel-aviso" id="selAviso"></div>' +
     '<div id="votingsList"></div>';
 
   document.getElementById('btnExportar').addEventListener('click', exportarExcel);
   // PDF e Word no padrão dos relatórios (aderencia-legislatura.js); o documento se monta uma vez
-  let doc = null;
-  const documento = () => doc || (doc = legDoRelatorio(ctx));
+  // A seleção de votações (checkbox de cada votação na lista) entra no PDF e no Word: sem nenhuma marcada, todas.
+  // O documento se monta uma vez por seleção.
+  ctx.selecionadas = new Set();
+  const docs = new Map();
+  const documento = () => {
+    const chave = [...ctx.selecionadas].sort().join(',');
+    if (!docs.has(chave)) docs.set(chave, legDoRelatorio(aderRecorteSelecao(ctx)));
+    return docs.get(chave);
+  };
   document.getElementById('btnRelPdf').addEventListener('click', () => legExportarPDF(documento()));
   document.getElementById('btnRelWord').addEventListener('click', ev => legExportarWord(documento(), ev.currentTarget));
 
@@ -982,6 +990,26 @@ function renderRankingDeputados(sortKey) {
 
     listEl.appendChild(row);
   });
+  aderAtualizarAvisoSelecao(ctx);
+}
+
+/** Aviso acima da lista: o que o PDF e o Word vão levar, conforme os checkboxes. */
+function aderAtualizarAvisoSelecao(ctx) {
+  const el = document.getElementById('selAviso');
+  if (!el) return;
+  const n = ctx.selecionadas ? ctx.selecionadas.size : 0, total = ctx.qualifying.length;
+  el.innerHTML = n
+    ? '☑ <b>' + n + ' de ' + total + '</b> votaç' + (total > 1 ? 'ões' : 'ão') + ' marcada' + (n > 1 ? 's' : '') + ': o PDF e o Word levam só ' + (n > 1 ? 'elas' : 'ela') +
+      ' (consolidado, deputados e contagens recalculados). O Excel e a tela seguem com todas. <button type="button" class="sel-limpar">Limpar seleção</button>'
+    : 'Marque as votações que devem entrar no PDF e no Word. Sem nenhuma marcada, entram todas.';
+  el.classList.toggle('ativa', n > 0);
+  const b = el.querySelector('.sel-limpar');
+  if (b) b.addEventListener('click', () => {
+    ctx.selecionadas.clear();
+    document.querySelectorAll('#votingsList .vote-sel input').forEach(i => { i.checked = false; });
+    document.querySelectorAll('#votingsList .vote-row.selecionada').forEach(r => r.classList.remove('selecionada'));
+    aderAtualizarAvisoSelecao(ctx);
+  });
 }
 
 /** Gera o HTML do histórico individual de um deputado */
@@ -1063,6 +1091,8 @@ function renderVotingsList(ctx) {
     row.className = 'vote-row';
     row.innerHTML =
       '<div class="vote-summary">' +
+        '<label class="vote-sel" title="Incluir esta votação no PDF e no Word (sem nenhuma marcada, entram todas)">' +
+          '<input type="checkbox" data-vid="' + cvEsc(String(v.id)) + '"></label>' +
         '<div class="vote-pct-mini" style="background:' + col + '22;color:' + col + ';border:2px solid ' + col + '">' +
           aderPctTxt(e.specificPct, 0) +
         '</div>' +
@@ -1082,6 +1112,14 @@ function renderVotingsList(ctx) {
 
     const summaryEl = row.querySelector('.vote-summary');
     const detailEl  = row.querySelector('.vote-detail');
+    const selEl = row.querySelector('.vote-sel');
+    selEl.addEventListener('click', ev => ev.stopPropagation());   // marcar não abre o detalhe
+    selEl.querySelector('input').addEventListener('change', ev => {
+      if (!ctx.selecionadas) ctx.selecionadas = new Set();
+      if (ev.target.checked) ctx.selecionadas.add(String(v.id)); else ctx.selecionadas.delete(String(v.id));
+      row.classList.toggle('selecionada', ev.target.checked);
+      aderAtualizarAvisoSelecao(ctx);
+    });
     summaryEl.addEventListener('click', () => {
       const isOpen = row.classList.contains('open');
       document.querySelectorAll('.vote-row.open').forEach(r => { if (r !== row) r.classList.remove('open'); });
@@ -1097,6 +1135,26 @@ function renderVotingsList(ctx) {
     });
 
     listEl.appendChild(row);
+  });
+  aderAtualizarAvisoSelecao(ctx);
+}
+
+/** Aviso acima da lista: o que o PDF e o Word vão levar, conforme os checkboxes. */
+function aderAtualizarAvisoSelecao(ctx) {
+  const el = document.getElementById('selAviso');
+  if (!el) return;
+  const n = ctx.selecionadas ? ctx.selecionadas.size : 0, total = ctx.qualifying.length;
+  el.innerHTML = n
+    ? '☑ <b>' + n + ' de ' + total + '</b> votaç' + (total > 1 ? 'ões' : 'ão') + ' marcada' + (n > 1 ? 's' : '') + ': o PDF e o Word levam só ' + (n > 1 ? 'elas' : 'ela') +
+      ' (consolidado, deputados e contagens recalculados). O Excel e a tela seguem com todas. <button type="button" class="sel-limpar">Limpar seleção</button>'
+    : 'Marque as votações que devem entrar no PDF e no Word. Sem nenhuma marcada, entram todas.';
+  el.classList.toggle('ativa', n > 0);
+  const b = el.querySelector('.sel-limpar');
+  if (b) b.addEventListener('click', () => {
+    ctx.selecionadas.clear();
+    document.querySelectorAll('#votingsList .vote-sel input').forEach(i => { i.checked = false; });
+    document.querySelectorAll('#votingsList .vote-row.selecionada').forEach(r => r.classList.remove('selecionada'));
+    aderAtualizarAvisoSelecao(ctx);
   });
 }
 
