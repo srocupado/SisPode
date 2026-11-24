@@ -3460,7 +3460,7 @@ function classificarCenario(docs = []) {
     return CENARIO_MPV_8A;
   }
   if (has('PRL_ESPECIAL') || has('SBT_A_ESPECIAL')) return 'Cenário 9 — PEC (parecer da Comissão Especial)';
-  if (has('PDL_TEOR'))                 return 'Cenário 10 — PDL (decreto legislativo)';
+  if (has('PDL_TEOR'))                 return has('PRLP') || has('SBT_A') ? 'Cenário 10 — PDL na forma do substitutivo/parecer de Plenário' : 'Cenário 10 — PDL (decreto legislativo)';
   if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
   if (has('SSP'))                      return 'Cenário 5 — subemenda substitutiva (SSP)';
   if (has('PRLP') && has('SBT_A'))     return 'Cenário 4 — PRLP na forma do SBT-A';
@@ -3655,6 +3655,13 @@ async function escolherDocumentos(it) {
       // que inclui a justificação — descreve o ato aprovado/sustado). Os
       // pareceres das comissões entram adiante (laço de pareceres).
       if (enr.urlInteiroTeor) docs.push({ tipo: 'PDL_TEOR', rotulo: 'Inteiro teor do Decreto Legislativo (texto e justificação)', url: enr.urlInteiroTeor });
+      // Quando há substitutivo adotado por comissão (SBT-A) ou parecer de Plenário (PRLP/PRLE), é ESSE o texto em
+      // votação — e é o que desatualizacaoOperativa compara. CASO REAL (24/11/2026): PDL 366/2025 (tratado com a
+      // Guiana) tem o SBT-A 1 da CCJC de 17/11/2026; a nota não o anexava, e o selo "Pode estar desatualizada"
+      // voltava a cada verificação, mesmo com a nota regerada.
+      if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
+      if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
+      if (par.sbtA) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
     } else if (ems) {
       // ── Cenários 6/7 (retorno do Senado) ──────────────────────────────
       // Fluxo: o projeto foi aprovado pela Câmara (casa iniciadora), seguiu ao
@@ -4241,6 +4248,11 @@ function promptPDL(it, docs = [], instrucoesExtra = '') {
   const docsLista = docs.map((d, i) => `Documento ${i + 1} — ${d.rotulo}`).join('\n');
   const blocoDocs = docsLista ? `\nDocumentos anexados a esta análise:\n${docsLista}\n` : '';
   const temParecer = docs.some(d => d.tipo === 'PARECER_COMISSAO');
+  // Texto em votação diferente do original: substitutivo adotado por comissão ou parecer de Plenário.
+  const iSbt = docs.findIndex(d => d.tipo === 'SBT_A'), iPrlp = docs.findIndex(d => d.tipo === 'PRLP');
+  const blocoSubst = iSbt >= 0 || iPrlp >= 0
+    ? `\n⚠ TEXTO EM VOTAÇÃO: ${iPrlp >= 0 ? `há parecer de Plenário (Documento ${iPrlp + 1}, ${docs[iPrlp].rotulo})` : ''}${iPrlp >= 0 && iSbt >= 0 ? ' e ' : ''}${iSbt >= 0 ? `a comissão adotou um substitutivo (Documento ${iSbt + 1}, ${docs[iSbt].rotulo})` : ''}. O Plenário vota ${iPrlp >= 0 ? 'o texto do parecer de Plenário' : 'o substitutivo'}, não o decreto original: diga isso no Objetivo e, numa seção "## O que muda em relação ao texto original" (logo após o Objetivo), compare-o com o inteiro teor do decreto — o que foi acrescentado, retirado ou ressalvado. Se o texto for igual ao original no conteúdo, diga em uma frase.\n`
+    : '';
   const contextoPodemos = enr.autoriaPodemos
     ? '⚠ ATENÇÃO: O Projeto de Decreto Legislativo é de autoria de deputado(a) do Podemos.\n' : '';
   const secaoParecer = temParecer
@@ -4251,8 +4263,8 @@ function promptPDL(it, docs = [], instrucoesExtra = '') {
     : '';
 
   const cabecalho = `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados. Elabore uma nota técnica para informar Deputados Federais sobre o **Projeto de Decreto Legislativo (PDL) ${it.numero}/${it.ano}**.
-${contextoPodemos}Analise o(s) documento(s) anexo(s) (inteiro teor do decreto, incluindo a justificação${temParecer ? ', e o(s) parecer(es) de comissão' : ''}).
-${blocoDocs}
+${contextoPodemos}Analise o(s) documento(s) anexo(s) (inteiro teor do decreto, incluindo a justificação${temParecer ? ', e o(s) parecer(es) de comissão' : ''}${blocoSubst ? ', e o texto em votação' : ''}).
+${blocoDocs}${blocoSubst}
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
 `;

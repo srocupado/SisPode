@@ -850,6 +850,35 @@
     }
     .btn-rejeitar-pedido:hover { background: rgba(240,84,84,.1); }
 
+    /* ── Pedidos de vagas (aba "Vagas") ── */
+    .pv-wrap { padding: 18px 22px; }
+    .pv-titulo { font-size: 16px; margin: 0 0 12px; }
+    .pv-sub { font-size: 13px; margin: 18px 0 8px; }
+    .pv-dim { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+    .pv-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .pv-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-dim); }
+    .pv-form label:first-child, .pv-form label:nth-child(2) { flex: 1 1 220px; }
+    .pv-situacao { margin-top: 8px; min-height: 16px; }
+    .pv-erro { margin-top: 10px; padding: 9px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.5;
+      color: #f6b2ab; background: rgba(240,84,84,.12); border: 1px solid rgba(240,84,84,.45); }
+    .pv-nota { margin-top: 12px; padding: 9px 12px; border-left: 3px solid var(--accent); background: var(--accent-muted);
+      border-radius: 4px; font-size: 12px; line-height: 1.5; }
+    .pv-inac { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid #c9a227; color: #f0c040; white-space: nowrap; }
+    .pv-tabela { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .pv-tabela th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-dim);
+      padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .pv-tabela td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .pv-c { text-align: center; }
+    .pv-sit { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+    .pv-sit-pendente { color: #f0c040; border-color: #c9a227; }
+    .pv-sit-atendido { color: #3ad97d; border-color: #2a9d5c; }
+    .pv-sit-negado   { color: #f05454; border-color: #b03a3a; }
+    .pv-acoes { white-space: nowrap; text-align: right; }
+    .pv-btn { font-size: 11px; padding: 3px 9px; margin-left: 4px; border-radius: 5px; cursor: pointer;
+      background: none; color: var(--text); border: 1px solid var(--border); }
+    .pv-btn:hover { border-color: var(--accent); }
+    .pv-ok { color: #3ad97d; } .pv-nao { color: #f05454; } .pv-del { color: var(--text-dim); }
+
     /* badge de pedidos na sidebar */
     .badge-pedidos {
       font-size: 9px;
@@ -931,6 +960,7 @@
         <button class="com-tab" data-view="mpv">MPV</button>
         <button class="com-tab" data-view="deputado">Deputados</button>
         <button class="com-tab" data-view="alertas">Alertas</button>
+        <button class="com-tab" data-view="vagas" title="Pedidos de vagas nas Comissões Permanentes">Pedidos</button>
       </div>
 
       <!-- sub-abas preenchidas dinamicamente (renderSubtabs) -->
@@ -1220,6 +1250,7 @@
   <!-- ===== SCRIPTS ===== -->
   <script src="libs/xlsx.full.min.js"></script>
   <script src="comissoes.js"></script>
+  <script src="comissoes-pedidos-vagas.js"></script>
 
 </body>
 </html>

@@ -164,7 +164,7 @@ async function fbPatch(path, data) {
 // ---------- ESTADO ----------
 
 const state = {
-  view:          'permanente',// 'permanente' | 'mpv' | 'temporaria' | 'deputado' | 'alertas'
+  view:          'permanente',// 'permanente' | 'mpv' | 'temporaria' | 'deputado' | 'alertas' | 'vagas'
   tempTab:       'Especial',  // sub-aba de "Temporárias": 'CPI' | 'Especial' | 'Externa'
   comissaoSel:   null,        // sigla da comissão selecionada
   deputados:     {},          // { id: { nome, uf } }
@@ -172,6 +172,7 @@ const state = {
   config:        {},          // { sigla: { titular: n, suplente: n } }
   transferencias:{},          // { sigla: { cedidas: {id: entry}, recebidas: {id: entry} } }
   pedidos:       {},          // { sigla: { id: { depId, obs, data } } }
+  pedidosVagas:  {},          // { id: { depId, sigla, tipo, ordem, situacao, data, historico } } — aba "Pedidos" (comissoes-pedidos-vagas.js)
   mistas:        {},          // { sigla: { sigla, nome, mpvId, numero, ano, situacao, origem } } — sincronizadas/criadas
   mistasOcultas: {},          // { sigla: true } — mistas apagadas manualmente (sync não readiciona)
   mistasSyncAt:  null,        // ISO da última sincronização das mistas
@@ -361,7 +362,7 @@ async function mapLimit(items, limit, fn) {
 
 async function carregarDados() {
   try {
-    const [deps, membros, config, transf, pedidos, mistas, temp] = await Promise.all([
+    const [deps, membros, config, transf, pedidos, mistas, temp, pedidosVagas] = await Promise.all([
       fbGet('/deputados'),
       fbGet('/membros'),
       fbGet('/config'),
@@ -369,12 +370,14 @@ async function carregarDados() {
       fbGet('/pedidos'),
       fbGet('/comissoes-mistas'),
       fbGet('/comissoes-temporarias'),
+      fbGet('/pedidos-vagas'),
     ]);
     state.deputados        = deps    || {};
     state.membros          = membros || {};
     state.config           = config  || {};
     state.transferencias   = transf  || {};
     state.pedidos          = pedidos || {};
+    state.pedidosVagas     = pedidosVagas || {};
     state.mistas           = mistas?.comissoes || {};
     state.mistasOcultas    = mistas?.ocultas   || {};
     state.mistasSyncAt     = mistas?.syncAt    || null;
@@ -723,6 +726,14 @@ async function removerDeputadoDB(id) {
     if (tIdx >= 0 || sIdx >= 0) await fbPut(`/membros/${sigla}`, c);
   }
 
+  // Remove os pedidos de vagas deste deputado (aba "Pedidos")
+  for (const [pid, entry] of Object.entries(state.pedidosVagas || {})) {
+    if (entry.depId === id) {
+      delete state.pedidosVagas[pid];
+      await fbDelete(`/pedidos-vagas/${pid}`);
+    }
+  }
+
   // Remove pedidos deste deputado em todas as comissões
   for (const sigla of Object.keys(state.pedidos)) {
     const p = state.pedidos[sigla] || {};
@@ -889,7 +900,7 @@ function mudarView(view) {
     t.classList.toggle('ativo', t.dataset.view === view);
   });
   document.getElementById('busca-wrap').style.display =
-    view === 'alertas' ? 'none' : '';
+    view === 'alertas' || view === 'vagas' ? 'none' : '';
   renderSubtabs();
   renderSidebar();
   renderPainel();
@@ -927,6 +938,7 @@ function renderSubtabs() {
 
 function renderSidebar() {
   if (state.view === 'alertas')    { renderSidebarAlertas(); return; }
+  if (state.view === 'vagas')      { renderSidebarPedidosVagas(); return; }
   if (state.view === 'deputado')   { renderSidebarDeputados(); return; }
   if (state.view === 'temporaria') { renderSidebarTemporarias(); return; }
   if (state.view === 'mpv')        { renderSidebarMistas(); return; }
@@ -1124,6 +1136,8 @@ function renderPainel() {
     renderPainelDeputado(state.comissaoSel);
   } else if (state.view === 'alertas') {
     renderPainelAlertas();
+  } else if (state.view === 'vagas') {
+    renderPainelPedidosVagas();
   } else {
     const dica = state.view === 'deputado'
       ? 'Selecione um deputado para ver suas comissões'
