@@ -13,7 +13,7 @@
 // numa simbólica (daria "todos faltaram", falso). O idVotacao vem ao vivo do
 // votacaoAtual do cosev.
 
-const { sessaoAtual } = require('./plenariocosev');
+const { sessaoAtual, HEADERS } = require('./plenariocosev');
 
 const VOT_URL = id => `https://infoleg.camara.leg.br/ws-plenario/votacao/${id}`;
 const REGEX_PODE = /^PODE(MOS)?$/i;
@@ -22,7 +22,7 @@ async function getJson(url, ms = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
+    const r = await fetch(url, { signal: ctrl.signal, headers: HEADERS });
     if (!r.ok) return null;                 // 500 em simbólica / erro
     const txt = await r.text();
     if (!txt) return null;
@@ -43,7 +43,10 @@ function reDoPartido(sigla) {
  */
 async function faltamVotar(sigla = 'PODE') {
   const sess = await sessaoAtual().catch(() => null);
-  if (!sess || !sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
+  // null = a CONSULTA falhou (rede, 403, 5xx), não "sem sessão": dizer "não há sessão aberta" aqui
+  // fez o agente anunciar o fim de uma nominal que estava em curso (23/11/2026).
+  if (!sess) return { aberta: false, falha: true, motivo: 'não consegui consultar o painel do Plenário agora (falha na consulta) — isso NÃO quer dizer que não haja votação aberta' };
+  if (!sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
   const v = sess.votacao;
   if (!v || v.id == null) return { aberta: false, motivo: 'não há votação em curso' };
   if (String(v.tipoVotacao || '').toUpperCase() !== 'E') {
@@ -52,7 +55,15 @@ async function faltamVotar(sigla = 'PODE') {
 
   const d = await getJson(VOT_URL(v.id));
   const pv = d && Array.isArray(d.parlamentaresVotos) ? d.parlamentaresVotos : null;
-  if (!pv || !pv.length) return { aberta: false, motivo: 'o painel ainda não trouxe os votos individuais' };
+  if (!pv || !pv.length) return { aberta: false, falha: !d, motivo: d
+    ? 'o painel ainda não trouxe os votos individuais'
+    : 'há votação nominal em curso, mas não consegui ler o painel de votos agora (falha na consulta)' };
+
+  // O painel diz se a votação já fechou (dataFimVotacao): o votacaoAtual do cosev pode sobreviver
+  // alguns segundos ao fim, e a lista "já votaram" de uma votação fechada não é "em curso".
+  if (d.dataFimVotacao) {
+    return { aberta: false, motivo: `a votação nominal (${String(d.nomeProposicao || v.titulo || '').replace(/\s+/g, ' ').trim()}) já foi encerrada` };
+  }
 
   const re = reDoPartido(sigla);
   const bancada = pv.filter(x => re.test(String(x.siglaPartido || '').trim()));
@@ -74,11 +85,13 @@ async function faltamVotar(sigla = 'PODE') {
 /** Texto pronto (comando e agente). */
 function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
   if (!r.aberta) return `Sem lista de faltantes agora — ${r.motivo}.`;
-  const linhas = [`🗳 *${r.prop}* — bancada ${sigla} (${r.votaram}/${r.total} já votaram)`];
+  // "em curso" explícito: o agente lê esta saída, e sem isso já concluiu "a nominal foi encerrada".
+  const linhas = [`🗳 *${r.prop}* — votação nominal EM CURSO · bancada ${sigla} (${r.votaram}/${r.total} já votaram)`];
   if (r.presentesNaoVotaram.length) {
     linhas.push(`🔴 *Presentes e ainda NÃO votaram (${r.presentesNaoVotaram.length}):*\n${r.presentesNaoVotaram.map(n => `• ${n}`).join('\n')}`);
   } else {
-    linhas.push('✅ Todos os presentes da bancada já votaram.');
+    linhas.push(r.foraDaCasa.length ? '✅ Todos os presentes da bancada já votaram (a votação segue aberta).'
+                                    : '✅ Toda a bancada já votou (a votação segue aberta).');
   }
   if (r.foraDaCasa.length) {
     linhas.push(`⚫ Fora da Casa (${r.foraDaCasa.length}):\n${r.foraDaCasa.map(n => `• ${n}`).join('\n')}`);
