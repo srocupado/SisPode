@@ -15,7 +15,7 @@ const RAIZ = path.join(__dirname, '..');
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
 
-const { faltamVotar, formatarFaltantes, formatarFaltantesAgente } = require(path.join(RAIZ, 'bot', 'src', 'faltamvotar.js'));
+const { faltamVotar, formatarFaltantes } = require(path.join(RAIZ, 'bot', 'src', 'faltamvotar.js'));
 const PAINEL = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'faltamvotar', 'painel-14017-2257.json'), 'utf8'));
 const SESSAO = { sessaoAtual: { numSessao: 184, nomSessao: 'EXTRAORDINÁRIA Nº 184 - 23/11/2026' },
   votacaoAtual: { tipo: 'Votacao', idVotacao: 14017, tituloVotacao: 'PLP  Nº 299/2026 - DTQ 1 - FDR PSOL-REDE', tipoVotacao: 'E' } };
@@ -40,24 +40,25 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
   ok(formatarFaltantes({ ...ex, votaram: 27, naoVotaram: [] }) === '🗳 *PLP Nº 299/2026* — bancada PODE (27/27 já votaram)\n\n✅ Toda a bancada já votou.', 'todos votaram: "✅ Toda a bancada já votou."');
   ok(formatarFaltantes({ aberta: false, motivo: 'não há votação em curso' }) === 'Sem lista de faltantes agora — não há votação em curso.', 'sem votação nominal: a mensagem de antes, sem mudança');
 
-  console.log('\n== 3. resposta do agente: diz quem já votou (24/11/2026, PL 1969/2022) ==');
-  // O agente recebia só o texto do comando, reescrevia a resposta e cortava o "(2/27 já votaram)": a lista de 25
-  // parecia a bancada inteira. Fixture: painel real da votação 14025, com a bancada no instante da pergunta
-  // (só Delegado Palumbo e Dra. Alessandra Haber tinham voto registrado, às 17:30) e 6 deputados de outros partidos.
+  console.log('\n== 3. pergunta em texto livre: a mesma mensagem do /faltamvotar (24/11/2026, PL 1969/2022) ==');
+  // Pelo agente, a lista ia para o modelo, que reescrevia ("Atualmente, 25 parlamentares… ainda não registraram")
+  // e cortava o "(2/27 já votaram)": a lista de 25 parecia a bancada inteira. Fixture: painel real da votação 14025,
+  // com a bancada no instante da pergunta (só Delegado Palumbo e Dra. Alessandra Haber tinham voto, às 17:30).
   const P2 = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'faltamvotar', 'painel-14025-reconstruido.json'), 'utf8'));
   const S2 = { sessaoAtual: { numSessao: 187, nomSessao: 'EXTRAORDINÁRIA Nº 187 - 24/11/2026' },
     votacaoAtual: { tipo: 'Votacao', idVotacao: 14025, tituloVotacao: 'PL   Nº 1969/2022 - SUBSTITUTIVO OFERECIDO PELO RELATOR', tipoVotacao: 'E' } };
   global.fetch = async u => (/sessao-atual/.test(u) ? resp(S2) : /ws-plenario\/votacao\/14025$/.test(u) ? resp(P2) : { ok: false, status: 404, text: async () => '' });
   const r2 = await faltamVotar('PODE');
+  const t2 = formatarFaltantes(r2);
   ok(r2.total === 27 && r2.votaram === 2 && r2.naoVotaram.length === 25, 'bancada de 27: 2 votaram, 25 faltam');
-  ok(JSON.stringify(r2.jaVotaram) === JSON.stringify(['Delegado Palumbo (SP)', 'Dra. Alessandra Haber (PA)']), 'quem já votou, pelo nome');
-  const ag = formatarFaltantesAgente(r2);
-  ok(ag.startsWith(formatarFaltantes(r2)) && ag.endsWith('\n\n✅ Já votaram (2): Delegado Palumbo (SP); Dra. Alessandra Haber (PA)'), 'agente: o texto do comando e, no fim, "✅ Já votaram (2)" com os nomes');
-  ok(formatarFaltantes(r2).indexOf('Já votaram') < 0, 'o /faltamvotar continua no formato pedido, sem a linha nova');
-  ok(formatarFaltantesAgente({ ...r2, naoVotaram: [], votaram: 27 }) === formatarFaltantes({ ...r2, naoVotaram: [], votaram: 27 }), 'toda a bancada votou: sem a linha (o cabeçalho já diz 27/27)');
-  const AG = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'agente.js'), 'utf8');
-  ok(/"faltam_votar"[^\n]*diga SEMPRE quantos da bancada já votaram e o total/.test(AG), 'instrução do agente: dizer sempre quantos já votaram e o total');
-  ok(/faltam_votar: async \(\) => formatarFaltantesAgente\(/.test(fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8')), 'a ferramenta do agente usa o texto com quem já votou');
+  ok(t2.startsWith('🗳 *PL Nº 1969/2022* — bancada PODE (2/27 já votaram)\n\n🔴 Não votaram (25):\n• Antonio Carlos Rodrigues (SP)'), 'mensagem: "(2/27 já votaram)" no cabeçalho e "🔴 Não votaram (25)"');
+  ok(!/Delegado Palumbo|Alessandra Haber/.test(t2), 'quem já votou não está na lista');
+  const AG = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'agente.js'), 'utf8'), IX = fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8');
+  const acoes = AG.slice(AG.indexOf('const CATALOGO_ACOES'), AG.indexOf('`;', AG.indexOf('const CATALOGO_ACOES')));
+  ok(/- "faltam_votar" \{\}:/.test(acoes) && /const ACOES = \[[^\]]*'faltam_votar'/.test(AG), 'agente: "faltam_votar" é AÇÃO (envia a lista pronta), não consulta que o modelo reescreve');
+  ok((AG.match(/- "faltam_votar"/g) || []).length === 1 && !/faltam_votar: async/.test(IX), 'saiu das ferramentas de consulta');
+  ok(/case 'faltam_votar':\s+return responderFaltantes\(ctx\);/.test(IX) && /async function cmdFaltamVotar[\s\S]*?return responderFaltantes\(ctx\);/.test(IX),
+    'a ação e o /faltamvotar mandam a mesma mensagem (responderFaltantes)');
 
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);

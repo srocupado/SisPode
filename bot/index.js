@@ -28,7 +28,7 @@ const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
-const { faltamVotar, formatarFaltantes, formatarFaltantesAgente } = require('./src/faltamvotar');
+const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
 const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
@@ -1527,6 +1527,12 @@ async function cmdFaltamVotar(ctx) {
     if (on || off) { setFaltantesAuto(on); return ctx.reply(`Rede de segurança de faltantes ${on ? 'LIGADA' : 'DESLIGADA'}.`); }
     return ctx.reply(`Rede de segurança de faltantes: ${getFaltantesAuto() ? '🟢 ligada' : '🔴 desligada'}. Use /faltamvotar auto on|off.`);
   }
+  return responderFaltantes(ctx);
+}
+// Mesma mensagem para o comando e para a pergunta em texto livre ("quem falta votar?"). Pelo agente, a lista
+// ia para o modelo, que reescrevia a resposta e cortava o "(2/27 já votaram)" — a lista de 25 parecia a bancada
+// inteira (24/11/2026, PL 1969/2022). Agora o agente só dispara esta ação e o texto sai como no /faltamvotar.
+async function responderFaltantes(ctx) {
   await ctx.replyWithChatAction('typing');
   try {
     const r = await faltamVotar('PODE');
@@ -2080,6 +2086,7 @@ async function executarDecisao(ctx, decisao) {
     case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'resumo':             return cmdResumo(ctx, decisao.argumentos.pergunta || '');
+    case 'faltam_votar':       return responderFaltantes(ctx);
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
     case 'nota_avulsa':        return cmdAvulsa(ctx, { entrada: entradaDoTexto(String(decisao.argumentos.pergunta || '')) });   // idem
     case 'digest':             return cmdDigest(ctx);
@@ -2124,7 +2131,6 @@ function ferramentasDado(userId, perfil) {
         partido: partido || (deputado ? null : 'Podemos'),
         deputado: deputado || null,
       }),
-    faltam_votar: async () => formatarFaltantesAgente(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo, fase } = {}) =>
       formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
     recurso: async ({ termo } = {}) => formatarRecurso(await buscarRecurso(String(termo || ''))),

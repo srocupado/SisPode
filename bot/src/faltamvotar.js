@@ -69,7 +69,6 @@ async function faltamVotar(sigla = 'PODE') {
     // o deputado como presente (indPresente) depois que ele vota (medido em 23/11/2026, votação 14017), então
     // a divisão presentes × fora da Casa punha todo mundo que faltava em "Fora da Casa".
     naoVotaram: bancada.filter(x => !x.dataRegistroVoto).map(nomeDe).sort(),
-    jaVotaram: bancada.filter(x => x.dataRegistroVoto).map(nomeDe).sort(),
     casaRegistrou: pv.filter(x => x.dataRegistroVoto).length,
     casaTotal: pv.length,
     idVotacao: v.id,
@@ -86,13 +85,4 @@ function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
   return linhas.join('\n\n');
 }
 
-/** Para o agente: o mesmo texto do comando e, em seguida, quem da bancada JÁ votou. Sem esta linha o modelo
- *  reescrevia a resposta, cortava o "(2/27 já votaram)" do cabeçalho e a lista de 25 parecia a bancada inteira
- *  (24/11/2026, PL 1969/2022: Delegado Palumbo e Dra. Alessandra Haber já tinham votado). */
-function formatarFaltantesAgente(r, opts = {}) {
-  const txt = formatarFaltantes(r, opts);
-  if (!r.aberta || !(r.jaVotaram || []).length || !(r.naoVotaram || []).length) return txt;
-  return `${txt}\n\n✅ Já votaram (${r.jaVotaram.length}): ${r.jaVotaram.join('; ')}`;
-}
-
-module.exports = { faltamVotar, formatarFaltantes, formatarFaltantesAgente };
+module.exports = { faltamVotar, formatarFaltantes };
