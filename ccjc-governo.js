@@ -12,6 +12,9 @@
 // (115 Voto Livre, 2 Sim, 2 Em Análise, 1 Não, 1 Favorável com ajustes, 1 Não
 // afeta ao governo). O tema do item pode ter parênteses dentro ("(Lei das
 // Drogas)"), por isso a posição é lida só até o "(" que abre o tema.
+// 24/11/2026: o resumo executivo travava com a posição importada — não era a leitura (77 de 77 itens), e sim o resumo
+// reaproveitado do Firebase, que não guarda lista vazia (oQueFazItens sumia). Item sem posição no documento fica sem
+// posição (antes: posição vazia), e a sigla da comissão depois de um REQ ("REQ 29/2026 CCJC Voto Livre") sai.
 // Usa de ccjc.js: app, extrairTextoPDF, salvarPauta, mostrarToast, escHtml.
 
 const GOV_SIGLAS = 'PLP|PL|PEC|PDL|PDC|PRC|MPV|MSC|REQ|REC';
@@ -33,7 +36,10 @@ function lerPosicoesGoverno(texto) {
   let m;
   while ((m = re.exec(t))) {
     const chave = govChave(m[2], m[3], m[4]);
-    if (!itens[chave]) itens[chave] = { item: parseInt(m[1], 10), posicao: m[6].replace(/\s+/g, ' ').trim(), marcas: m[5].replace(/\s+/g, '') };
+    // "REQ 29/2026 CCJC Voto Livre (": a sigla da comissão do requerimento não é posição (pauta de 24/11/2026)
+    const posicao = m[6].replace(/\s+/g, ' ').trim().replace(/^[A-Z]{3,}\s+(?=\S)/, '');
+    // item sem posição no documento (PL 565/2020 em 24/11/2026: "2 - PL 565/2020  ( tema )") — fica sem posição
+    if (!itens[chave] && posicao) itens[chave] = { item: parseInt(m[1], 10), posicao, marcas: m[5].replace(/\s+/g, '') };
   }
   const cab = t.slice(0, 1500);
   return {

@@ -180,7 +180,7 @@ function resumoHTML(pauta, res, logo) {
     return `<section class="item">
       <div class="it-cab"><h2>${nItem(d) != null ? `Item ${nItem(d)} – ` : `${i + 1}. `}${escHtml(d.chave)}${d.titulo ? ` – ${escHtml(d.titulo)}` : ''}</h2>
         <div class="it-meta">${p.autores?.length ? `Autoria: ${escHtml(p.autores.join(', '))}<br>` : ''}${p.relator ? `Relator(a): ${escHtml(p.relator)}` : ''}${marcas.map(m => `<br><span class="pode">${m}</span>`).join('')}</div></div>
-      <h3>O que faz</h3><p>${escHtml(d.oQueFaz)}</p>${d.oQueFazItens.length ? `<ul>${d.oQueFazItens.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}
+      <h3>O que faz</h3><p>${escHtml(d.oQueFaz)}</p>${(d.oQueFazItens || []).length ? `<ul>${d.oQueFazItens.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}
       ${d.tramitacao ? `<h3>Tramitação</h3><p>${escHtml(d.tramitacao)}</p>` : ''}
       <h3>Parecer na CCJC</h3><div class="par">${escHtml(d.parecer || d.parecerCurto || 'não consta')}</div>
       ${gov ? `<h3>Posição do governo</h3><p>${govBadge(posDe(d))}${posDe(d) ? '' : ' <span class="nota">sem posição no documento do governo</span>'}</p>` : ''}

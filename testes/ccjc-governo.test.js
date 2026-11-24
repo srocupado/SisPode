@@ -48,5 +48,19 @@ ok(/<tr class="tr-pode"><td class="ch">PL 2500\/2025<br><span class="pode">Podem
 ok((h.match(/<h3>Posição do governo<\/h3>/g) || []).length === 3 && /Posição do governo: Liderança do Governo na CD, reunião de 03\/11\/2026 \(Liderança Digital\.pdf/.test(h), 'posição no bloco de cada item e a fonte no rodapé');
 const h0 = R.resumoHTML({ ...p2, governo: undefined }, { itens: dados }, null);
 ok(!/Governo<\/th>/.test(h0) && !/Posição do governo/.test(h0), 'sem posição importada, o resumo fica como antes');
+
+console.log('\n== pauta de 24/11/2026: o resumo travava com a posição importada ==');
+// O texto é o que a extensão extrai hoje (textoComLinhas) do PDF "Liderança Digital CCJC 24-11-26"
+const r24 = G.lerPosicoesGoverno(fs.readFileSync(path.join(__dirname, 'pautas', 'ccjc-governo-2026-11-24.txt'), 'utf8'));
+const it24 = Object.values(r24.itens);
+ok(r24.governo && r24.reuniao === '24/11/2026' && it24.length === 76 && !it24.some(v => !v.posicao), `76 itens com posição (o 77º, PL 565/2020, não tem posição no documento): ${it24.length}`);
+ok(!r24.itens['PL 565/2020'], 'PL 565/2020 ("2 - PL 565/2020  ( tema )"): sem posição, em vez de posição vazia');
+ok(r24.itens['REQ 29/2026']?.posicao === 'Voto Livre', `REQ 29/2026 CCJC: "Voto Livre", sem o "CCJC" (${r24.itens['REQ 29/2026']?.posicao})`);
+ok(r24.itens['PL 669/2020']?.posicao === 'Em Análise' && r24.itens['PL 4521/2021']?.marcas === 'AA', 'itens seguintes lidos como antes');
+// o resumo salvo e relido do Firebase perde as listas vazias (oQueFazItens) — e a montagem quebrava
+const doFirebase = dados.map(d => { const x = { ...d }; delete x.oQueFazItens; return x; });
+let hFb = '', erroFb = null;
+try { hFb = R.resumoHTML(p2, { itens: doFirebase }, null); } catch (e) { erroFb = e.message; }
+ok(!erroFb && (hFb.match(/<h3>Posição do governo<\/h3>/g) || []).length === 3, `resumo relido do Firebase (sem oQueFazItens): monta, com a posição do governo${erroFb ? ' — ' + erroFb : ''}`);
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
 process.exit(falhas ? 1 : 0);
