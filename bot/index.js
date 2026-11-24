@@ -28,7 +28,7 @@ const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
-const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
+const { faltamVotar, formatarFaltantes, formatarFaltantesAgente } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
 const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
@@ -2124,7 +2124,7 @@ function ferramentasDado(userId, perfil) {
         partido: partido || (deputado ? null : 'Podemos'),
         deputado: deputado || null,
       }),
-    faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
+    faltam_votar: async () => formatarFaltantesAgente(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo, fase } = {}) =>
       formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
     recurso: async ({ termo } = {}) => formatarRecurso(await buscarRecurso(String(termo || ''))),
