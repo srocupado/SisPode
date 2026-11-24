@@ -51,7 +51,16 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     'o registro guarda o colegiado em conflito no momento do cadastro (só quando há)');
   ok(/Já há um pedido pendente de titular em CCJC/.test(v({ depId: '3', sigla: 'CCJC', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'pendente' }]).erro), 'pedido pendente igual: recusado');
   ok(v({ depId: '3', sigla: 'CCJC', tipo: 'titular' }, [{ depId: '3', sigla: 'CCJC', tipo: 'titular', situacao: 'negado' }]).ok, 'pedido igual já negado não impede um novo');
-  ok(/Comissão Permanente/.test(v({ depId: '3', sigla: 'CPIXYZ', tipo: 'titular' }).erro), 'só Comissões Permanentes');
+  ok(/Escolha a comissão \(Permanente da Câmara, CMO ou Parlasul\)/.test(v({ depId: '3', sigla: 'CPIXYZ', tipo: 'titular' }).erro), 'só as comissões da lista');
+
+  console.log('\n== 2a. CMO e Parlasul (24/11/2026) ==');
+  const ctxM = Object.assign(ctx(), { permanentes: [...PERMANENTES, ...PV.PV_COMISSOES_MISTAS] });
+  ok(PV.PV_COMISSOES_MISTAS.map(c => c.sigla).join() === 'CMO,PARLASUL', 'as duas mistas na lista do módulo');
+  const rCmo = PV.pvValidarPedido({ depId: '1', sigla: 'CMO', tipo: 'titular', ordem: 1, legislatura: 57 }, ctxM);
+  ok(rCmo.ok && !rCmo.conflitos.length, 'titular na CCJC pede titular na CMO: aceito, sem conflito (o art. 26, § 2º, é das Permanentes)');
+  ok(PV.pvValidarPedido({ depId: '1', sigla: 'PARLASUL', tipo: 'suplente', ordem: 2, legislatura: 58 }, ctxM).ok, 'Parlasul, suplente, próxima legislatura: aceito');
+  const plM = PV.pvPlanoAtendimento({ depId: '1', sigla: 'CMO', tipo: 'titular', legislatura: 57 }, { legAtual: 57, cadastrado: true, membros: { titulares: [], suplentes: [] }, vagasLivres: () => 5, conflito: () => null });
+  ok(plM.acao === 'so-marcar' && /comissão mista do Congresso/.test(plM.motivo), 'Atendido na CMO: só marca (a composição dela não é lançada no módulo)');
   ok(/preferência vai de 1 a 10/.test(v({ depId: '3', sigla: 'CE', tipo: 'titular', ordem: 11 }).erro), 'preferência de 1 a 10');
 
   console.log('\n== 2b. legislatura e deputado digitado (24/11/2026) ==');
@@ -106,7 +115,7 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     vagas: (sg, t) => ({ livres: t === 'titular' ? 1 : 0, total: 2 }), filtroRotulo: 'de todas as situações', hojeBR: '24/11/2026', logo: null };
   const html = PV.pvHtmlRelatorio(todosR, ctxR);
   const txt = html.replace(/<style>[\s\S]*?<\/style>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  ok(/Pedidos de vagas nas Comissões Permanentes/.test(txt) && /Pedidos de todas as situações · 4 pedido\(s\) · gerado em 24\/11\/2026/.test(txt), 'cabeçalho com o filtro, o total e a data');
+  ok(/Pedidos de vagas nas Comissões Permanentes da Câmara, CMO e Parlasul/.test(txt) && /Pedidos de todas as situações · 4 pedido\(s\) · gerado em 24\/11\/2026/.test(txt), 'cabeçalho com o filtro, o total e a data');
   ok(/57ª legislatura \(atual\)/.test(txt) && /58ª legislatura \(próxima\)/.test(txt) && html.indexOf('57ª legislatura') < html.indexOf('58ª legislatura') && /class="quebra"/.test(html), 'uma parte por legislatura (atual, depois a próxima, em página nova)');
   ok((txt.match(/Por comissão/g) || []).length === 2 && (txt.match(/Por deputado/g) || []).length === 2, 'em cada legislatura: por comissão e por deputado');
   ok(/CFT · Finanças e Tributação inacumulável 1 pedido\(s\) de titular · 1 de suplente — vagas do partido livres hoje: titular 1 de 2, suplente 0 de 2/.test(txt), 'por comissão: pedidos por tipo e vagas livres do partido (legislatura atual)');
@@ -116,6 +125,9 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   ok(/Novo &lt;Eleito&gt;/.test(html) && !/Novo <Eleito>/.test(html) && /· digitado/.test(txt), 'deputado digitado, com o nome escapado');
   ok(txt.indexOf('Bruno Teste') > 0 && txt.indexOf('Ana Teste', txt.indexOf('Por deputado')) < txt.indexOf('Bruno Teste', txt.indexOf('Por deputado')), 'deputados em ordem alfabética');
   ok(/Nenhum pedido neste filtro/.test(PV.pvHtmlRelatorio([], ctxR)), 'filtro vazio: diz que não há pedidos');
+  const todosM = [{ id: 'm1', depId: 'a1', sigla: 'CMO', tipo: 'titular', ordem: 3, legislatura: 57, situacao: 'pendente', data: '2026-11-24T10:00:00Z' }];
+  const txtM = PV.pvHtmlRelatorio(todosM, Object.assign({}, ctxR, { todos: todosM, permanentes: [...PERMANENTES, ...PV.PV_COMISSOES_MISTAS] })).replace(/<style>[\s\S]*?<\/style>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  ok(/CMO · Comissão Mista de Planos, Orçamentos Públicos e Fiscalização 1 pedido\(s\) de titular · 0 de suplente Deputado/.test(txtM) && !/⚠ CCJC/.test(txtM), 'relatório: a CMO entra, sem vagas livres e sem conflito');
 
   console.log('\n== 4. no navegador: aba "Pedidos", registro e alerta ==');
   let chromium; try { ({ chromium } = require('playwright')); } catch (_) { console.log('  (playwright indisponível: bloco 4 não executado)'); }
@@ -144,8 +156,8 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     await pg.waitForFunction(() => typeof renderPainelPedidosVagas === 'function' && state && state.deputados && Object.keys(state.deputados).length === 2);
     await pg.click('.com-tab[data-view="vagas"]');
     const aba = await pg.evaluate(() => ({ titulo: document.querySelector('.pv-titulo')?.textContent || '', filtros: [...document.querySelectorAll('[data-pv-filtro]')].map(e => e.querySelector('.com-item-nome').textContent + ' ' + e.querySelector('.com-item-badge').textContent),
-      opcoes: document.querySelectorAll('#pv-com option').length - 1, inac: [...document.querySelectorAll('#pv-com option')].filter(o => /inacumulável/.test(o.textContent)).length, busca: document.getElementById('busca-wrap').style.display }));
-    ok(/Pedidos de vagas/.test(aba.titulo) && aba.opcoes === 30 && aba.inac === 14 && aba.busca === 'none', 'a aba "Pedidos" abre o painel com as 30 permanentes (14 marcadas inacumuláveis)');
+      opcoes: document.querySelectorAll('#pv-com option').length - 1, inac: [...document.querySelectorAll('#pv-com option')].filter(o => /inacumulável/.test(o.textContent)).length, mistas: [...document.querySelectorAll('#pv-com optgroup[label="Mistas do Congresso"] option')].map(o => o.value).join(), busca: document.getElementById('busca-wrap').style.display }));
+    ok(/Pedidos de vagas/.test(aba.titulo) && aba.opcoes === 32 && aba.inac === 14 && aba.mistas === 'CMO,PARLASUL' && aba.busca === 'none', 'a aba "Pedidos" abre o painel com as 30 permanentes (14 marcadas inacumuláveis), a CMO e o Parlasul');
     ok(aba.filtros.join(' | ') === 'Pendentes 0 | Atendidos 0 | Negados 0 | Todos 0', 'barra lateral com os filtros por situação e as contagens (' + aba.filtros.join(' | ') + ')');
 
     const legs = await pg.$$eval('#pv-leg option', os => os.map(o => o.textContent + (o.selected ? ' *' : '')));
@@ -269,7 +281,7 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     // relatório: abre a janela com o documento
     await pg.click('[data-pv-filtro=""]');
     const [pop] = await Promise.all([pg.waitForEvent('popup'), pg.click('#pv-relatorio')]);
-    await pop.waitForFunction(() => /Pedidos de vagas nas Comissões Permanentes/.test(document.body && document.body.textContent || ''), null, { timeout: 15000 });
+    await pop.waitForFunction(() => /Pedidos de vagas nas Comissões/.test(document.body && document.body.textContent || ''), null, { timeout: 15000 });
     const rel = await pop.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
     ok(/Pedidos de todas as situações · 5 pedido\(s\)/.test(rel) && /Por comissão/.test(rel) && /Por deputado/.test(rel) && /Carlos Novo Eleito/.test(rel), 'botão "Relatório (PDF)": abre o documento com os pedidos do filtro da tela');
     await pop.close();

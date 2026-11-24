@@ -5,6 +5,7 @@
 // Registro de quais deputados pediram vaga em quais Comissões Permanentes (pedido de 24/11/2026): tipo de vaga
 // (titular ou suplente), ordem de preferência do deputado e situação (pendente, atendido, negado), com histórico.
 // Lista própria no Firebase (/comissoes-podemos/pedidos-vagas), separada dos "Pedidos" do painel de cada comissão.
+// Além das Permanentes, a CMO e o Parlasul (comissões mistas do Congresso; PV_COMISSOES_MISTAS) — 24/11/2026.
 //
 // INACUMULABILIDADE NO REGISTRO (RICD, art. 26, § 2º): "Nenhum Deputado poderá fazer parte, como membro titular,
 // de mais de uma Comissão Permanente, ressalvadas" as quinze que o parágrafo enumera. As que NÃO estão ressalvadas
@@ -42,6 +43,14 @@
 const PV_SITUACOES = { pendente: 'Pendente', atendido: 'Atendido', negado: 'Negado' };
 const PV_TIPOS = { titular: 'Titular', suplente: 'Suplente' };
 const PV_MAX_PREFERENCIA = 10;
+// Comissões mistas do Congresso em que a Liderança também recebe pedidos de vaga (24/11/2026). Não estão sujeitas ao
+// art. 26, § 2º, do RICD (que trata das Permanentes da Câmara) e não têm composição registrada neste módulo: o pedido
+// atendido é só marcado, sem nomeação, e o relatório não mostra vagas livres para elas.
+const PV_COMISSOES_MISTAS = [
+  { sigla: 'CMO',      nome: 'Comissão Mista de Planos, Orçamentos Públicos e Fiscalização', mista: true },
+  { sigla: 'PARLASUL', nome: 'Representação Brasileira no Parlamento do Mercosul', mista: true },
+];
+const pvEhMista = sigla => PV_COMISSOES_MISTAS.some(c => c.sigla === sigla);
 
 /** Legislatura de uma data (a legislatura começa em 1º de fevereiro do ano seguinte à eleição: 57ª = 2023–2027). */
 function pvLegislaturaDe(data = new Date()) {
@@ -103,7 +112,7 @@ function pvTextoConflito(conflitos, sigla, leg) {
 function pvValidarPedido(p, ctx) {
   const com = ctx.permanentes.find(c => c.sigla === p.sigla);
   if (!p.depId) return { ok: false, erro: 'Escolha o deputado.' };
-  if (!com) return { ok: false, erro: 'Escolha uma Comissão Permanente.' };
+  if (!com) return { ok: false, erro: 'Escolha a comissão (Permanente da Câmara, CMO ou Parlasul).' };
   if (!PV_TIPOS[p.tipo]) return { ok: false, erro: 'Escolha o tipo de vaga (titular ou suplente).' };
   const ordem = Number(p.ordem);
   if (!Number.isInteger(ordem) || ordem < 1 || ordem > PV_MAX_PREFERENCIA) return { ok: false, erro: `A preferência vai de 1 a ${PV_MAX_PREFERENCIA}.` };
@@ -153,6 +162,7 @@ function pvComSituacao(reg, situacao, agoraIso) {
  */
 function pvPlanoAtendimento(reg, c) {
   const leg = pvLegDe(reg, c.legAtual);
+  if (pvEhMista(reg.sigla)) return { acao: 'so-marcar', motivo: `${reg.sigla} é comissão mista do Congresso: a composição dela não é lançada neste módulo` };
   if (leg !== c.legAtual) return { acao: 'so-marcar', motivo: `pedido para a ${leg}ª legislatura: a composição dela ainda não existe` };
   if (!c.cadastrado) return { acao: 'so-marcar', motivo: 'deputado digitado, fora do cadastro do módulo: cadastre-o para nomear' };
   const { titulares = [], suplentes = [] } = c.membros || {};
@@ -235,7 +245,7 @@ function pvHtmlRelatorio(lista, c) {
       const ps = doLeg.filter(x => x.sigla === k.sigla).sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'titular' ? -1 : 1) || a.ordem - b.ordem || ordNome(a, b));
       const nT = ps.filter(x => x.tipo === 'titular').length, nS = ps.length - nT;
       let vg = `${nT} pedido(s) de titular · ${nS} de suplente`;
-      if (atual && c.vagas) {
+      if (atual && c.vagas && !pvEhMista(k.sigla)) {
         const vt = c.vagas(k.sigla, 'titular'), vs = c.vagas(k.sigla, 'suplente');
         vg += ` — vagas do partido livres hoje: titular ${vt.livres} de ${vt.total}, suplente ${vs.livres} de ${vs.total}`;
       }
@@ -264,15 +274,16 @@ ${ps.map(x => `<tr><td class="c">${x.ordem}ª</td><td><b>${e(x.sigla)}</b> <span
 <h2>Por deputado</h2>${porDeputado}`;
   }).join('');
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Pedidos de vagas — Comissões Permanentes</title><style>${PV_CSS_PDF}</style></head><body>
-<div class="cab">${c.logo ? `<img src="${c.logo}" alt="">` : '<div class="sp"></div>'}<div class="tit"><h1>Pedidos de vagas nas Comissões Permanentes</h1>
-<div class="sub">Liderança do Podemos · Câmara dos Deputados</div></div><div class="sp"></div></div><div class="rule"></div>
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Pedidos de vagas — Comissões</title><style>${PV_CSS_PDF}</style></head><body>
+<div class="cab">${c.logo ? `<img src="${c.logo}" alt="">` : '<div class="sp"></div>'}<div class="tit"><h1>Pedidos de vagas nas Comissões</h1>
+<div class="sub">Permanentes da Câmara, CMO e Parlasul · Liderança do Podemos · Câmara dos Deputados</div></div><div class="sp"></div></div><div class="rule"></div>
 <div class="meta">Pedidos ${e(c.filtroRotulo)} · ${lista.length} pedido(s) · gerado em ${e(c.hojeBR)}</div>
 ${lista.length ? partes : '<p class="nada">Nenhum pedido neste filtro.</p>'}
 <h2>Nota</h2><div class="nota"><b>Inacumulabilidade (RICD, art. 26, § 2º):</b> o deputado só pode ser titular de uma das Comissões Permanentes não ressalvadas
 (marcadas "inacumulável"). O selo vermelho <span class="tag t-conf">⚠ SIGLA</span> indica o colegiado em que ele já é titular — pela composição registrada
 no módulo (legislatura atual) ou por pedido de titular já atendido na mesma legislatura. <b>Preferência</b>: a ordem dada pelo próprio deputado.
-<b>Vagas do partido livres</b>: as vagas do Podemos configuradas no módulo, menos as já preenchidas (só na legislatura atual).</div>
+<b>Vagas do partido livres</b>: as vagas do Podemos configuradas no módulo, menos as já preenchidas (só na legislatura atual; a CMO e o Parlasul,
+comissões mistas do Congresso, não têm composição no módulo nem limite de inacumulabilidade do RICD).</div>
 <div class="meta" style="margin-top:14px">Gerado pelo SisPode · ${e(c.hojeBR)}</div></body></html>`;
 }
 
@@ -300,7 +311,7 @@ function pvDigitados() {
 }
 
 function pvCtx() {
-  return { permanentes: COMISSOES_PERMANENTES, grupos: GRUPOS_INCOMPATIVEIS, membrosDe: comissoesDeDeputado, pedidos: pvLista(), legAtual: pvLegislaturaDe() };
+  return { permanentes: [...COMISSOES_PERMANENTES, ...PV_COMISSOES_MISTAS], grupos: GRUPOS_INCOMPATIVEIS, membrosDe: comissoesDeDeputado, pedidos: pvLista(), legAtual: pvLegislaturaDe() };
 }
 
 function renderSidebarPedidosVagas() {
@@ -336,7 +347,7 @@ function renderPainelPedidosVagas() {
   const lista = pvLista().filter(x => !pvFiltro || x.situacao === pvFiltro);
   // por legislatura, deputado (nome), preferência
   lista.sort((a, b) => pvLegDe(b, legAtual) - pvLegDe(a, legAtual) || pvDeputado(a).nome.localeCompare(pvDeputado(b).nome, 'pt-BR') || a.ordem - b.ordem || String(a.data).localeCompare(String(b.data)));
-  const comNome = s => (COMISSOES_PERMANENTES.find(c => c.sigla === s) || {}).nome || s;
+  const comNome = s => ([...COMISSOES_PERMANENTES, ...PV_COMISSOES_MISTAS].find(c => c.sigla === s) || {}).nome || s;
   const rotFiltro = pvFiltro ? PV_SITUACOES[pvFiltro].toLowerCase() + 's' : 'todos';
 
   const ctxLista = pvCtx();
@@ -369,7 +380,7 @@ function renderPainelPedidosVagas() {
 
   document.getElementById('com-painel-conteudo').innerHTML = `
     <div class="pv-wrap">
-      <h2 class="pv-titulo">Pedidos de vagas <span class="pv-dim">· Comissões Permanentes</span>
+      <h2 class="pv-titulo">Pedidos de vagas <span class="pv-dim">· Comissões Permanentes, CMO e Parlasul</span>
         <button id="pv-relatorio" class="btn btn-outline btn-sm pv-rel" title="Relatório em PDF dos pedidos do filtro (${rotFiltro}), por comissão e por deputado">📄 Relatório (PDF)</button></h2>
       <div class="pv-form">
         <label>Legislatura<select id="pv-leg" class="form-input">
@@ -382,7 +393,8 @@ function renderPainelPedidosVagas() {
         <label id="pv-manual-nome" style="display:none">Nome do deputado<input id="pv-dep-nome" class="form-input" maxlength="80" placeholder="Nome parlamentar"></label>
         <label id="pv-manual-uf" style="display:none">UF<input id="pv-dep-uf" class="form-input" maxlength="2" placeholder="UF" style="width:64px;text-transform:uppercase"></label>
         <label>Comissão<select id="pv-com" class="form-input"><option value="">Escolha…</option>
-          ${COMISSOES_PERMANENTES.map(c => `<option value="${c.sigla}">${c.sigla} — ${_pvEsc(c.nome)}${pvInacumulavel(c.sigla, GRUPOS_INCOMPATIVEIS) ? ' (inacumulável)' : ''}</option>`).join('')}</select></label>
+          <optgroup label="Permanentes da Câmara">${COMISSOES_PERMANENTES.map(c => `<option value="${c.sigla}">${c.sigla} — ${_pvEsc(c.nome)}${pvInacumulavel(c.sigla, GRUPOS_INCOMPATIVEIS) ? ' (inacumulável)' : ''}</option>`).join('')}</optgroup>
+          <optgroup label="Mistas do Congresso">${PV_COMISSOES_MISTAS.map(c => `<option value="${c.sigla}">${c.sigla} — ${_pvEsc(c.nome)}</option>`).join('')}</optgroup></select></label>
         <label>Vaga<select id="pv-tipo" class="form-input"><option value="titular">Titular</option><option value="suplente">Suplente</option></select></label>
         <label>Preferência<select id="pv-ordem" class="form-input">${Array.from({ length: PV_MAX_PREFERENCIA }, (_, i) => `<option value="${i + 1}">${i + 1}ª</option>`).join('')}</select></label>
         <button id="pv-registrar" class="btn btn-primary btn-sm">Registrar pedido</button>
@@ -559,5 +571,5 @@ async function pvExcluir(id) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { pvInacumulavel, pvValidarPedido, pvConflitosInacumulaveis, pvTextoConflito, pvPlanoAtendimento, pvHtmlRelatorio, pvProximaOrdem, pvNovoRegistro, pvComSituacao, pvLegislaturaDe, pvLegislaturaPadrao,
-    pvIdManual, pvResolverManual, PV_MAX_PREFERENCIA };
+    pvIdManual, pvResolverManual, PV_MAX_PREFERENCIA, PV_COMISSOES_MISTAS };
 }
