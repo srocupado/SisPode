@@ -8,16 +8,16 @@
 //  - PDF/Word do relatório comum: o período pedido, partido por ano quando
 //    atravessa anos (num ano só, sem o resumo repetido).
 // Sai em PDF (janela de impressão, como o PDF do "Como votou") e em Word (docx).
-// Identidade visual dos relatórios da extensão: logo, linha da Liderança, filete
-// de quatro cores.
+// Identidade visual: a do PDF "Como votou" (CSS_PDF_VOTOS) — título centrado com a
+// logo, filete verde, caixas, tabelas e selos de voto.
 //
 // Aderência sobre os votos Sim e Não (aderPct, aderencia.js): ausência,
-// abstenção, obstrução e Art. 17 ficam fora da conta e não aparecem nos
-// documentos. Cores: as do CV_COR.
+// abstenção, obstrução e Art. 17 ficam fora da conta. Desde 24/11/2026 os
+// documentos mostram essas contagens (decisão da Liderança), sem mudar a conta.
+// Layout: o do relatório do PLP 299/2026 (ver "LAYOUT DOS DOCUMENTOS").
 
 const btnLegislaturaEl = document.getElementById('btnLegislatura');
 const LEG_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const LEG_ORDEM = ['a', 'd'];   // aderiu, divergiu
 const LEG_COR = { a: CV_COR.aderente, d: CV_COR.divergente };
 const legDeputados = L => new Set(L.anos.flatMap(a => a.deps.map(d => d.id))).size;
 
@@ -54,6 +54,17 @@ function legResumoDesc(s) {
   return String(s || '').replace(/\s*Sim:\s*\d.*$/i, '').trim();
 }
 
+/** Classe do voto para as contagens do documento: sim, nao, out (abstenção, obstrução, Art. 17) ou aus. */
+function legClasseVoto(tipo) {
+  const t = votoClass(tipo);
+  return t === 'sim' ? 'sim' : t === 'nao' ? 'nao' : t === 'ausente' ? 'aus' : 'out';
+}
+/** Rótulo curto do voto no quadro deputado × votação. */
+function legRotuloVoto(tipo) {
+  const t = votoClass(tipo);
+  return { sim: 'Sim', nao: 'Não', abstencao: 'Abst.', obstrucao: 'Obstr.', art17: 'Art. 17' }[t] || '';
+}
+
 // O dia da votação é o campo `data` — o MESMO pelo qual fetchVotacoesRange escolheu o período. O registro
 // (dataHoraRegistro) pode cair no dia seguinte (sessão que passa da meia-noite): recortar por ele tirava do
 // documento votações que a tela tinha contado, e os totais não batiam nas bordas (revisão de 11/11/2026).
@@ -70,20 +81,32 @@ function aderResumoAno(periodo, ctx, recortar = false) {
   const vot = qual.map(e => {
     const c = { a: e.adherentCount, d: e.divergentCount, x: e.ausenteCount };
     const n = c.a + c.d;   // votos Sim e Não da bancada
+    // Os votos da bancada, contados e por deputado — o documento mostra Sim, Não, abstenção/obstrução/Art. 17 e
+    // ausência (decisão de 24/11/2026); a aderência continua só sobre o Sim e o Não.
+    const cont = { sim: 0, nao: 0, out: 0, aus: 0 };
+    const votos = {};
+    for (const m of e.membros || []) {
+      const k = legClasseVoto(m.tipoVoto);
+      cont[k]++;
+      votos[m.id] = k === 'aus' ? '' : legRotuloVoto(m.tipoVoto);
+    }
     return {
-      id: String(e.votacao.id), data: legDataVot(e),
-      desc: legResumoDesc(e.votacao.descricao), objeto: e.votacao.proposicaoObjeto || '',
-      gov: e.govOrient, c, n, pct: aderPct(c.a, c.d),
+      id: String(e.votacao.id), data: legDataVot(e), hora: String(e.votacao.dataHoraRegistro || '').slice(11, 16),
+      registro: String(e.votacao.dataHoraRegistro || ''),
+      desc: legResumoDesc(e.votacao.descricao), resultado: String(e.votacao.descricao || '').trim(), objeto: e.votacao.proposicaoObjeto || '',
+      gov: e.govOrient, c, n, pct: aderPct(c.a, c.d), cont, votos,
     };
-  }).sort((p, q) => p.data.localeCompare(q.data) || p.id.localeCompare(q.id));
+  }).sort((p, q) => p.data.localeCompare(q.data) || p.registro.localeCompare(q.registro) || p.id.localeCompare(q.id));
   const atual = new Map(ctx.depMetrics.map(m => [m.dep.id, m.naBancadaAtual]));
   const porDep = new Map();
   for (const e of qual) for (const m of e.membros) {
-    if (!porDep.has(m.id)) porDep.set(m.id, { id: m.id, nome: m.nome, uf: m.siglaUf, atual: !!atual.get(m.id), n: 0, a: 0, d: 0, x: 0 });
+    if (!porDep.has(m.id)) porDep.set(m.id, { id: m.id, nome: m.nome, uf: m.siglaUf, atual: !!atual.get(m.id), n: 0, a: 0, d: 0, x: 0, out: 0, aus: 0 });
     const d = porDep.get(m.id);
     const s = classifyVote(m.tipoVoto, e.govOrient);
     d.n++;
     if (s === 'aderente') d.a++; else if (s === 'divergente') d.d++; else d.x++;
+    const k = legClasseVoto(m.tipoVoto);
+    if (k === 'out') d.out++; else if (k === 'aus') d.aus++;
   }
   const deps = [...porDep.values()].map(d => Object.assign(d, { pct: aderPct(d.a, d.d) }))
     .sort((p, q) => (q.pct == null ? -1 : q.pct) - (p.pct == null ? -1 : p.pct) || q.n - p.n || String(p.nome).localeCompare(String(q.nome), 'pt-BR'));
@@ -253,19 +276,6 @@ function legRenderTela(L) {
 }
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
-/** Barra empilhada da conduta (SVG), com 1px de vão entre os segmentos. */
-function legSvgBarra(c, _n, w = 118, h = 9) {
-  const n = LEG_ORDEM.reduce((s, k) => s + (c[k] || 0), 0);   // aderiu + divergiu
-  if (!n) return '';
-  let x = 0, s = '';
-  for (const k of LEG_ORDEM) {
-    const ww = w * c[k] / n;
-    if (ww > 0) s += `<rect x="${x.toFixed(2)}" y="0" width="${Math.max(0, ww - (x + ww < w - 0.01 ? 1 : 0)).toFixed(2)}" height="${h}" rx="1.5" fill="${LEG_COR[k]}"/>`;
-    x += ww;
-  }
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="aderiu ${c.a}, divergiu ${c.d}">${s}</svg>`;
-}
-
 /** Colunas da aderência mês a mês (SVG). `rotuloAno`: vários anos no mesmo eixo. */
 function legSvgMeses(meses, larg = 690, alt = 150, rotuloAno = false) {
   const n = meses.length, pad = 26, base = alt - 22, topo = 10, w = (larg - pad - 4) / n;
@@ -303,6 +313,7 @@ function legNotaMetodo(L) {
     ['Fonte: ', 'dados abertos da Câmara dos Deputados — votações, votos nominais, orientações e histórico de partido e situação de cada deputado —, a mesma conta do relatório de aderência da extensão' + (L.anos.length > 1 ? ', feita ano a ano.' : '.')],
     ['Votações: ', 'as do Plenário, nominais, com orientação Sim ou Não do Governo e ao menos um voto Sim ou Não. Liberações e votações simbólicas ficam fora.'],
     ['Aderência: ', 'votos Sim ou Não da bancada iguais à orientação do Governo ÷ votos Sim e Não da bancada. Divergência: votos contrários à orientação ÷ o mesmo total.'],
+    ['Contagens: ', 'em cada votação, os votos da bancada aparecem como Sim, Não, abstenção/obstrução/Art. 17 e ausência; no quadro por deputado, o voto de cada um. Só o Sim e o Não entram na aderência.'],
     ['Bancada de cada votação: ', `quem era do ${P} naquele dia — para quem votou, a sigla registrada no voto; para quem não votou, o histórico de partido e situação (em exercício) na Câmara. Quem entrou ou saiu no meio do ano é medido só no período em que esteve no partido.`],
   ];
   const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
@@ -317,77 +328,115 @@ function legNotaMetodo(L) {
   return itens;
 }
 
+// ── LAYOUT DOS DOCUMENTOS (PDF e Word) ──────────────────────────────────────
+// O mesmo do relatório de aderência do PLP 299/2026 (24/11/2026), que a Liderança preferiu: a identidade do PDF
+// "Como votou" (CSS_PDF_VOTOS, aderencia.js) — título centrado com a logo, consolidado em caixas, "Como se mede",
+// votação a votação (proposição, ementa, resultado, orientação do Governo, os votos da bancada e a aderência) e
+// deputado a deputado: o quadro com o voto de cada um em cada votação quando há até LEG_LIMITE_QUADRO votações;
+// acima disso, uma tabela com os totais de cada deputado.
+const LEG_LIMITE_QUADRO = 15;
+/** Cor da aderência: verde a partir de 70%, amarelo a partir de 40%, vermelho abaixo. */
+const legCorPct = p => (p == null ? '#8da3a8' : p >= 70 ? '#006633' : p >= 40 ? '#8a6d00' : '#b02a1f');
+const legNomeOrdem = (p, q) => String(p.nome).localeCompare(String(q.nome), 'pt-BR');
+/** Classe do selo do voto no quadro: comparado à orientação do Governo. '' = ausente; undefined = fora da bancada. */
+function legClasseSelo(voto, gov) {
+  if (voto === undefined) return null;
+  if (voto === '') return 'aus';
+  if (voto === 'Sim' || voto === 'Não') return voto === gov ? 'ade' : 'div';
+  return 'voto';
+}
+const legContTxt = c => `${c.sim}/${c.nao}/${c.out}/${c.aus}`;
+
 function legHtmlPDF(L, logo) {
   const P = legNomePartido(L.sigla), T = L.todos, RT = legRotulos(L);
-  const unico = L.anos.length === 1;   // um ano só: sem o resumo, que repetiria a seção do ano
+  const unico = L.anos.length === 1;   // um ano só: o consolidado é o do ano, sem a seção por ano
   const hojeBR = legDataBR(L.hoje);
-  const legenda = `<div class="leg">${[['a', 'Aderiu (votou como o Governo orientou)'], ['d', 'Divergiu (votou contra a orientação)']]
-    .map(([k, t]) => `<span><i style="background:${LEG_COR[k]}"></i>${t}</span>`).join('')}</div>`;
-  const kpi = (t, n, s) => `<div class="kpi"><div class="t">${t}</div><div class="n">${n}</div><div class="s">${s}</div></div>`;
-  let h = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aderência ${legEsc(L.sigla)} — ${legEsc(RT.escopo)}</title><style>
-  @page { size: A4; margin: 13mm 12mm 15mm;
-    @bottom-left { content: "Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${RT.escopo}"; font-size: 7pt; color: #5b6b7b; font-family: Arial, sans-serif; }
-    @bottom-right { content: counter(page) " / " counter(pages); font-size: 7pt; color: #5b6b7b; font-family: Arial, sans-serif; } }
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #1b2430; margin: 0; font-size: 9pt; background: #fff; }
-  .cab { display: flex; align-items: center; gap: 12px; } .cab img { height: 44px; }
-  .org { font-size: 9pt; font-weight: 700; color: #0b8a4b; text-transform: uppercase; letter-spacing: .4px; }
-  h1 { font-size: 15pt; margin: 2px 0; } .sub { font-size: 8.5pt; color: #5b6b7b; }
-  .filete { height: 4px; margin: 8px 0 10px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
-  h2 { font-size: 13pt; color: #0b5e3a; margin: 4px 0 6px; } h3 { font-size: 10.5pt; color: #0b5e3a; margin: 12px 0 5px; break-after: avoid; }
-  h2 small, h3 small { font-weight: 400; color: #5b6b7b; font-size: 8.5pt; }
-  .quebra { break-before: page; }
-  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 4px 0 8px; }
-  .kpi { border: 1px solid #cfd8e1; border-radius: 8px; padding: 6px 9px; } .kpi .n { font-size: 16pt; font-weight: 700; color: #0b5e3a; }
-  .kpi .t { font-size: 7.5pt; color: #5b6b7b; text-transform: uppercase; letter-spacing: .3px; } .kpi .s { font-size: 7.5pt; color: #5b6b7b; }
-  table { width: 100%; border-collapse: collapse; }
-  th { font-size: 7pt; color: #5b6b7b; text-transform: uppercase; letter-spacing: .3px; text-align: left; padding: 4px 5px; border-bottom: 2px solid #0b8a4b; }
-  td { padding: 3px 5px; border-bottom: 1px solid #e4e9ee; vertical-align: middle; }
-  tr { break-inside: avoid; } tr:nth-child(even) td { background: #f6f9fb; }
-  .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } th.n { text-align: right; }
-  .dep td { font-size: 8.5pt; } .vot td { font-size: 7.4pt; line-height: 1.25; }
-  .vot .p { font-weight: 700; white-space: nowrap; } .vot .e { color: #5b6b7b; }
-  .vot td:nth-child(2) { width: 58%; } .vot th { white-space: nowrap; }
-  .cel-barra { white-space: nowrap; } .cel-barra span { font-size: 7pt; color: #5b6b7b; margin-left: 4px; }
-  .fora { color: #5b6b7b; font-size: 7.5pt; }
-  .leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 7.5pt; color: #33414f; margin: 4px 0 6px; }
-  .leg i { display: inline-block; width: 10px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-  .caixa { border: 1px solid #cfd8e1; border-radius: 8px; padding: 8px 10px; margin: 6px 0; break-inside: avoid; }
-  .nota { font-size: 8pt; color: #33414f; line-height: 1.45; } .nota li { margin-bottom: 3px; }
-  .aviso { border: 1px solid #e0a030; background: #fff8e6; border-radius: 8px; padding: 7px 10px; font-size: 8pt; margin: 6px 0; }
-</style></head><body>
-<div class="cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="org">Liderança do Podemos na Câmara dos Deputados</div>
-  <h1>Aderência da bancada do ${legEsc(P)} às orientações do Governo</h1>
-  <div class="sub">${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${hojeBR}</div></div></div>
-<div class="filete"></div>
-${unico ? '' : `<h2>${RT.resumo}</h2>
-<div class="kpis">${kpi(RT.kpiTotal, legTaxa(T.a, T.n), 'dos votos da bancada')}${kpi('Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo')}${kpi('Divergência', legTaxa(T.d, T.n), 'votos contra a orientação')}${kpi('Deputados', legDeputados(L), 'passaram pela bancada')}</div>
-<table><thead><tr><th>Ano</th><th>Período</th><th class="n">Votações</th><th class="n">Deputados*</th><th>Aderiu × divergiu</th><th class="n">Aderência</th><th class="n">Divergência</th></tr></thead><tbody>
-${L.anos.map(a => `<tr><td><b>${a.ano}</b></td><td style="white-space:nowrap">${legPeriodoTxt(a, L)}</td><td class="n">${a.vot.length}</td><td class="n">${a.deps.length}</td><td class="cel-barra">${legSvgBarra(a.tot, a.tot.n, 120, 10)}</td><td class="n"><b>${legTaxa(a.tot.a, a.tot.n)}</b></td><td class="n">${legTaxa(a.tot.d, a.tot.n)}</td></tr>`).join('')}
-<tr><td><b>${RT.linhaTotal}</b></td><td style="white-space:nowrap">${RT.periodoTotal}</td><td class="n"><b>${T.v}</b></td><td class="n"></td><td class="cel-barra">${legSvgBarra(T, T.n, 120, 10)}</td><td class="n"><b>${legTaxa(T.a, T.n)}</b></td><td class="n">${legTaxa(T.d, T.n)}</td></tr>
-</tbody></table>
-${legenda}
-<div class="nota">* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${legEsc(P)} e estava em exercício naquele dia).</div>
-<h3>Aderência mês a mês</h3>
-<div class="caixa">${legSvgMeses(L.anos.flatMap(a => a.meses), 690, 160, true)}</div>`}
-${L.desconsiderados.length ? `<div class="aviso"><b>Fora da bancada, embora a Câmara registre os votos como ${legEsc(L.sigla)}.</b> ${legEsc(legTextoDesconsiderados(L))}. Ver "Registro transitório" na nota de método.</div>` : ''}
-${L.falhasVotacoes ? `<div class="aviso">${legEsc(aderTextoFalhasVotacoes(L.falhasVotacoes))}.</div>` : ''}
-${L.falhasHistorico ? `<div class="aviso">O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.</div>` : ''}
-`;
-  for (const a of L.anos) {
-    h += `${unico ? '' : '<div class="quebra"></div>'}<h2>${a.ano} <small>${legDataBR(a.ini)} a ${legDataBR(a.fim)}</small></h2>
-<div class="kpis">${kpi('Aderência', legTaxa(a.tot.a, a.tot.n), `${legFmt(a.tot.a)} votos com o Governo`)}${kpi('Votações', a.vot.length, `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`)}${kpi('Divergência', legTaxa(a.tot.d, a.tot.n), `${legFmt(a.tot.d)} votos`)}${kpi('Deputados na bancada', a.deps.length, 'em ao menos uma votação')}</div>
-<h3>Aderência mês a mês</h3><div class="caixa">${legSvgMeses(a.meses, 690, 130)}</div>
-<h3>Membros da bancada <small>cada deputado medido só nas votações em que era do ${legEsc(P)}</small></h3>
-<table class="dep"><thead><tr><th>#</th><th>Deputado</th><th>UF</th><th class="n">Votações</th><th class="n">Aderiu</th><th class="n">Divergiu</th><th>Aderiu × divergiu</th><th class="n">Aderência</th></tr></thead><tbody>
-${a.deps.map((d, i) => `<tr><td>${i + 1}</td><td><b>${legEsc(d.nome)}</b>${d.atual ? '' : ' <span class="fora">· fora da bancada hoje</span>'}</td><td>${legEsc(d.uf)}</td><td class="n">${d.n}</td><td class="n">${d.a}</td><td class="n">${d.d}</td><td class="cel-barra">${legSvgBarra(d, d.n, 110, 9)}</td><td class="n"><b>${legPctOu(d.pct)}</b></td></tr>`).join('')}
-</tbody></table>${legenda}
-<h3>Votações <small>${a.vot.length} · a barra mostra os votos da bancada do ${legEsc(P)} naquela votação</small></h3>
-<table class="vot"><thead><tr><th>Data</th><th>Proposição e votação</th><th>Gov.</th><th>Bancada <small>(aderiu · divergiu)</small></th><th class="n">Aderência</th></tr></thead><tbody>
-${a.vot.map(v => `<tr><td class="n">${legDataBR(v.data)}</td><td><span class="p">${legEsc(v.rotulo)}</span> — ${legEsc(v.desc)}${v.ementa ? `<br><span class="e">${legEsc(v.ementa)}</span>` : ''}</td><td>${legEsc(v.gov)}</td><td class="cel-barra">${legSvgBarra(v.c, v.n, 96, 9)}<span>${v.c.a} · ${v.c.d}</span></td><td class="n"><b>${legPctOu(v.pct, 0)}</b></td></tr>`).join('')}
+  const e = legEsc;
+  const pctCel = p => `<td class="c" style="color:${legCorPct(p)};font-weight:700">${legPctOu(p)}</td>`;
+  const caixas = itens => `<div class="resumo">${itens.map(([v, l, s, cor]) =>
+    `<div class="bx"><div class="v"${cor ? ` style="color:${cor}"` : ''}>${v}</div><div class="l">${l}${s ? `<br>(${s})` : ''}</div></div>`).join('')}</div>`;
+  const caixasDe = (nVot, nDep, a, n) => caixas([[legFmt(nVot), 'votações nominais'], [legFmt(nDep), `deputados do ${e(P)}`],
+    [legTaxa(a, n), 'aderência ao Governo', `${legFmt(a)} de ${legFmt(n)} votos`, legCorPct(n ? 100 * a / n : null)]]);
+  const comoMede = `<div class="nota"><b>Como se mede:</b> aderência = votos iguais à orientação do Governo ÷ votos Sim e Não da bancada.
+    Abstenção, obstrução, Art. 17 e ausência aparecem nas contagens, mas ficam fora da conta. A bancada é a de cada votação:
+    quem era do ${e(P)} naquele dia. Detalhes na nota de método, ao final.</div>`;
+  const tag = (voto, gov) => {
+    const k = legClasseSelo(voto, gov);
+    if (!k) return '<span class="nada">—</span>';
+    return `<span class="tag tag-${k}">${k === 'aus' ? 'ausente' : e(voto)}</span>`;
+  };
+
+  // A ementa sai só na primeira votação de cada proposição: num dia de destaques, a mesma ementa se repetia em
+  // todas as linhas (PLP 299/2026, 23/11/2026: sete votações).
+  const comEmenta = a => { const vistas = new Set(); return a.vot.map(v => { const k = v.rotulo || v.objeto; const nova = !vistas.has(k); vistas.add(k); return nova ? v.ementa : ''; }); };
+  const secaoVotacoes = a => { const em = comEmenta(a); return `<h2>Votação a votação</h2>
+<table class="vot"><thead><tr><th class="c">#</th><th>Data</th><th>Objeto</th><th class="c">Orient.<br>Governo</th>
+<th class="c">${e(P)}<br>Sim/Não/<br>Abst.·Obstr./Aus.</th><th class="c">Ader.<br>Gov.</th></tr></thead><tbody>
+${a.vot.map((v, i) => `<tr><td class="c">${i + 1}</td><td class="hora">${legDataBR(v.registro ? v.registro.slice(0, 10) : v.data).slice(0, 5)}${v.hora ? `<br><span class="nada">${v.hora}</span>` : ''}</td>
+<td><b>${e(v.rotulo || v.objeto || '—')}</b>${em[i] ? `<div class="rsm">${e(em[i])}</div>` : ''}<div class="res">${e(v.resultado || v.desc)}</div></td>
+<td class="c">${e(v.gov)}</td><td class="c">${legContTxt(v.cont)}</td>${pctCel(v.pct)}</tr>`).join('')}
+</tbody></table>`; };
+
+  const secaoDeputados = a => {
+    const deps = a.deps.slice().sort(legNomeOrdem);
+    const fora = d => (d.atual ? '' : ' <span class="fora">· fora da bancada hoje</span>');
+    if (a.vot.length <= LEG_LIMITE_QUADRO) {
+      return `<h2>Deputado a deputado</h2>
+<div class="nota" style="margin-top:0">Cor do voto em relação à orientação do Governo: verde = acompanhou, vermelho = divergiu. Os números das colunas são os da tabela anterior; "—" = não era da bancada naquela votação.</div>
+<table class="mx"><thead><tr><th>Deputado</th>${a.vot.map((_, i) => `<th class="c">${i + 1}</th>`).join('')}<th class="c">Ader.<br>Gov.</th></tr></thead><tbody>
+${deps.map(d => `<tr><td>${e(d.nome)} <span class="nada">(${e(d.uf)})</span>${fora(d)}</td>${a.vot.map(v => `<td class="c">${tag(v.votos[d.id], v.gov)}</td>`).join('')}${pctCel(d.pct)}</tr>`).join('')}
 </tbody></table>`;
+    }
+    return `<h2>Deputado a deputado</h2>
+<div class="nota" style="margin-top:0">Cada deputado é medido só nas votações em que era do ${e(P)}. São ${a.vot.length} votações — acima de ${LEG_LIMITE_QUADRO}, os votos de cada deputado vêm somados.</div>
+<table class="dep"><thead><tr><th>Deputado</th><th class="c">Votações</th><th class="c">Aderiu</th><th class="c">Divergiu</th><th class="c">Abst.·Obstr.</th><th class="c">Ausente</th><th class="c">Ader.<br>Gov.</th></tr></thead><tbody>
+${deps.map(d => `<tr><td>${e(d.nome)} <span class="nada">(${e(d.uf)})</span>${fora(d)}</td><td class="c">${d.n}</td><td class="c">${d.a}</td><td class="c">${d.d}</td><td class="c">${d.out}</td><td class="c">${d.aus}</td>${pctCel(d.pct)}</tr>`).join('')}
+</tbody></table>`;
+  };
+
+  const mesAMes = (meses, rotuloAno) => meses.length >= 2 ? `<h2>Aderência mês a mês</h2><div class="caixa">${legSvgMeses(meses, 680, rotuloAno ? 160 : 130, rotuloAno)}</div>` : '';
+  const avisos = `${L.desconsiderados.length ? `<div class="aviso"><b>Fora da bancada, embora a Câmara registre os votos como ${e(L.sigla)}.</b> ${e(legTextoDesconsiderados(L))}. Ver "Registro transitório" na nota de método.</div>` : ''}
+${L.falhasVotacoes ? `<div class="aviso">${e(aderTextoFalhasVotacoes(L.falhasVotacoes))}.</div>` : ''}
+${L.falhasHistorico ? `<div class="aviso">O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.</div>` : ''}`;
+
+  let h = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aderência ${e(L.sigla)} — ${e(RT.escopo)}</title><style>${CSS_PDF_VOTOS}
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  td.c, th.c { text-align: center; }
+  .vot td:nth-child(3) { width: 56%; }
+  .mx td, .mx th { padding: 3px 3px; font-size: 7.5pt; } .mx .tag { font-size: 7pt; padding: 0 4px; }
+  .dep td { padding: 3px 6px; font-size: 8.5pt; }
+  .fora { color: #6b7280; font-size: 7.5pt; }
+  .caixa { border: 1px solid #d8e3dc; border-radius: 6px; padding: 8px 10px; margin: 4px 0 10px; break-inside: avoid; }
+  .aviso { font-size: 8.5pt; color: #5c4a00; background: #fdf7e3; border-left: 3px solid #e8d28a; padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
+  .ano-tit { font-size: 13pt; font-weight: 700; color: #fff; background: #003c1f; border-radius: 6px; padding: 6px 12px; margin: 0 0 10px; }
+  .ano-tit small { font-weight: 400; font-size: 9pt; opacity: .85; margin-left: 6px; }
+  .quebra { break-before: page; }
+  .nota ul { margin: 4px 0 0 16px; } .nota li { margin-bottom: 4px; }
+</style></head><body>
+<div class="cab"><div class="sp"></div><div class="tit"><h1>Aderência da bancada do ${e(P)}</h1>
+<div class="sub">às orientações do Governo · ${e(RT.sub)} · votações nominais do Plenário com orientação Sim ou Não do Governo</div></div>
+${logo ? `<img src="${logo}" alt="Podemos">` : '<div class="sp"></div>'}</div><div class="rule"></div>
+<div class="meta">Dados abertos da Câmara dos Deputados, consultados em ${hojeBR} · Liderança do Podemos na Câmara dos Deputados</div>
+`;
+  if (unico) {
+    const a = L.anos[0];
+    h += `<h2>Consolidado</h2>${caixasDe(a.vot.length, a.deps.length, a.tot.a, a.tot.n)}${comoMede}${avisos}${mesAMes(a.meses, false)}${secaoVotacoes(a)}${secaoDeputados(a)}`;
+  } else {
+    h += `<h2>Consolidado</h2>${caixasDe(T.v, legDeputados(L), T.a, T.n)}${comoMede}${avisos}
+<h2>${RT.resumo}</h2>
+<table><thead><tr><th>Ano</th><th>Período</th><th class="c">Votações</th><th class="c">Deputados*</th><th class="c">Aderiu</th><th class="c">Divergiu</th><th class="c">Ader.<br>Gov.</th></tr></thead><tbody>
+${L.anos.map(a => `<tr><td><b>${a.ano}</b></td><td style="white-space:nowrap">${legPeriodoTxt(a, L)}</td><td class="c">${a.vot.length}</td><td class="c">${a.deps.length}</td><td class="c">${legFmt(a.tot.a)}</td><td class="c">${legFmt(a.tot.d)}</td>${pctCel(a.tot.n ? 100 * a.tot.a / a.tot.n : null)}</tr>`).join('')}
+<tr><td><b>${RT.linhaTotal}</b></td><td style="white-space:nowrap">${RT.periodoTotal}</td><td class="c"><b>${T.v}</b></td><td class="c"></td><td class="c">${legFmt(T.a)}</td><td class="c">${legFmt(T.d)}</td>${pctCel(T.n ? 100 * T.a / T.n : null)}</tr>
+</tbody></table>
+<div class="nota">* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${e(P)} e estava em exercício naquele dia).</div>
+${mesAMes(L.anos.flatMap(a => a.meses), true)}`;
+    for (const a of L.anos) {
+      h += `<div class="quebra"></div><div class="ano-tit">${a.ano}<small>${legDataBR(a.ini)} a ${legDataBR(a.fim)}</small></div>
+${caixasDe(a.vot.length, a.deps.length, a.tot.a, a.tot.n)}${mesAMes(a.meses, false)}${secaoVotacoes(a)}${secaoDeputados(a)}`;
+    }
   }
-  h += `<div class="quebra"></div><h2>Nota de método</h2><div class="nota"><ul>${legNotaMetodo(L).map(([b, t]) => `<li><b>${legEsc(b)}</b>${legEsc(t)}</li>`).join('')}</ul></div>`;
+  h += `<div class="quebra"></div><h2>Nota de método</h2><div class="nota"><ul>${legNotaMetodo(L).map(([b, t]) => `<li><b>${e(b)}</b>${e(t)}</li>`).join('')}</ul></div>
+<div class="meta" style="margin-top:14px">Gerado pelo SisPode · ${hojeBR}</div>`;
   return h + '</body></html>';
 }
 
@@ -454,19 +503,6 @@ function legRetRedondo(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); g.fill();
 }
 
-function legPngBarra(c, _n, w = 480, h = 36) {
-  const n = LEG_ORDEM.reduce((s, k) => s + (c[k] || 0), 0);   // aderiu + divergiu
-  const cv = legCanvas(w, h), g = cv.getContext('2d');
-  let x = 0;
-  for (const k of LEG_ORDEM) {
-    const ww = n ? w * c[k] / n : 0;
-    const fim = x + ww - (x + ww < w - 0.5 ? 4 : 0);
-    if (ww > 0 && fim > x) { g.fillStyle = LEG_COR[k]; legRetRedondo(g, x, 0, fim - x, h, 6); }
-    x += ww;
-  }
-  return legPng(cv);
-}
-
 function legPngMeses(meses, rotuloAno = false, larg = 2070, alt = 480) {
   const cv = legCanvas(larg, alt), g = cv.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, larg, alt);
@@ -495,135 +531,156 @@ function legPngMeses(meses, rotuloAno = false, larg = 2070, alt = 480) {
   return legPng(cv);
 }
 
-function legPngFilete() {
-  const cv = legCanvas(1400, 8), g = cv.getContext('2d');
-  [['#0B8A4B', 0, 0.40], ['#7C9A2F', 0.40, 0.62], ['#1F5FA8', 0.62, 0.82], ['#D9531E', 0.82, 1]]
-    .forEach(([cor, a, b]) => { g.fillStyle = cor; g.fillRect(a * 1400, 0, (b - a) * 1400, 8); });
-  return legPng(cv);
-}
-
-function legPngQuadrado(cor) {
-  const cv = legCanvas(30, 24), g = cv.getContext('2d');
-  g.fillStyle = cor; g.fillRect(0, 0, 30, 24);
-  return legPng(cv);
-}
-
 async function legDocx(L) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle,
     AlignmentType, HeadingLevel, Footer, PageNumber, VerticalAlign, TableLayoutType, LevelFormat } = docx;
   const P = legNomePartido(L.sigla), T = L.todos, RT = legRotulos(L);
-  const unico = L.anos.length === 1;   // um ano só: sem o resumo, que repetiria a seção do ano
-  const VERDE = '0B8A4B', VERDE2 = '0B5E3A', CINZA = '5B6B7B', TEXTO = '1B2430', LINHA = 'E4E9EE', FUNDO = 'F6F9FB', BORDA = 'CFD8E1', FONTE = 'Arial';
+  const unico = L.anos.length === 1;
+  // As cores do CSS_PDF_VOTOS: o Word sai com a mesma cara do PDF.
+  const ESCURO = '003C1F', VERDE = '00A859', CINZA = '6B7280', TEXTO = '1A1A1A', LINHA = 'E6EAE7', CAB = 'EEF4F0', BORDA = 'D8E3DC',
+    NOTA = 'F7F9F8', NOTA_B = 'C9DDD2', RSM = 'F4F7F5', FONTE = 'Arial';
+  const SELO = { ade: ['006633', 'EAF7F0'], div: ['B02A1F', 'FDEEEC'], aus: ['8A6D00', 'FDF7E3'], voto: ['1A1A1A', 'F4F5F4'] };
   const LARG = 10546;   // A4 menos as margens de 680
-  const t = (text, o = {}) => new TextRun(Object.assign({ text: String(text), font: FONTE, size: 17, color: TEXTO }, o));
+  const hex = c => c.replace('#', '').toUpperCase();
+  const t = (text, o = {}) => new TextRun(Object.assign({ text: String(text), font: FONTE, size: 18, color: TEXTO }, o));
   const par = (runs, o = {}) => new Paragraph(Object.assign({ children: Array.isArray(runs) ? runs : [runs], spacing: { after: 60 } }, o));
   const img = (data, w, h) => new ImageRun({ type: 'png', data, transformation: { width: w, height: h } });
   const nada = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const semBorda = { top: nada, bottom: nada, left: nada, right: nada };
   const bordaLinha = { top: nada, left: nada, right: nada, bottom: { style: BorderStyle.SINGLE, size: 4, color: LINHA } };
-  const bordaCab = Object.assign({}, bordaLinha, { bottom: { style: BorderStyle.SINGLE, size: 12, color: VERDE } });
+  const bordaCab = Object.assign({}, bordaLinha, { bottom: { style: BorderStyle.SINGLE, size: 10, color: NOTA_B } });
   const caixa = (cor, sz) => { const b = { style: BorderStyle.SINGLE, size: sz, color: cor }; return { top: b, bottom: b, left: b, right: b }; };
   const cel = (filhos, w, o = {}) => new TableCell(Object.assign({ children: filhos, width: { size: w, type: WidthType.DXA }, borders: bordaLinha,
-    verticalAlign: VerticalAlign.CENTER, margins: { top: 40, bottom: 40, left: 70, right: 70 } }, o));
-  const R = AlignmentType.RIGHT, E = AlignmentType.LEFT;
+    verticalAlign: VerticalAlign.CENTER, margins: { top: 50, bottom: 50, left: 70, right: 70 } }, o));
+  const C = AlignmentType.CENTER, E = AlignmentType.LEFT;
+  const pctRun = (p, o = {}) => t(legPctOu(p), Object.assign({ bold: true, color: hex(legCorPct(p)) }, o));
   function tabela(cab, linhas, larguras, alinh = []) {
-    const rCab = new TableRow({ tableHeader: true, children: cab.map((c, i) => cel([par(t(c.toUpperCase(), { size: 13, color: CINZA, bold: true }), { alignment: alinh[i] || E, spacing: { after: 0 } })], larguras[i], { borders: bordaCab })) });
-    const rs = linhas.map((l, k) => new TableRow({ cantSplit: true, children: l.map((c, i) => cel(Array.isArray(c) ? c : [par(c, { alignment: alinh[i] || E, spacing: { after: 0 } })], larguras[i],
-      k % 2 ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: FUNDO } } : {})) }));
+    const rCab = new TableRow({ tableHeader: true, children: cab.map((c, i) => cel([par(t(c.toUpperCase(), { size: 14, color: ESCURO, bold: true }), { alignment: alinh[i] || E, spacing: { after: 0 } })],
+      larguras[i], { borders: bordaCab, shading: { type: ShadingType.CLEAR, color: 'auto', fill: CAB } })) });
+    const rs = linhas.map(l => new TableRow({ cantSplit: true, children: l.map((c, i) => cel(Array.isArray(c) ? c : [par(c, { alignment: alinh[i] || E, spacing: { after: 0 } })], larguras[i])) }));
     return new Table({ width: { size: larguras.reduce((s, x) => s + x, 0), type: WidthType.DXA }, columnWidths: larguras, layout: TableLayoutType.FIXED, rows: [rCab, ...rs] });
   }
-  function kpis(itens) {
-    const w = Math.floor(LARG / itens.length);
-    return new Table({ width: { size: w * itens.length, type: WidthType.DXA }, columnWidths: itens.map(() => w), layout: TableLayoutType.FIXED, rows: [new TableRow({ children: itens.map(([tit, num, sub]) =>
-      cel([par(t(tit.toUpperCase(), { size: 13, color: CINZA }), { spacing: { after: 0 } }), par(t(num, { size: 32, bold: true, color: VERDE2 }), { alignment: R, spacing: { after: 0 } }),
-        par(t(sub, { size: 14, color: CINZA }), { spacing: { after: 0 } })], w, { borders: caixa(BORDA, 4), margins: { top: 80, bottom: 80, left: 120, right: 120 } })) })] });
-  }
-  const titulo = (txt, sub, quebra) => new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: !!quebra, spacing: { before: 0, after: 100 },
-    children: [t(txt, { size: 26, bold: true, color: VERDE2 }), ...(sub ? [t('  ' + sub, { size: 17, color: CINZA })] : [])] });
-  const subtit = (txt, sub) => new Paragraph({ heading: HeadingLevel.HEADING_2, keepNext: true, spacing: { before: 200, after: 80 },
-    children: [t(txt, { size: 21, bold: true, color: VERDE2 }), ...(sub ? [t('  ' + sub, { size: 16, color: CINZA })] : [])] });
-  const quad = { a: legPngQuadrado(LEG_COR.a), d: legPngQuadrado(LEG_COR.d) };
-  const legenda = () => par([img(quad.a, 10, 8), t('  Aderiu (votou como o Governo orientou)     ', { size: 14, color: '33414F' }),
-    img(quad.d, 10, 8), t('  Divergiu (votou contra a orientação)', { size: 14, color: '33414F' })], { spacing: { before: 60, after: 80 } });
-  const aviso = txt => new Table({ width: { size: LARG, type: WidthType.DXA }, columnWidths: [LARG], rows: [new TableRow({ children: [cel([par(txt, { spacing: { after: 0 } })], LARG,
-    { borders: caixa('E0A030', 6), shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'FFF8E6' }, margins: { top: 100, bottom: 100, left: 140, right: 140 } })] })] });
+  const caixas = itens => {
+    const w = Math.floor((LARG - 200 * (itens.length - 1)) / itens.length), larguras = [];
+    const cels = [];
+    itens.forEach(([v, l, sub, cor], i) => {
+      if (i) { larguras.push(200); cels.push(cel([par(t(''), { spacing: { after: 0 } })], 200, { borders: semBorda })); }
+      larguras.push(w);
+      cels.push(cel([par(t(v, { size: 34, bold: true, color: cor ? hex(cor) : ESCURO }), { alignment: C, spacing: { after: 20 } }),
+        par(t(l.toUpperCase(), { size: 13, color: CINZA }), { alignment: C, spacing: { after: 0 } }),
+        ...(sub ? [par(t(`(${sub})`, { size: 13, color: CINZA }), { alignment: C, spacing: { after: 0 } })] : [])], w,
+        { borders: caixa(BORDA, 6), margins: { top: 140, bottom: 140, left: 80, right: 80 } }));
+    });
+    return new Table({ width: { size: larguras.reduce((s, x) => s + x, 0), type: WidthType.DXA }, columnWidths: larguras, layout: TableLayoutType.FIXED, rows: [new TableRow({ children: cels })] });
+  };
+  const caixasDe = (nVot, nDep, a, n) => caixas([[legFmt(nVot), 'votações nominais'], [legFmt(nDep), `deputados do ${P}`],
+    [legTaxa(a, n), 'aderência ao Governo', `${legFmt(a)} de ${legFmt(n)} votos`, legCorPct(n ? 100 * a / n : null)]]);
+  // Nota (fundo claro, filete à esquerda): o .nota do PDF
+  const nota = (runs, fundo = NOTA, filete = NOTA_B) => par(runs, { shading: { type: ShadingType.CLEAR, color: 'auto', fill: fundo },
+    border: { left: { style: BorderStyle.SINGLE, size: 18, color: filete, space: 6 } }, spacing: { before: 80, after: 120 }, indent: { left: 120, right: 60 } });
+  const h2 = (txt, quebra) => new Paragraph({ heading: HeadingLevel.HEADING_2, keepNext: true, pageBreakBefore: !!quebra, spacing: { before: 240, after: 100 },
+    border: { left: { style: BorderStyle.SINGLE, size: 18, color: VERDE, space: 6 } }, indent: { left: 120 }, children: [t(txt, { size: 23, bold: true, color: ESCURO })] });
+  const comoMede = () => nota([t('Como se mede: ', { bold: true, size: 17, color: ESCURO }),
+    t(`aderência = votos iguais à orientação do Governo ÷ votos Sim e Não da bancada. Abstenção, obstrução, Art. 17 e ausência aparecem nas contagens, mas ficam fora da conta. A bancada é a de cada votação: quem era do ${P} naquele dia. Detalhes na nota de método, ao final.`, { size: 17, color: '444444' })]);
+  const selo = (voto, gov) => {
+    const k = legClasseSelo(voto, gov);
+    if (!k) return t('—', { size: 14, color: '9AA5A0' });
+    return t(` ${k === 'aus' ? 'ausente' : voto} `, { size: 14, bold: true, color: SELO[k][0], shading: { type: ShadingType.CLEAR, color: 'auto', fill: SELO[k][1] } });
+  };
+
+  const votacoes = a => {
+    const vistas = new Set();
+    return [h2('Votação a votação'), tabela(['#', 'Data', 'Objeto', 'Orient. Governo', `${P} Sim/Não/ Abst.·Obstr./Aus.`, 'Ader. Gov.'],
+      a.vot.map((v, i) => {
+        const k = v.rotulo || v.objeto; const em = vistas.has(k) ? '' : v.ementa; vistas.add(k);
+        const dia = legDataBR(v.registro ? v.registro.slice(0, 10) : v.data).slice(0, 5);
+        return [t(i + 1, { size: 16 }), [par(t(dia, { size: 16 }), { spacing: { after: 0 } }), ...(v.hora ? [par(t(v.hora, { size: 14, color: '9AA5A0' }), { spacing: { after: 0 } })] : [])],
+          [par(t(k || '—', { bold: true, size: 17 }), { spacing: { after: 30 } }),
+            ...(em ? [par(t(em, { size: 15, color: '3C4A44' }), { shading: { type: ShadingType.CLEAR, color: 'auto', fill: RSM }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: NOTA_B, space: 4 } }, indent: { left: 80 }, spacing: { after: 30 } })] : []),
+            par(t(v.resultado || v.desc, { size: 15, italics: true, color: CINZA }), { spacing: { after: 0 } })],
+          t(v.gov, { size: 16 }), t(legContTxt(v.cont), { size: 16 }), pctRun(v.pct, { size: 16 })];
+      }),
+      [450, 800, 6096, 900, 1300, 1000], [C, E, E, C, C, C])];
+  };
+
+  const deputados = a => {
+    const deps = a.deps.slice().sort(legNomeOrdem);
+    const nome = d => [par([t(d.nome, { size: 16 }), t(` (${d.uf})`, { size: 15, color: '9AA5A0' }), ...(d.atual ? [] : [t(' · fora da bancada hoje', { size: 13, color: CINZA })])], { spacing: { after: 0 } })];
+    if (a.vot.length <= LEG_LIMITE_QUADRO) {
+      const wNome = 3000, wPct = 900, wv = Math.floor((LARG - wNome - wPct) / a.vot.length);
+      return [h2('Deputado a deputado'),
+        nota(t('Cor do voto em relação à orientação do Governo: verde = acompanhou, vermelho = divergiu. Os números das colunas são os da tabela anterior; "—" = não era da bancada naquela votação.', { size: 16, color: '444444' })),
+        tabela(['Deputado', ...a.vot.map((_, i) => String(i + 1)), 'Ader. Gov.'],
+          deps.map(d => [nome(d), ...a.vot.map(v => [par(selo(v.votos[d.id], v.gov), { alignment: C, spacing: { after: 0 } })]), pctRun(d.pct, { size: 16 })]),
+          [wNome, ...a.vot.map(() => wv), wPct], [E, ...a.vot.map(() => C), C])];
+    }
+    return [h2('Deputado a deputado'),
+      nota(t(`Cada deputado é medido só nas votações em que era do ${P}. São ${a.vot.length} votações — acima de ${LEG_LIMITE_QUADRO}, os votos de cada deputado vêm somados.`, { size: 16, color: '444444' })),
+      tabela(['Deputado', 'Votações', 'Aderiu', 'Divergiu', 'Abst.·Obstr.', 'Ausente', 'Ader. Gov.'],
+        deps.map(d => [nome(d), t(d.n, { size: 16 }), t(d.a, { size: 16 }), t(d.d, { size: 16 }), t(d.out, { size: 16 }), t(d.aus, { size: 16 }), pctRun(d.pct, { size: 16 })]),
+        [3946, 1000, 1000, 1000, 1200, 1000, 1400], [E, C, C, C, C, C, C])];
+  };
+  const mesAMes = (meses, rotuloAno) => meses.length >= 2
+    ? [h2('Aderência mês a mês'), par(img(legPngMeses(meses, rotuloAno, 2070, rotuloAno ? 480 : 400), 680, rotuloAno ? 158 : 131), { spacing: { after: 100 } })] : [];
+  const avisos = () => {
+    const ps = [];
+    const av = runs => nota(runs, 'FDF7E3', 'E8D28A');
+    if (L.desconsiderados.length) ps.push(av([t(`Fora da bancada, embora a Câmara registre os votos como ${L.sigla}. `, { bold: true, size: 16 }), t(legTextoDesconsiderados(L) + '. Ver "Registro transitório" na nota de método.', { size: 16 })]));
+    if (L.falhasVotacoes) ps.push(av(t(aderTextoFalhasVotacoes(L.falhasVotacoes) + '.', { size: 16 })));
+    if (L.falhasHistorico) ps.push(av(t(`O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.`, { size: 16 })));
+    return ps;
+  };
 
   let logo = null;
   try { const r = await fetch(chrome.runtime.getURL('icons/podemos-logo.png')); if (r.ok) logo = new Uint8Array(await r.arrayBuffer()); } catch (_) {}
 
   const filhos = [];
-  filhos.push(new Table({ width: { size: LARG, type: WidthType.DXA }, columnWidths: [1650, LARG - 1650], layout: TableLayoutType.FIXED, rows: [new TableRow({ children: [
-    cel([par(logo ? img(logo, 96, 44) : t(''), { spacing: { after: 0 } })], 1650, { borders: semBorda }),
-    cel([par(t('LIDERANÇA DO PODEMOS NA CÂMARA DOS DEPUTADOS', { size: 17, bold: true, color: VERDE }), { spacing: { after: 20 } }),
-      par(t(`Aderência da bancada do ${P} às orientações do Governo`, { size: 29, bold: true }), { spacing: { after: 20 } }),
-      par(t(`${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${legDataBR(L.hoje)}`, { size: 16, color: CINZA }), { spacing: { after: 0 } })],
-    LARG - 1650, { borders: semBorda })] })] }));
-  filhos.push(par(img(legPngFilete(), 700, 4), { spacing: { before: 100, after: 160 } }));
-  if (!unico) {
-    filhos.push(titulo(RT.resumo));
-    filhos.push(kpis([[RT.kpiTotal, legTaxa(T.a, T.n), 'dos votos da bancada'], ['Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo'],
-      ['Divergência', legTaxa(T.d, T.n), 'votos contra a orientação'], ['Deputados', String(legDeputados(L)), 'passaram pela bancada']]));
-    filhos.push(par(t(''), { spacing: { after: 60 } }));
-    filhos.push(tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Aderiu × divergiu', 'Aderência', 'Divergência'],
-      [...L.anos.map(a => [t(a.ano, { bold: true }), t(legPeriodoTxt(a, L)), t(a.vot.length), t(a.deps.length), [par(img(legPngBarra(a.tot, a.tot.n), 150, 11), { spacing: { after: 0 } })],
-        t(legTaxa(a.tot.a, a.tot.n), { bold: true }), t(legTaxa(a.tot.d, a.tot.n))]),
-       [t(RT.linhaTotal, { bold: true }), t(RT.periodoTotal), t(T.v, { bold: true }), t(''),
-        [par(img(legPngBarra(T, T.n), 150, 11), { spacing: { after: 0 } })], t(legTaxa(T.a, T.n), { bold: true }), t(legTaxa(T.d, T.n))]],
-      [1350, 1750, 1100, 1250, 2700, 1200, 1196], [E, E, R, R, E, R, R]));
-    filhos.push(legenda());
-    filhos.push(par(t(`* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${P} e estava em exercício naquele dia).`, { size: 15, color: '33414F' })));
-    filhos.push(subtit('Aderência mês a mês'));
-    filhos.push(par(img(legPngMeses(L.anos.flatMap(a => a.meses), true), 690, 160), { spacing: { after: 120 } }));
-  }
-  if (L.desconsiderados.length) {
-    filhos.push(aviso([t(`Fora da bancada, embora a Câmara registre os votos como ${L.sigla}. `, { bold: true, size: 16 }),
-      t(legTextoDesconsiderados(L) + '. Ver "Registro transitório" na nota de método.', { size: 16 })]));
-  }
-  if (L.falhasVotacoes) filhos.push(aviso([t(aderTextoFalhasVotacoes(L.falhasVotacoes) + '.', { size: 16 })]));
-  if (L.falhasHistorico) {
-    filhos.push(aviso([t(`O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.`, { size: 16 })]));
-  }
+  const lados = 1500;
+  filhos.push(new Table({ width: { size: LARG, type: WidthType.DXA }, columnWidths: [lados, LARG - 2 * lados, lados], layout: TableLayoutType.FIXED, rows: [new TableRow({ children: [
+    cel([par(t(''), { spacing: { after: 0 } })], lados, { borders: semBorda }),
+    cel([par(t(`Aderência da bancada do ${P}`, { size: 30, bold: true, color: ESCURO }), { alignment: C, spacing: { after: 30 } }),
+      par(t(`às orientações do Governo · ${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo`, { size: 18, color: ESCURO }), { alignment: C, spacing: { after: 0 } })],
+    LARG - 2 * lados, { borders: semBorda }),
+    cel([par(logo ? img(logo, 96, 44) : t(''), { alignment: AlignmentType.RIGHT, spacing: { after: 0 } })], lados, { borders: semBorda })] })] }));
+  filhos.push(par(t(''), { border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: VERDE, space: 1 } }, spacing: { after: 100 } }));
+  filhos.push(par(t(`Dados abertos da Câmara dos Deputados, consultados em ${legDataBR(L.hoje)} · Liderança do Podemos na Câmara dos Deputados`, { size: 16, italics: true, color: CINZA }), { alignment: C, spacing: { after: 160 } }));
 
-  for (const a of L.anos) {
-    filhos.push(titulo(a.ano, `${legDataBR(a.ini)} a ${legDataBR(a.fim)}`, !unico));
-    filhos.push(kpis([['Aderência', legTaxa(a.tot.a, a.tot.n), `${legFmt(a.tot.a)} votos com o Governo`],
-      ['Votações', String(a.vot.length), `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`],
-      ['Divergência', legTaxa(a.tot.d, a.tot.n), `${legFmt(a.tot.d)} votos`], ['Deputados na bancada', String(a.deps.length), 'em ao menos uma votação']]));
-    filhos.push(subtit('Aderência mês a mês'));
-    filhos.push(par(img(legPngMeses(a.meses, false, 2070, 400), 690, 133), { spacing: { after: 80 } }));
-    filhos.push(subtit('Membros da bancada', `cada deputado medido só nas votações em que era do ${P}`));
-    filhos.push(tabela(['#', 'Deputado', 'UF', 'Votações', 'Aderiu', 'Divergiu', 'Aderiu × divergiu', 'Aderência'],
-      a.deps.map((d, i) => [t(i + 1), [par([t(d.nome, { bold: true }), ...(d.atual ? [] : [t(' · fora da bancada hoje', { size: 14, color: CINZA })])], { spacing: { after: 0 } })],
-        t(d.uf), t(d.n), t(d.a), t(d.d), [par(img(legPngBarra(d, d.n), 110, 8), { spacing: { after: 0 } })], t(legPctOu(d.pct), { bold: true })]),
-      [450, 3600, 600, 1050, 900, 950, 1800, 1196], [E, E, E, R, R, R, E, R]));
-    filhos.push(legenda());
-    filhos.push(subtit('Votações', `${a.vot.length} · a barra mostra os votos da bancada do ${P} naquela votação`));
-    filhos.push(tabela(['Data', 'Proposição e votação', 'Gov.', 'Bancada (aderiu · divergiu)', 'Aderência'],
-      a.vot.map(v => [t(legDataBR(v.data), { size: 15 }),
-        [par([t(v.rotulo, { bold: true, size: 15 }), t(' — ' + v.desc, { size: 15 })], { spacing: { after: 0 } }), ...(v.ementa ? [par(t(v.ementa, { size: 14, color: CINZA }), { spacing: { after: 0 } })] : [])],
-        t(v.gov, { size: 15 }), [par([img(legPngBarra(v.c, v.n), 96, 7), t(`  ${v.c.a} · ${v.c.d}`, { size: 13, color: CINZA })], { spacing: { after: 0 } })],
-        t(legPctOu(v.pct, 0), { bold: true, size: 15 })]),
-      [1050, 5646, 550, 2200, 1100], [E, E, E, E, R]));
+  filhos.push(h2('Consolidado'));
+  if (unico) {
+    const a = L.anos[0];
+    filhos.push(caixasDe(a.vot.length, a.deps.length, a.tot.a, a.tot.n), comoMede(), ...avisos(), ...mesAMes(a.meses, false), ...votacoes(a), ...deputados(a));
+  } else {
+    filhos.push(caixasDe(T.v, legDeputados(L), T.a, T.n), comoMede(), ...avisos(), h2(RT.resumo),
+      tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Aderiu', 'Divergiu', 'Ader. Gov.'],
+        [...L.anos.map(a => [t(a.ano, { bold: true }), t(legPeriodoTxt(a, L)), t(a.vot.length), t(a.deps.length), t(legFmt(a.tot.a)), t(legFmt(a.tot.d)), pctRun(a.tot.n ? 100 * a.tot.a / a.tot.n : null)]),
+         [t(RT.linhaTotal, { bold: true }), t(RT.periodoTotal), t(T.v, { bold: true }), t(''), t(legFmt(T.a)), t(legFmt(T.d)), pctRun(T.n ? 100 * T.a / T.n : null)]],
+        [1200, 2300, 1300, 1400, 1400, 1400, 1546], [E, E, C, C, C, C, C]),
+      nota(t(`* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${P} e estava em exercício naquele dia).`, { size: 15, color: '444444' })),
+      ...mesAMes(L.anos.flatMap(a => a.meses), true));
+    for (const a of L.anos) {
+      filhos.push(par([t(a.ano, { size: 26, bold: true, color: 'FFFFFF' }), t(`   ${legDataBR(a.ini)} a ${legDataBR(a.fim)}`, { size: 18, color: 'FFFFFF' })],
+        { pageBreakBefore: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill: ESCURO }, spacing: { after: 160 }, indent: { left: 60 } }),
+        caixasDe(a.vot.length, a.deps.length, a.tot.a, a.tot.n), ...mesAMes(a.meses, false), ...votacoes(a), ...deputados(a));
+    }
   }
-  filhos.push(titulo('Nota de método', null, true));
+  filhos.push(h2('Nota de método', true));
   for (const [b, txt] of legNotaMetodo(L)) {
-    filhos.push(new Paragraph({ numbering: { reference: 'marcas', level: 0 }, spacing: { after: 80 }, children: [t(b, { bold: true, size: 16 }), t(txt, { size: 16, color: '33414F' })] }));
+    filhos.push(new Paragraph({ numbering: { reference: 'marcas', level: 0 }, spacing: { after: 80 }, children: [t(b, { bold: true, size: 17, color: ESCURO }), t(txt, { size: 17, color: '444444' })] }));
   }
+  filhos.push(par(t(`Gerado pelo SisPode · ${legDataBR(L.hoje)}`, { size: 16, italics: true, color: CINZA }), { alignment: C, spacing: { before: 240 } }));
 
-  const rodape = (txt) => t(txt, { size: 13, color: CINZA });
+  const rodape = txt => t(txt, { size: 15, color: '888888' });
   return Packer.toBlob(new Document({
     creator: 'Liderança do Podemos na Câmara dos Deputados',
     title: `Aderência da bancada do ${P} às orientações do Governo — ${RT.escopo}`,
-    styles: { default: { document: { run: { font: FONTE, size: 17, color: TEXTO } } },
+    styles: { default: { document: { run: { font: FONTE, size: 18, color: TEXTO } } },
       paragraphStyles: [
-        { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONTE, size: 26, bold: true, color: VERDE2 }, paragraph: { outlineLevel: 0 } },
-        { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONTE, size: 21, bold: true, color: VERDE2 }, paragraph: { outlineLevel: 1 } }] },
+        { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONTE, size: 23, bold: true, color: ESCURO }, paragraph: { outlineLevel: 1 } }] },
     numbering: { config: [{ reference: 'marcas', levels: [{ level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 240 } } } }] }] },
     sections: [{
-      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 740, bottom: 800, left: 680, right: 680, footer: 360 } } },
-      footers: { default: new Footer({ children: [par([rodape(`Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${RT.escopo} · página `),
-        new TextRun({ children: [PageNumber.CURRENT], font: FONTE, size: 13, color: CINZA }), rodape(' de '),
-        new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONTE, size: 13, color: CINZA })], { alignment: R })] }) },
+      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 850, bottom: 850, left: 680, right: 680, footer: 360 } } },
+      footers: { default: new Footer({ children: [par([new TextRun({ children: [PageNumber.CURRENT], font: FONTE, size: 15, color: '888888' }), rodape(' / '),
+        new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONTE, size: 15, color: '888888' })], { alignment: C })] }) },
       children: filhos }] }));
 }
 

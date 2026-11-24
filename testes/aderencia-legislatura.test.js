@@ -155,9 +155,12 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
        'a tela mostra o resumo e os botões PDF e Word');
 
     const pdf = av(`legHtmlPDF(window._legislaturaCtx, 'data:image/png;base64,AAAA')`);
-    ok(/LIDERANÇA DO PODEMOS|Liderança do Podemos na Câmara dos Deputados/.test(pdf) && /#0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%/.test(pdf),
-       'PDF na identidade dos relatórios: linha da Liderança e filete de quatro cores');
-    ok(/Aderência da bancada do Podemos às orientações do Governo/.test(pdf), 'título com o nome do partido');
+    // Layout do relatório do PLP 299/2026 (24/11/2026): a identidade do PDF "Como votou" (CSS_PDF_VOTOS)
+    ok(pdf.includes(av('CSS_PDF_VOTOS')) && /<div class="cab">/.test(pdf) && /<div class="rule"><\/div>/.test(pdf) && /<img src="data:image\/png;base64,AAAA"/.test(pdf) && !/#0B8A4B 0 40%/.test(pdf),
+       'PDF no visual do relatório do PLP 299: o CSS do "Como votou", cabeçalho centrado com a logo e filete verde (sem o filete de quatro cores)');
+    ok(/<h1>Aderência da bancada do Podemos<\/h1>/.test(pdf) && /às orientações do Governo · 57ª legislatura/.test(pdf) && /Liderança do Podemos na Câmara dos Deputados/.test(pdf), 'título com o nome do partido; a Liderança na linha dos dados');
+    ok(/<h2>Consolidado<\/h2>/.test(pdf) && /Como se mede:/.test(pdf) && /<h2>Votação a votação<\/h2>/.test(pdf) && /<h2>Deputado a deputado<\/h2>/.test(pdf) && /<h2>Nota de método<\/h2>/.test(pdf),
+       'seções: Consolidado, Como se mede, Votação a votação, Deputado a deputado e Nota de método');
     ok(/counter\(page\)/.test(pdf), 'numeração de página');
     ok(/Ilacir Bicalho \(MG\): registrado como PODE ao ser convocado, em 25\/03\/2026, e no REPUBLICANOS em 01\/04\/2026 — 1 votação fora da conta/.test(pdf),
        'a nota de método e o aviso dizem quem foi tirado — sem nome fixo no código');
@@ -183,12 +186,52 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
     ctx.__um = um;
     await av('legGarantirProposicoes(__um)');
     const p1 = av(`legHtmlPDF(__um, null)`);
-    ok(/Período de 20\/03\/2026 a 10\/04\/2026 ·/.test(p1) && /Aderência às orientações do Governo, 20\/03\/2026 a 10\/04\/2026/.test(p1),
-       'cabeçalho e rodapé com o período, não a legislatura');
+    ok(/Período de 20\/03\/2026 a 10\/04\/2026 ·/.test(p1) && /<title>Aderência PODE — 20\/03\/2026 a 10\/04\/2026<\/title>/.test(p1),
+       'cabeçalho e título do documento com o período, não a legislatura');
     ok(!/Resumo do período/.test(p1) && !/class="quebra"><\/div><h2>2026/.test(p1), 'num ano só, sem o resumo (repetiria a seção do ano) e sem página em branco');
     ok(/PL 1\/2026/.test(p1), 'as votações com a proposição');
-    ok(!/Ausên|Ausente|possíveis/.test(p1) && /votos Sim e Não da bancada/.test(p1),
-       'aderência sobre os votos Sim e Não: sem ausência no documento, e a nota de método diz a conta');
+    // Desde 24/11/2026 o documento mostra abstenção, obstrução e ausência (decisão da Liderança); a conta não muda.
+    ok(/Sim\/Não\/<br>Abst\.·Obstr\.\/Aus\./.test(p1) && /votos Sim e Não da bancada/.test(p1) && /ausência aparecem nas contagens, mas ficam fora da conta/.test(p1),
+       'aderência sobre os votos Sim e Não; as contagens de abstenção, obstrução e ausência aparecem, e o "Como se mede" diz que ficam fora da conta');
+    {
+      const v0 = um.anos[0].vot[0];
+      const c = v0.cont, tot = c.sim + c.nao + c.out + c.aus;
+      ok(tot === um.anos[0].vot[0].c.a + um.anos[0].vot[0].c.d + um.anos[0].vot[0].c.x && c.sim + c.nao === v0.n, 'contagens de cada votação: Sim + Não = votos da conta; com abstenção e ausência, a bancada inteira');
+      ok(new RegExp(`<td class="c">${c.sim}/${c.nao}/${c.out}/${c.aus}</td>`).test(p1), 'a linha da votação traz as contagens');
+    }
+    // Quadro deputado × votação até 15 votações; acima disso, a tabela com os totais de cada deputado.
+    ok(/<table class="mx">/.test(p1) && !/<table class="dep">/.test(p1), `até ${av('LEG_LIMITE_QUADRO')} votações: o quadro com o voto de cada deputado`);
+    {
+      const muitos = JSON.parse(JSON.stringify(um));
+      const base = muitos.anos[0].vot[0];
+      muitos.anos[0].vot = Array.from({ length: 16 }, (_, i) => Object.assign({}, base, { id: '900-' + i }));
+      ctx.__muitos = muitos;
+      const pm = av(`legHtmlPDF(__muitos, null)`);
+      ok(/<table class="dep">/.test(pm) && !/<table class="mx">/.test(pm) && /São 16 votações — acima de 15, os votos de cada deputado vêm somados/.test(pm) && /<th class="c">Ausente<\/th>/.test(pm),
+         '16 votações: a tabela com votações, aderiu, divergiu, abstenção/obstrução e ausência de cada deputado');
+    }
+    // Word: o mesmo layout, gerado pela lib docx da página
+    if (typeof ctx.docx === 'undefined') { try { new vm.Script(fs.readFileSync(path.join(RAIZ, 'libs', 'docx.iife.js'), 'utf8')).runInContext(ctx); } catch (_) {} }
+    if (ctx.docx) {
+      // sem canvas no teste (linkedom): o gráfico mês a mês vira um PNG de 1×1 — o layout é o que se confere aqui
+      ctx.__bytes = [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')];
+      av('legPngMeses = () => new Uint8Array(__bytes)');   // criado no contexto da página: a lib docx confere o tipo
+      const blob = await av('legDocx(__um)');
+      const zip = Buffer.from(await blob.arrayBuffer());
+      const xml = require('zlib').inflateRawSync ? (() => {
+        // document.xml do .docx (zip): acha o cabeçalho local do arquivo e descomprime
+        const nome = Buffer.from('word/document.xml');
+        let i = zip.indexOf(nome);
+        while (i > 0 && zip.readUInt32LE(i - 30) !== 0x04034b50) i = zip.indexOf(nome, i + 1);
+        const h0 = i - 30, comp = zip.readUInt32LE(h0 + 18), nl = zip.readUInt16LE(h0 + 26), el = zip.readUInt16LE(h0 + 28), met = zip.readUInt16LE(h0 + 8);
+        const dados = zip.subarray(h0 + 30 + nl + el, h0 + 30 + nl + el + comp);
+        return met === 8 ? require('zlib').inflateRawSync(dados).toString('utf8') : dados.toString('utf8');
+      })() : '';
+      const texto = xml.replace(/<[^>]+>/g, ' ');
+      ok(/Aderência da bancada do Podemos/.test(texto) && /Consolidado/.test(texto) && /Como se mede:/.test(texto) && /Votação a votação/.test(texto) && /Deputado a deputado/.test(texto) && /Nota de método/.test(texto),
+         'Word: as mesmas seções do PDF');
+      ok(/EEF4F0/i.test(xml) && /w:color w:val="003C1F"/.test(xml) && !/7C9A2F/i.test(xml), 'Word: as cores do PDF (cabeçalho das tabelas, verde-escuro), sem o filete de quatro cores');
+    } else console.log('  (lib docx indisponível no teste: Word não conferido)');
     ok(av(`legNomeArquivo(__um, 'pdf')`) === 'Aderencia-PODE-2026-03-20-a-2026-04-10.pdf', 'nome do arquivo com o período');
 
     // Período que atravessa o ano: dezembro de 2025 a abril de 2026.
