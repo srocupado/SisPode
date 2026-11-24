@@ -217,7 +217,7 @@ O card **Comissões** abre dois painéis, escolhidos num menu: **Gestão** (vaga
 
 #### 4.1 Gestão
 
-Gerencie a participação dos deputados do partido em **comissões permanentes, mistas (MPV) e temporárias**, controlando vagas, acordos e pedidos de designação. O menu superior separa as visões: **Permanentes · Temporárias · MPV · Deputados · Alertas**.
+Gerencie a participação dos deputados do partido em **comissões permanentes, mistas (MPV) e temporárias**, controlando vagas, acordos e pedidos de designação. O menu superior separa as visões: **Permanentes · Temporárias · MPV · Deputados · Alertas · Pedidos**.
 
 **Comissões Permanentes**
 - Lista as 30 comissões permanentes da Câmara
@@ -238,6 +238,7 @@ Gerencie a participação dos deputados do partido em **comissões permanentes, 
 - **Ceder e receber vagas** por acordo entre partidos, com registro opcional do deputado externo que ocupa a vaga cedida
 - **Pedidos de designação**: registre o interesse de um deputado em uma vaga e depois nomeie-o ou rejeite o pedido
 - Visão **Por Deputado** com as comissões de cada parlamentar e **Alertas** de acúmulo (comissões mutuamente exclusivas como titular)
+- **Pedidos de vagas** (aba **Pedidos**, `comissoes-pedidos-vagas.js`): registro de quais deputados pediram vaga em quais **Comissões Permanentes** — tipo de vaga (titular ou suplente), **ordem de preferência** (1ª a 10ª, sugerida pela próxima livre do deputado) e **situação** (pendente, atendido, negado, com histórico; "Reabrir" volta a pendente). Lista própria no Firebase (`comissoes-podemos/pedidos-vagas`), separada dos "Pedidos" do painel de cada comissão. **Inacumulabilidade no registro** (RICD, art. 26, § 2º): o pedido de **titular** numa das 14 comissões não ressalvadas é **bloqueado** quando o deputado já é titular em outra delas — pela composição registrada no módulo ou por pedido de titular já atendido —, com a mensagem dizendo onde ele é titular e que como suplente o pedido é aceito. As 16 comissões ressalvadas pelo parágrafo e a suplência não têm esse limite; vários pedidos pendentes de titular em inacumuláveis são aceitos, como opções em ordem de preferência. Também barra pedido pendente repetido e pedido em comissão onde o deputado já está
 - **Impressão da lista de membros em PDF**, com seleção dos grupos a incluir (Permanentes, Mistas, CPI, Especiais, Externas) — cada grupo em nova página
 - Exportação completa para **Excel (.xlsx)** (membros, vagas cedidas e pedidos, com o tipo de cada comissão)
 - Dados sincronizados entre a equipe via **Firebase**, com cache e atualização automática (auto-sync quando o cache passa de 12 h)
@@ -830,6 +831,7 @@ sispode/
 ├── labs-perfil.js                 # Labs · Perfil da Bancada: tela, download com um clique e relatório em PDF
 ├── labs-perfil-mulheres.js        # Labs · Perfil da Bancada: relatório "Mulheres no partido" em PDF
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
+├── comissoes-pedidos-vagas.js     # Comissões · Pedidos de vagas (registro, preferência, situação, inacumulabilidade)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
