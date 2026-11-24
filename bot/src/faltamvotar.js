@@ -43,8 +43,8 @@ function reDoPartido(sigla) {
  */
 async function faltamVotar(sigla = 'PODE') {
   const sess = await sessaoAtual().catch(() => null);
-  // null = a CONSULTA falhou (rede, 403, 5xx), não "sem sessão": dizer "não há sessão aberta" aqui
-  // fez o agente anunciar o fim de uma nominal que estava em curso (23/11/2026).
+  // null = a CONSULTA falhou (rede, 403, 5xx), não "sem sessão": "não há sessão aberta" aqui levaria o
+  // agente a anunciar o fim de uma nominal em curso.
   if (!sess) return { aberta: false, falha: true, motivo: 'não consegui consultar o painel do Plenário agora (falha na consulta) — isso NÃO quer dizer que não haja votação aberta' };
   if (!sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
   const v = sess.votacao;
@@ -85,7 +85,9 @@ async function faltamVotar(sigla = 'PODE') {
 /** Texto pronto (comando e agente). */
 function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
   if (!r.aberta) return `Sem lista de faltantes agora — ${r.motivo}.`;
-  // "em curso" explícito: o agente lê esta saída, e sem isso já concluiu "a nominal foi encerrada".
+  // "em curso" explícito: o agente lê esta saída. Em 23/11/2026 (PLP 299/2026, votação 14016, aberta) a
+  // saída antiga — "(27/27 já votaram) ✅ Todos os presentes da bancada já votaram." — virou, na resposta
+  // do agente, "A votação nominal foi encerrada. Todos os deputados da bancada já registraram seus votos".
   const linhas = [`🗳 *${r.prop}* — votação nominal EM CURSO · bancada ${sigla} (${r.votaram}/${r.total} já votaram)`];
   if (r.presentesNaoVotaram.length) {
     linhas.push(`🔴 *Presentes e ainda NÃO votaram (${r.presentesNaoVotaram.length}):*\n${r.presentesNaoVotaram.map(n => `• ${n}`).join('\n')}`);
