@@ -81,6 +81,42 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
   const at = PV.pvComSituacao(reg, 'atendido', '2026-11-25T12:00:00.000Z');
   ok(at.situacao === 'atendido' && at.historico.map(h => h.situacao).join() === 'pendente,atendido' && reg.historico.length === 1, 'mudar a situação acrescenta ao histórico, sem alterar o registro anterior');
 
+  console.log('\n== 3b. atendido nomeia (plano) ==');
+  const pl = (reg, o = {}) => PV.pvPlanoAtendimento(Object.assign({ depId: 'd', sigla: 'CFT', tipo: 'titular', legislatura: 57 }, reg), Object.assign({
+    legAtual: 57, cadastrado: true, membros: { titulares: [], suplentes: [] }, vagasLivres: () => 1, conflito: () => null }, o));
+  ok(pl({}).acao === 'nomear' && !pl({}).sairDaSuplencia, 'cadastrado, vaga livre, sem conflito: nomeia');
+  ok(pl({}, { membros: { titulares: [], suplentes: ['CFT'] } }).sairDaSuplencia === true, 'suplente na CFT atendido como titular: nomeia e sai da suplência');
+  ok(pl({ legislatura: 58 }).acao === 'so-marcar' && /58ª legislatura/.test(pl({ legislatura: 58 }).motivo), 'pedido da próxima legislatura: só marca');
+  ok(pl({}, { cadastrado: false }).acao === 'so-marcar' && /digitado/.test(pl({}, { cadastrado: false }).motivo), 'deputado digitado: só marca');
+  ok(pl({}, { conflito: () => 'CCJC' }).acao === 'bloqueio' && /titular em CCJC, comissão inacumulável/.test(pl({}, { conflito: () => 'CCJC' }).motivo), 'conflito de inacumulabilidade: não nomeia (pergunta)');
+  ok(pl({}, { vagasLivres: () => 0 }).acao === 'bloqueio' && /não há vaga de titular/.test(pl({}, { vagasLivres: () => 0 }).motivo), 'sem vaga do partido: não nomeia (pergunta)');
+  ok(pl({ tipo: 'suplente' }, { membros: { titulares: [], suplentes: ['CFT'] } }).acao === 'ja', 'já está na composição: só marca');
+  ok(pl({ tipo: 'suplente' }, { membros: { titulares: ['CFT'], suplentes: [] } }).acao === 'bloqueio', 'pedido de suplência de quem já é titular ali: não nomeia');
+
+  console.log('\n== 3c. relatório (PDF) ==');
+  const todosR = [
+    { id: 'p1', depId: 'a1', sigla: 'CFT', tipo: 'titular', ordem: 1, legislatura: 57, situacao: 'pendente', data: '2026-11-24T10:00:00Z' },
+    { id: 'p2', depId: 'a1', sigla: 'CE', tipo: 'suplente', ordem: 2, legislatura: 57, situacao: 'atendido', data: '2026-11-24T10:00:00Z', nomeacao: { sigla: 'CE', tipo: 'suplente' } },
+    { id: 'p3', depId: 'b2', sigla: 'CFT', tipo: 'suplente', ordem: 1, legislatura: 57, situacao: 'pendente', data: '2026-11-23T10:00:00Z' },
+    { id: 'p4', depId: 'm_x', depNome: 'Novo <Eleito>', depUf: 'BA', sigla: 'CCJC', tipo: 'titular', ordem: 1, legislatura: 58, situacao: 'pendente', data: '2026-11-24T10:00:00Z' },
+  ];
+  const depsR = { a1: { nome: 'Ana Teste', uf: 'SP' }, b2: { nome: 'Bruno Teste', uf: 'PR' } };
+  const ctxR = { todos: todosR, permanentes: PERMANENTES, grupos: GRUPOS, legAtual: 57, membrosDe: id => (id === 'a1' ? { titulares: ['CCJC'], suplentes: ['CE'] } : { titulares: [], suplentes: [] }),
+    deputadoDe: x => (depsR[x.depId] ? Object.assign({ manual: false }, depsR[x.depId]) : { nome: x.depNome, uf: x.depUf, manual: true }),
+    vagas: (sg, t) => ({ livres: t === 'titular' ? 1 : 0, total: 2 }), filtroRotulo: 'de todas as situações', hojeBR: '24/11/2026', logo: null };
+  const html = PV.pvHtmlRelatorio(todosR, ctxR);
+  const txt = html.replace(/<style>[\s\S]*?<\/style>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  ok(/Pedidos de vagas nas Comissões Permanentes/.test(txt) && /Pedidos de todas as situações · 4 pedido\(s\) · gerado em 24\/11\/2026/.test(txt), 'cabeçalho com o filtro, o total e a data');
+  ok(/57ª legislatura \(atual\)/.test(txt) && /58ª legislatura \(próxima\)/.test(txt) && html.indexOf('57ª legislatura') < html.indexOf('58ª legislatura') && /class="quebra"/.test(html), 'uma parte por legislatura (atual, depois a próxima, em página nova)');
+  ok((txt.match(/Por comissão/g) || []).length === 2 && (txt.match(/Por deputado/g) || []).length === 2, 'em cada legislatura: por comissão e por deputado');
+  ok(/CFT · Finanças e Tributação inacumulável 1 pedido\(s\) de titular · 1 de suplente — vagas do partido livres hoje: titular 1 de 2, suplente 0 de 2/.test(txt), 'por comissão: pedidos por tipo e vagas livres do partido (legislatura atual)');
+  ok(!/CCJC · Constituição[^]*?vagas do partido/.test(txt.slice(txt.indexOf('58ª legislatura'), txt.indexOf('Por deputado', txt.indexOf('58ª legislatura')))), 'na próxima legislatura, sem vagas (não há composição)');
+  ok(/<span class="tag t-conf">⚠ CCJC<\/span>/.test(html) && (html.match(/t-conf">⚠ CCJC/g) || []).length === 2 + 0, 'o pedido em conflito leva o selo vermelho com o colegiado (na parte por comissão e na por deputado)');
+  ok(/Ana Teste \(SP\) Hoje: titular em CCJC · suplente em CE/.test(txt) && /Atendido · nomeado/.test(txt), 'por deputado: onde já é titular/suplente e a marca de nomeado');
+  ok(/Novo &lt;Eleito&gt;/.test(html) && !/Novo <Eleito>/.test(html) && /· digitado/.test(txt), 'deputado digitado, com o nome escapado');
+  ok(txt.indexOf('Bruno Teste') > 0 && txt.indexOf('Ana Teste', txt.indexOf('Por deputado')) < txt.indexOf('Bruno Teste', txt.indexOf('Por deputado')), 'deputados em ordem alfabética');
+  ok(/Nenhum pedido neste filtro/.test(PV.pvHtmlRelatorio([], ctxR)), 'filtro vazio: diz que não há pedidos');
+
   console.log('\n== 4. no navegador: aba "Pedidos", registro e alerta ==');
   let chromium; try { ({ chromium } = require('playwright')); } catch (_) { console.log('  (playwright indisponível: bloco 4 não executado)'); }
   if (chromium) {
@@ -92,7 +128,7 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     const fb = { gravacoes: [], erros: [] };
     pg.on('pageerror', e => fb.erros.push(e.message));
     await pg.addInitScript(() => { window.chrome = { storage: { local: { get: (k, cb) => cb({}), set: (o, cb) => cb && cb() } }, runtime: { getURL: u => u } }; });
-    const DADOS = { '/deputados': { a1: { nome: 'Ana Teste', uf: 'SP' }, b2: { nome: 'Bruno Teste', uf: 'PR' } }, '/membros': { CCJC: { titulares: ['a1'], suplentes: [] } } };
+    const DADOS = { '/deputados': { a1: { nome: 'Ana Teste', uf: 'SP' }, b2: { nome: 'Bruno Teste', uf: 'PR' } }, '/membros': { CCJC: { titulares: ['a1'], suplentes: [] } }, '/config': { CFT: { titular: 2, suplente: 2 } } };
     await pg.route('**/*', async rt => {
       const u = rt.request().url(), met = rt.request().method();
       if (u.startsWith(base)) return rt.continue();
@@ -211,6 +247,33 @@ const RESSALVADAS = ['CLP', 'CSPCCO', 'CCULT', 'CPD', 'CDHMIR', 'CESPO', 'CMADS'
     await pg.click('[data-pv-filtro=""]');
     const filtros = await pg.$$eval('[data-pv-filtro]', es => es.map(e => e.querySelector('.com-item-nome').textContent + ' ' + e.querySelector('.com-item-badge').textContent).join(' | '));
     ok(filtros === 'Pendentes 4 | Atendidos 1 | Negados 0 | Todos 5', `contagens por situação atualizadas (${filtros})`);
+    // ATENDIDO NOMEIA: o pedido de suplente da Ana na CFT (legislatura atual) — vira suplente na composição
+    const idAnaSup = await pg.evaluate(() => Object.entries(state.pedidosVagas).find(([, r]) => r.depId === 'a1' && r.sigla === 'CFT' && r.tipo === 'suplente')[0]);
+    const nGrav = fb.gravacoes.length, nDlg = dialogos.length;
+    await pg.click(`[data-pv-sit="atendido"][data-pv-id="${idAnaSup}"]`);
+    await pg.waitForFunction(id => state.pedidosVagas[id].situacao === 'atendido', idAnaSup);
+    const gMem = fb.gravacoes.slice(nGrav).find(g => g.caminho === '/membros/CFT');
+    const est = await pg.evaluate(id => ({ sup: (state.membros.CFT || {}).suplentes || [], nom: state.pedidosVagas[id].nomeacao, toast: document.getElementById('toast').textContent }), idAnaSup);
+    ok(gMem && JSON.parse(gMem.corpo).suplentes.includes('a1') && est.sup.includes('a1') && est.nom && est.nom.sigla === 'CFT' && est.nom.tipo === 'suplente' && dialogos.length === nDlg,
+      'Atendido: a Ana é nomeada suplente na CFT (gravado em /membros/CFT), sem perguntar, e o pedido guarda a nomeação');
+    ok(/Ana Teste nomeado suplente em CFT/.test(est.toast), `aviso da nomeação (${est.toast})`);
+    // o atendido da próxima legislatura (Bruno, CCJC) não mexeu na composição
+    ok(!fb.gravacoes.some(g => g.caminho === '/membros/CCJC') && !(await pg.evaluate(() => (state.membros.CCJC.titulares || []).includes('b2'))), 'pedido da próxima legislatura atendido: a composição de hoje não muda');
+    // reabrir: pergunta se tira da composição; OK tira
+    await pg.click('[data-pv-filtro="atendido"]');
+    await pg.click(`[data-pv-sit="pendente"][data-pv-id="${idAnaSup}"]`);
+    await pg.waitForFunction(id => state.pedidosVagas[id].situacao === 'pendente', idAnaSup);
+    const depois = await pg.evaluate(id => ({ sup: (state.membros.CFT || {}).suplentes || [], nom: state.pedidosVagas[id].nomeacao }), idAnaSup);
+    ok(/foi nomeado suplente em CFT por este pedido/.test(dialogos[dialogos.length - 1]) && !depois.sup.includes('a1') && !depois.nom, 'Reabrir um atendido que nomeou: pergunta e, confirmado, tira da composição');
+
+    // relatório: abre a janela com o documento
+    await pg.click('[data-pv-filtro=""]');
+    const [pop] = await Promise.all([pg.waitForEvent('popup'), pg.click('#pv-relatorio')]);
+    await pop.waitForFunction(() => /Pedidos de vagas nas Comissões Permanentes/.test(document.body && document.body.textContent || ''), null, { timeout: 15000 });
+    const rel = await pop.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
+    ok(/Pedidos de todas as situações · 5 pedido\(s\)/.test(rel) && /Por comissão/.test(rel) && /Por deputado/.test(rel) && /Carlos Novo Eleito/.test(rel), 'botão "Relatório (PDF)": abre o documento com os pedidos do filtro da tela');
+    await pop.close();
+
     ok(!fb.erros.length, `sem erro de JavaScript na página${fb.erros.length ? ': ' + fb.erros.join(' | ') : ''}`);
     await b.close(); srv.close();
   }

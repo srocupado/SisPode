@@ -24,8 +24,20 @@
 // só dos pedidos de titular atendidos para ela — a composição de hoje não vale para a legislatura que vem (o reeleito
 // titular na CCJC agora pode pedir a CFT para a próxima). Pedido sem legislatura (gravado antes) é da atual.
 //
+// ATENDIDO NOMEIA (24/11/2026): marcar um pedido como "Atendido" já nomeia o deputado na composição da comissão
+// (titular ou suplente; o suplente que passa a titular sai da suplência da mesma comissão), numa gravação só. Não
+// nomeia — e pergunta se marca atendido assim mesmo — quando não há vaga do partido ou quando a titularidade esbarra
+// na inacumulabilidade (a composição continua barrando, como sempre). Pedido da próxima legislatura e deputado
+// digitado (fora do cadastro) são só marcados: não há composição a lançar. O pedido guarda a nomeação
+// (`nomeacao`), e reabrir ou negar um atendido que nomeou pergunta se tira o deputado da composição.
+//
+// RELATÓRIO (24/11/2026): PDF dos pedidos do filtro da tela (situação), por legislatura, com uma parte POR COMISSÃO
+// (pedidos de cada colegiado, vagas do partido na legislatura atual, conflitos) e outra POR DEPUTADO (comissões
+// pedidas em ordem de preferência). pvHtmlRelatorio é pura (testada em Node).
+//
 // Usa de comissoes.js (na página): state, COMISSOES_PERMANENTES, GRUPOS_INCOMPATIVEIS, comissoesDeDeputado,
-// fbPut, fbDelete, mostrarToast. As regras (pvValidar…) são puras e exportadas para os testes (Node).
+// fbPut, fbDelete, mostrarToast, gravarMembros, removerMembro,
+// vagasDisponiveis, vagasEfetivas, comissaoConflitante. As regras (pvValidar…) são puras e exportadas para os testes (Node).
 
 const PV_SITUACOES = { pendente: 'Pendente', atendido: 'Atendido', negado: 'Negado' };
 const PV_TIPOS = { titular: 'Titular', suplente: 'Suplente' };
@@ -134,6 +146,136 @@ function pvComSituacao(reg, situacao, agoraIso) {
   return Object.assign({}, reg, { situacao, historico: [...(reg.historico || []), { situacao, em: agoraIso }] });
 }
 
+/**
+ * O que fazer ao marcar um pedido como atendido. `c`: { legAtual, cadastrado, membros: {titulares, suplentes} do
+ * deputado, vagasLivres(sigla, tipo), conflito(depId, sigla) → sigla|null }. Devolve
+ * { acao: 'nomear' | 'ja' | 'bloqueio' | 'so-marcar', motivo, sairDaSuplencia }.
+ */
+function pvPlanoAtendimento(reg, c) {
+  const leg = pvLegDe(reg, c.legAtual);
+  if (leg !== c.legAtual) return { acao: 'so-marcar', motivo: `pedido para a ${leg}ª legislatura: a composição dela ainda não existe` };
+  if (!c.cadastrado) return { acao: 'so-marcar', motivo: 'deputado digitado, fora do cadastro do módulo: cadastre-o para nomear' };
+  const { titulares = [], suplentes = [] } = c.membros || {};
+  if (reg.tipo === 'titular' && titulares.includes(reg.sigla)) return { acao: 'ja', motivo: `já é titular em ${reg.sigla}` };
+  if (reg.tipo === 'suplente' && suplentes.includes(reg.sigla)) return { acao: 'ja', motivo: `já é suplente em ${reg.sigla}` };
+  if (reg.tipo === 'suplente' && titulares.includes(reg.sigla)) return { acao: 'bloqueio', motivo: `já é titular em ${reg.sigla}` };
+  if (reg.tipo === 'titular') {
+    const conf = c.conflito(reg.depId, reg.sigla);
+    if (conf) return { acao: 'bloqueio', motivo: `já é titular em ${conf}, comissão inacumulável com ${reg.sigla} (RICD, art. 26, § 2º)` };
+  }
+  if (c.vagasLivres(reg.sigla, reg.tipo) <= 0) return { acao: 'bloqueio', motivo: `não há vaga de ${reg.tipo} do partido livre em ${reg.sigla}` };
+  return { acao: 'nomear', sairDaSuplencia: reg.tipo === 'titular' && suplentes.includes(reg.sigla) };
+}
+
+const PV_CSS_PDF = `
+  @page { size: A4; margin: 15mm 14mm; @bottom-center { content: counter(page); font-size: 8pt; color: #888; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt; color: #1a1a1a; background: #fff; }
+  .cab { display: flex; align-items: center; gap: 14px; }
+  .cab .tit { flex: 1; text-align: center; }
+  .cab h1 { font-size: 15pt; color: #003c1f; }
+  .cab .sub { font-size: 9.5pt; color: #003c1f; margin-top: 2px; }
+  .cab img { height: 42px; } .cab .sp { width: 42px; }
+  .rule { border-bottom: 2px solid #00A859; margin: 7px 0 10px; }
+  .meta { text-align: center; font-style: italic; font-size: 8.5pt; color: #6b7280; margin-bottom: 14px; }
+  .leg { font-size: 13pt; color: #003c1f; margin: 4px 0 8px; padding-bottom: 3px; border-bottom: 1px solid #c9ddd2; }
+  .quebra { break-before: page; page-break-before: always; }
+  h2 { font-size: 11.5pt; color: #003c1f; margin: 16px 0 6px; border-left: 3px solid #00A859; padding-left: 7px; break-after: avoid; page-break-after: avoid; }
+  h3 { font-size: 10pt; color: #003c1f; margin: 12px 0 3px; break-after: avoid; page-break-after: avoid; }
+  h3 .nm { font-weight: 400; color: #3c4a44; }
+  .bloco { break-inside: avoid; page-break-inside: avoid; }
+  .vg { font-size: 8.5pt; color: #4a5a6b; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  th { background: #eef4f0; color: #003c1f; font-size: 8pt; text-transform: uppercase; letter-spacing: .3px; padding: 4px 6px; text-align: left; border-bottom: 1.5px solid #c9ddd2; }
+  td { padding: 5px 6px; border-bottom: 1px solid #e6eae7; vertical-align: top; font-size: 9pt; }
+  td.c, th.c { text-align: center; white-space: nowrap; }
+  .nada { color: #9aa5a0; }
+  .tag { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0 6px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .t-pendente { color: #8a6d00; border-color: #e8d28a; background: #fdf7e3; }
+  .t-atendido { color: #006633; border-color: #9ed7b6; background: #eaf7f0; }
+  .t-negado   { color: #6b7280; border-color: #d8dcda; background: #f4f5f4; }
+  .t-conf     { color: #fff; border-color: #c0392b; background: #c0392b; }
+  .t-inac     { color: #8a6d00; border-color: #e8d28a; background: #fff; font-weight: 400; }
+  .resumo { display: flex; gap: 10px; margin: 4px 0 12px; }
+  .bx { flex: 1; border: 1px solid #d8e3dc; border-radius: 6px; padding: 9px 5px; text-align: center; }
+  .bx .v { font-size: 17pt; font-weight: 700; color: #003c1f; }
+  .bx .l { font-size: 7pt; text-transform: uppercase; letter-spacing: .3px; color: #6b7280; margin-top: 2px; line-height: 1.25; }
+  .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2; padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
+  .nota b { color: #003c1f; }
+`;
+
+/**
+ * HTML do relatório (PDF). `lista`: os pedidos do filtro; `c`: { todos (para os conflitos), permanentes, grupos,
+ * membrosDe, legAtual, deputadoDe(x) → {nome, uf, manual}, vagas(sigla, tipo) → {livres, total}, filtroRotulo,
+ * hojeBR, logo }.
+ */
+function pvHtmlRelatorio(lista, c) {
+  const e = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const SIT = { pendente: 'Pendente', atendido: 'Atendido', negado: 'Negado' };
+  const ctxConf = { permanentes: c.permanentes, grupos: c.grupos, membrosDe: c.membrosDe, pedidos: c.todos, legAtual: c.legAtual };
+  const conflitos = x => (x.situacao === 'negado' ? [] : pvConflitosInacumulaveis(x, ctxConf));
+  const selosConf = x => conflitos(x).map(k => ` <span class="tag t-conf">⚠ ${e(k.sigla)}</span>`).join('');
+  const nomeCom = s => (c.permanentes.find(k => k.sigla === s) || {}).nome || s;
+  const inac = s => (pvInacumulavel(s, c.grupos) ? ' <span class="tag t-inac">inacumulável</span>' : '');
+  const sit = x => `<span class="tag t-${e(x.situacao)}">${e(SIT[x.situacao] || x.situacao)}</span>${x.nomeacao ? ' <span class="nada">· nomeado</span>' : ''}`;
+  const dataBR = iso => (iso ? String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7) + '/' + String(iso).slice(0, 4) : '');
+  const depTxt = x => { const d = c.deputadoDe(x); return `${e(d.nome)}${d.uf ? ` <span class="nada">(${e(d.uf)})</span>` : ''}${d.manual ? ' <span class="nada">· digitado</span>' : ''}`; };
+  const ordNome = (a, b) => c.deputadoDe(a).nome.localeCompare(c.deputadoDe(b).nome, 'pt-BR');
+
+  const legs = [...new Set(lista.map(x => pvLegDe(x, c.legAtual)))].sort((a, b) => a - b);
+  const partes = legs.map((leg, i) => {
+    const doLeg = lista.filter(x => pvLegDe(x, c.legAtual) === leg);
+    const atual = leg === c.legAtual;
+    const deps = [...new Set(doLeg.map(x => x.depId))];
+    const coms = c.permanentes.filter(k => doLeg.some(x => x.sigla === k.sigla));
+    const nConf = doLeg.filter(x => conflitos(x).length).length;
+    const caixas = [[doLeg.length, 'pedidos'], [deps.length, 'deputados'], [coms.length, 'comissões pedidas'], [nConf, 'pedidos com conflito de inacumulabilidade']];
+
+    const porComissao = coms.map(k => {
+      const ps = doLeg.filter(x => x.sigla === k.sigla).sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'titular' ? -1 : 1) || a.ordem - b.ordem || ordNome(a, b));
+      const nT = ps.filter(x => x.tipo === 'titular').length, nS = ps.length - nT;
+      let vg = `${nT} pedido(s) de titular · ${nS} de suplente`;
+      if (atual && c.vagas) {
+        const vt = c.vagas(k.sigla, 'titular'), vs = c.vagas(k.sigla, 'suplente');
+        vg += ` — vagas do partido livres hoje: titular ${vt.livres} de ${vt.total}, suplente ${vs.livres} de ${vs.total}`;
+      }
+      return `<div class="bloco"><h3>${e(k.sigla)} <span class="nm">· ${e(k.nome)}</span>${inac(k.sigla)}</h3><div class="vg">${vg}</div>
+<table><thead><tr><th>Deputado</th><th class="c">Vaga</th><th class="c">Pref.</th><th class="c">Situação</th><th class="c">Registrado</th></tr></thead><tbody>
+${ps.map(x => `<tr><td>${depTxt(x)}${selosConf(x)}</td><td class="c">${x.tipo === 'titular' ? 'Titular' : 'Suplente'}</td><td class="c">${x.ordem}ª</td><td class="c">${sit(x)}</td><td class="c">${dataBR(x.data)}</td></tr>`).join('')}
+</tbody></table></div>`;
+    }).join('');
+
+    const porDeputado = deps.map(id => doLeg.find(x => x.depId === id)).sort(ordNome).map(ref => {
+      const ps = doLeg.filter(x => x.depId === ref.depId).sort((a, b) => a.ordem - b.ordem || String(a.data).localeCompare(String(b.data)));
+      let hoje = '';
+      if (atual && !c.deputadoDe(ref).manual) {
+        const m = c.membrosDe(ref.depId) || {};
+        hoje = `<div class="vg">Hoje: titular em ${(m.titulares || []).length ? m.titulares.map(e).join(', ') : 'nenhuma'} · suplente em ${(m.suplentes || []).length ? m.suplentes.map(e).join(', ') : 'nenhuma'}</div>`;
+      }
+      return `<div class="bloco"><h3>${depTxt(ref)}</h3>${hoje}
+<table><thead><tr><th class="c">Pref.</th><th>Comissão</th><th class="c">Vaga</th><th class="c">Situação</th><th>Conflito</th></tr></thead><tbody>
+${ps.map(x => `<tr><td class="c">${x.ordem}ª</td><td><b>${e(x.sigla)}</b> <span class="nada">${e(nomeCom(x.sigla))}</span>${inac(x.sigla)}</td><td class="c">${x.tipo === 'titular' ? 'Titular' : 'Suplente'}</td><td class="c">${sit(x)}</td><td>${selosConf(x).trim() || '<span class="nada">—</span>'}</td></tr>`).join('')}
+</tbody></table></div>`;
+    }).join('');
+
+    return `${i ? '<div class="quebra"></div>' : ''}<div class="leg">${leg}ª legislatura${atual ? ' (atual)' : leg > c.legAtual ? ' (próxima)' : ''}</div>
+<div class="resumo">${caixas.map(([v, l]) => `<div class="bx"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('')}</div>
+<h2>Por comissão</h2>${porComissao}
+<h2>Por deputado</h2>${porDeputado}`;
+  }).join('');
+
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Pedidos de vagas — Comissões Permanentes</title><style>${PV_CSS_PDF}</style></head><body>
+<div class="cab">${c.logo ? `<img src="${c.logo}" alt="">` : '<div class="sp"></div>'}<div class="tit"><h1>Pedidos de vagas nas Comissões Permanentes</h1>
+<div class="sub">Liderança do Podemos · Câmara dos Deputados</div></div><div class="sp"></div></div><div class="rule"></div>
+<div class="meta">Pedidos ${e(c.filtroRotulo)} · ${lista.length} pedido(s) · gerado em ${e(c.hojeBR)}</div>
+${lista.length ? partes : '<p class="nada">Nenhum pedido neste filtro.</p>'}
+<h2>Nota</h2><div class="nota"><b>Inacumulabilidade (RICD, art. 26, § 2º):</b> o deputado só pode ser titular de uma das Comissões Permanentes não ressalvadas
+(marcadas "inacumulável"). O selo vermelho <span class="tag t-conf">⚠ SIGLA</span> indica o colegiado em que ele já é titular — pela composição registrada
+no módulo (legislatura atual) ou por pedido de titular já atendido na mesma legislatura. <b>Preferência</b>: a ordem dada pelo próprio deputado.
+<b>Vagas do partido livres</b>: as vagas do Podemos configuradas no módulo, menos as já preenchidas (só na legislatura atual).</div>
+<div class="meta" style="margin-top:14px">Gerado pelo SisPode · ${e(c.hojeBR)}</div></body></html>`;
+}
+
 // ── TELA ─────────────────────────────────────────────────────────────────────
 const _pvEsc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const _pvData = iso => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '');
@@ -227,7 +369,8 @@ function renderPainelPedidosVagas() {
 
   document.getElementById('com-painel-conteudo').innerHTML = `
     <div class="pv-wrap">
-      <h2 class="pv-titulo">Pedidos de vagas <span class="pv-dim">· Comissões Permanentes</span></h2>
+      <h2 class="pv-titulo">Pedidos de vagas <span class="pv-dim">· Comissões Permanentes</span>
+        <button id="pv-relatorio" class="btn btn-outline btn-sm pv-rel" title="Relatório em PDF dos pedidos do filtro (${rotFiltro}), por comissão e por deputado">📄 Relatório (PDF)</button></h2>
       <div class="pv-form">
         <label>Legislatura<select id="pv-leg" class="form-input">
           <option value="${legAtual}"${legPadrao === legAtual ? ' selected' : ''}>${legAtual}ª (atual)</option>
@@ -279,6 +422,7 @@ function renderPainelPedidosVagas() {
   document.getElementById('pv-com').addEventListener('change', alertar);
   document.getElementById('pv-tipo').addEventListener('change', alertar);
   document.getElementById('pv-registrar').addEventListener('click', pvRegistrar);
+  document.getElementById('pv-relatorio').addEventListener('click', pvRelatorioPDF);
   document.querySelectorAll('[data-pv-sit]').forEach(b => b.addEventListener('click', () => pvMudarSituacao(b.dataset.pvId, b.dataset.pvSit)));
   document.querySelectorAll('[data-pv-del]').forEach(b => b.addEventListener('click', () => pvExcluir(b.dataset.pvDel)));
 }
@@ -328,20 +472,79 @@ async function pvMudarSituacao(id, situacao) {
   // Reabrir não pode criar dois pedidos pendentes iguais; a inacumulabilidade continua só marcada na lista
   if (situacao === 'pendente') {
     const outros = pvLista().filter(x => x.id !== id);
-    const v = pvValidarPedido(reg, Object.assign(pvCtx(), { pedidos: outros }));
+    const ctxR = Object.assign(pvCtx(), { pedidos: outros });
+    // a vaga que este próprio pedido preencheu (nomeação) não conta como "já está na comissão"
+    if (reg.nomeacao) ctxR.membrosDe = d => { const m = comissoesDeDeputado(d); return d !== reg.depId ? m : { titulares: m.titulares.filter(x => x !== reg.nomeacao.sigla), suplentes: m.suplentes.filter(x => x !== reg.nomeacao.sigla) }; };
+    const v = pvValidarPedido(reg, ctxR);
     if (!v.ok) { mostrarToast(v.erro, 'erro', 6000); return; }
   }
-  // Atender um pedido de titular em conflito: alerta (a nomeação de titular segue barrada na composição)
+  const agora = new Date().toISOString();
+  const nome = pvDeputado(reg).nome;
+  let novo = pvComSituacao(reg, situacao, agora), aviso = '';
+  // Atendido: nomeia na composição (pedido de 24/11/2026)
   if (situacao === 'atendido') {
-    const conf = pvConflitosInacumulaveis(Object.assign({ id }, reg), pvCtx());
-    if (conf.length && !confirm(`⚠ ${pvTextoConflito(conf, reg.sigla, pvLegDe(reg, pvLegislaturaDe()))}\n\nMarcar como atendido mesmo assim?`)) return;
+    const plano = pvPlanoAtendimento(reg, { legAtual: pvLegislaturaDe(), cadastrado: !!state.deputados[reg.depId], membros: comissoesDeDeputado(reg.depId),
+      vagasLivres: vagasDisponiveis, conflito: comissaoConflitante });
+    if (plano.acao === 'bloqueio' && !confirm(`Não dá para nomear ${nome} ${reg.tipo} em ${reg.sigla}: ${plano.motivo}.\n\nMarcar o pedido como atendido mesmo assim, sem nomear?`)) return;
+    if (plano.acao === 'nomear') {
+      try {
+        await gravarMembros(reg.sigla, atual => {
+          const l = reg.tipo === 'titular' ? (atual.titulares = atual.titulares || []) : (atual.suplentes = atual.suplentes || []);
+          if (!l.includes(reg.depId)) l.push(reg.depId);
+          if (plano.sairDaSuplencia) {
+            atual.suplentes = (atual.suplentes || []).filter(x => x !== reg.depId);
+            if (atual.suplentes_acordo) delete atual.suplentes_acordo[reg.depId];
+          }
+        });
+      } catch (e) { mostrarToast('Não foi possível nomear na composição: ' + e.message, 'erro', 6000); return; }
+      novo = Object.assign(novo, { nomeacao: { sigla: reg.sigla, tipo: reg.tipo, em: agora } });
+      aviso = `${nome} nomeado ${reg.tipo} em ${reg.sigla}${plano.sairDaSuplencia ? ' (saiu da suplência)' : ''}.`;
+    } else {
+      aviso = plano.acao === 'ja' ? `Atendido — ${nome} ${plano.motivo}.` : `Atendido, sem nomear: ${plano.motivo}.`;
+    }
   }
-  const novo = pvComSituacao(reg, situacao, new Date().toISOString());
+  // Reabrir ou negar um atendido que nomeou: pergunta se tira da composição
+  if (reg.situacao === 'atendido' && situacao !== 'atendido' && reg.nomeacao) {
+    const m = state.membros[reg.nomeacao.sigla] || {};
+    const ainda = (reg.nomeacao.tipo === 'titular' ? m.titulares : m.suplentes) || [];
+    if (ainda.includes(reg.depId) && confirm(`${nome} foi nomeado ${reg.nomeacao.tipo} em ${reg.nomeacao.sigla} por este pedido.\n\nOK: tirar da composição · Cancelar: manter na composição`)) {
+      try { await removerMembro(reg.nomeacao.sigla, reg.depId); aviso = `${nome} saiu da composição de ${reg.nomeacao.sigla}.`; }
+      catch (e) { mostrarToast('Não foi possível tirar da composição: ' + e.message, 'erro', 6000); return; }
+    }
+    delete novo.nomeacao;
+  }
   try { await fbPut(`/pedidos-vagas/${id}`, novo); }
   catch (e) { mostrarToast('Não foi possível gravar: ' + e.message, 'erro'); return; }
   state.pedidosVagas[id] = novo;
+  if (aviso) mostrarToast(aviso, 'ok', 5000);
   renderSidebarPedidosVagas();
   renderPainelPedidosVagas();
+}
+
+/** Relatório em PDF dos pedidos do filtro da tela (janela de impressão, como os relatórios da Liderança). */
+async function pvRelatorioPDF() {
+  const win = window.open('', '_blank', 'width=960,height=720');   // no gesto do clique
+  if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'erro'); return; }
+  let logo = null;
+  try {
+    const r = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (r.ok) { const b = await r.blob(); logo = await new Promise(ok => { const fr = new FileReader(); fr.onloadend = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(b); }); }
+  } catch (_) { /* sem logo */ }
+  if (win.closed) return;
+  const lista = pvLista().filter(x => !pvFiltro || x.situacao === pvFiltro);
+  const vagas = (s, t) => ({ livres: Math.max(0, vagasDisponiveis(s, t)), total: vagasEfetivas(s, t) });
+  win.document.open();
+  win.document.write(pvHtmlRelatorio(lista, Object.assign(pvCtx(), { todos: pvLista(), deputadoDe: pvDeputado, vagas, logo,
+    filtroRotulo: pvFiltro ? PV_SITUACOES[pvFiltro].toLowerCase() + 's' : 'de todas as situações', hojeBR: new Date().toLocaleDateString('pt-BR') })));
+  win.document.close();
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const sc = win.document.createElement('script');
+  sc.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  sc.onerror = imprimir;
+  win.document.head.appendChild(sc);
+  setTimeout(imprimir, 30000);
 }
 
 async function pvExcluir(id) {
@@ -355,6 +558,6 @@ async function pvExcluir(id) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pvInacumulavel, pvValidarPedido, pvConflitosInacumulaveis, pvTextoConflito, pvProximaOrdem, pvNovoRegistro, pvComSituacao, pvLegislaturaDe, pvLegislaturaPadrao,
+  module.exports = { pvInacumulavel, pvValidarPedido, pvConflitosInacumulaveis, pvTextoConflito, pvPlanoAtendimento, pvHtmlRelatorio, pvProximaOrdem, pvNovoRegistro, pvComSituacao, pvLegislaturaDe, pvLegislaturaPadrao,
     pvIdManual, pvResolverManual, PV_MAX_PREFERENCIA };
 }
