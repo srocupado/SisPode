@@ -9,9 +9,13 @@
 // INACUMULABILIDADE NO REGISTRO (RICD, art. 26, § 2º): "Nenhum Deputado poderá fazer parte, como membro titular,
 // de mais de uma Comissão Permanente, ressalvadas" as quinze que o parágrafo enumera. As que NÃO estão ressalvadas
 // são as de GRUPOS_INCOMPATIVEIS (comissoes.js) — a mesma regra que já barra a nomeação de titular. O pedido de
-// titular numa delas é BLOQUEADO quando o deputado já é titular em outra (pela composição registrada no módulo ou
-// por pedido de titular já atendido). Vários pedidos pendentes de titular em inacumuláveis são permitidos: são
-// opções do deputado, em ordem de preferência, e só uma pode ser atendida.
+// titular numa delas, quando o deputado já é titular em outra (pela composição registrada no módulo ou por pedido de
+// titular já atendido), é um CONFLITO. Desde 24/11/2026 (pedido da Liderança) o conflito NÃO impede o registro: quem
+// cadastra é alertado (aviso no formulário e confirmação ao registrar) e a lista mostra, ao lado do nome do deputado,
+// com qual colegiado é o conflito — o deputado pode estar deixando a outra comissão, e o pedido precisa ficar anotado.
+// O conflito da lista é calculado na hora (some quando a outra titularidade deixa de existir); o registro guarda
+// também os colegiados em conflito no momento do cadastro (conflitoRegistro). Vários pedidos pendentes de titular em
+// inacumuláveis não são conflito: são opções do deputado, em ordem de preferência, e só uma pode ser atendida.
 //
 // LEGISLATURA E DEPUTADO DIGITADO (24/11/2026): chegam pedidos para a PRÓXIMA legislatura, de deputados que ainda não
 // estão no cadastro do módulo. O pedido guarda a legislatura; o deputado pode ser digitado (nome e UF) — vira um id
@@ -56,8 +60,33 @@ function pvInacumulavel(sigla, grupos) {
 }
 
 /**
+ * Conflitos de inacumulabilidade de um pedido de titular: as OUTRAS inacumuláveis em que o deputado já é titular, na
+ * legislatura do pedido — pela composição do módulo (só na atual) ou por pedido de titular atendido (exceto o próprio,
+ * `p.id`). Devolve [{ sigla, origem: 'composicao' | 'atendido' }] (vazio = sem conflito).
+ */
+function pvConflitosInacumulaveis(p, ctx) {
+  if (p.tipo !== 'titular' || !pvInacumulavel(p.sigla, ctx.grupos)) return [];
+  const leg = pvLegDe(p, ctx.legAtual);
+  const titulares = leg === ctx.legAtual && ctx.membrosDe ? (ctx.membrosDe(p.depId) || {}).titulares || [] : [];
+  const atendidos = ctx.pedidos.filter(x => (p.id == null || x.id !== p.id) && x.depId === p.depId && x.tipo === 'titular' && x.situacao === 'atendido' && pvLegDe(x, ctx.legAtual) === leg).map(x => x.sigla);
+  const out = [];
+  for (const s of titulares) if (s !== p.sigla && pvInacumulavel(s, ctx.grupos) && !out.some(c => c.sigla === s)) out.push({ sigla: s, origem: 'composicao' });
+  for (const s of atendidos) if (s !== p.sigla && pvInacumulavel(s, ctx.grupos) && !out.some(c => c.sigla === s)) out.push({ sigla: s, origem: 'atendido' });
+  return out;
+}
+
+/** Texto do alerta de inacumulabilidade (formulário, confirmação e dica da lista). */
+function pvTextoConflito(conflitos, sigla, leg) {
+  if (!conflitos.length) return '';
+  const onde = conflitos.map(c => c.origem === 'composicao' ? c.sigla : `${c.sigla} (pedido atendido, ${leg}ª legislatura)`).join(', ');
+  return `Inacumulabilidade (RICD, art. 26, § 2º): o deputado já é titular em ${onde}, e ${sigla} também é comissão em que só se pode ser ` +
+    `titular de uma. O pedido pode ser registrado, e fica marcado com o conflito; para ser atendido, ele precisa deixar a titularidade em ${conflitos.map(c => c.sigla).join(', ')}.`;
+}
+
+/**
  * Valida um pedido novo. `ctx`: { permanentes: [{sigla, nome}], grupos, membrosDe(depId) → {titulares, suplentes},
- * pedidos: [{depId, sigla, tipo, situacao, legislatura}], legAtual }. Devolve { ok: true } ou { ok: false, erro }.
+ * pedidos: [{depId, sigla, tipo, situacao, legislatura}], legAtual }. Devolve { ok: true, conflitos, alerta } ou
+ * { ok: false, erro }. A inacumulabilidade não recusa: vem em `conflitos` (e no texto `alerta`) para avisar quem cadastra.
  */
 function pvValidarPedido(p, ctx) {
   const com = ctx.permanentes.find(c => c.sigla === p.sigla);
@@ -80,17 +109,9 @@ function pvValidarPedido(p, ctx) {
   if (titulares.includes(p.sigla)) return { ok: false, erro: `O deputado já é titular em ${p.sigla}.` };
   if (p.tipo === 'suplente' && suplentes.includes(p.sigla)) return { ok: false, erro: `O deputado já é suplente em ${p.sigla}.` };
 
-  if (p.tipo === 'titular' && pvInacumulavel(p.sigla, ctx.grupos)) {
-    // titularidade já registrada no módulo, ou pedido de titular já atendido (a composição pode ainda não ter sido lançada)
-    const atendidos = mesmos.filter(x => x.depId === p.depId && x.tipo === 'titular' && x.situacao === 'atendido').map(x => x.sigla);
-    const ja = [...new Set([...titulares, ...atendidos])].find(s => s !== p.sigla && pvInacumulavel(s, ctx.grupos));
-    if (ja) {
-      return { ok: false, inacumulavel: ja, erro: `Inacumulável: o deputado já é titular em ${ja}${titulares.includes(ja) ? '' : ` (pedido atendido, ${leg}ª legislatura)`}, ` +
-        `e ${p.sigla} também é comissão em que só se pode ser titular de uma (RICD, art. 26, § 2º). Para pedir ${p.sigla} como titular, ` +
-        `é preciso deixar a titularidade em ${ja}; como suplente, o pedido é aceito.` };
-    }
-  }
-  return { ok: true };
+  // inacumulabilidade: alerta, não recusa (titularidade no módulo ou pedido de titular já atendido)
+  const conflitos = pvConflitosInacumulaveis(p, ctx);
+  return { ok: true, conflitos, alerta: pvTextoConflito(conflitos, p.sigla, leg) };
 }
 
 /** Próxima preferência livre do deputado (entre os pedidos pendentes). */
@@ -104,6 +125,7 @@ function pvProximaOrdem(depId, pedidos, leg = null, legAtual = null) {
 function pvNovoRegistro(p, agoraIso) {
   return { depId: p.depId, sigla: p.sigla, tipo: p.tipo, ordem: Number(p.ordem), legislatura: Number(p.legislatura), situacao: 'pendente', data: agoraIso,
     historico: [{ situacao: 'pendente', em: agoraIso }],
+    ...(p.conflitos && p.conflitos.length ? { conflitoRegistro: p.conflitos.map(c => c.sigla) } : {}),
     ...(p.depManual ? { depNome: String(p.depNome).trim(), depUf: String(p.depUf || '').trim().toUpperCase() } : {}) };
 }
 
@@ -175,15 +197,24 @@ function renderPainelPedidosVagas() {
   const comNome = s => (COMISSOES_PERMANENTES.find(c => c.sigla === s) || {}).nome || s;
   const rotFiltro = pvFiltro ? PV_SITUACOES[pvFiltro].toLowerCase() + 's' : 'todos';
 
+  const ctxLista = pvCtx();
   const linhas = lista.map(x => {
     const dep = pvDeputado(x);
+    // conflito calculado na hora (pendentes e atendidos; no negado não importa)
+    const conf = x.situacao === 'negado' ? [] : pvConflitosInacumulaveis(x, ctxLista);
+    const reg = (x.conflitoRegistro || []).filter(s => !conf.some(c => c.sigla === s));
+    // badge vermelho por colegiado em conflito (pedido de 24/11/2026), com a explicação na dica
+    const dica = _pvEsc(pvTextoConflito(conf, x.sigla, pvLegDe(x, legAtual)));
+    const selo = conf.length
+      ? conf.map(c => ` <span class="pv-conflito" title="${dica}">⚠ ${_pvEsc(c.sigla)}</span>`).join('')
+      : (reg.length && x.situacao !== 'negado' ? ` <span class="pv-dim" title="No registro, o deputado era titular em ${_pvEsc(reg.join(', '))}; hoje não há mais o conflito">· conflito no registro (${_pvEsc(reg.join(', '))}) resolvido</span>` : '');
     const acoes = x.situacao === 'pendente'
       ? `<button class="pv-btn pv-ok" data-pv-sit="atendido" data-pv-id="${x.id}">Atendido</button>
          <button class="pv-btn pv-nao" data-pv-sit="negado" data-pv-id="${x.id}">Negado</button>`
       : `<button class="pv-btn" data-pv-sit="pendente" data-pv-id="${x.id}">Reabrir</button>`;
     const hist = (x.historico || []).map(h => `${PV_SITUACOES[h.situacao] || h.situacao} em ${_pvData(h.em)}`).join(' → ');
     return `<tr>
-      <td><b>${_pvEsc(dep.nome)}</b>${dep.uf ? ` <span class="pv-dim">(${_pvEsc(dep.uf)})</span>` : ''}${dep.manual ? ' <span class="pv-dim" title="Nome digitado: o deputado não está no cadastro do módulo">· digitado</span>' : ''}</td>
+      <td><b>${_pvEsc(dep.nome)}</b>${dep.uf ? ` <span class="pv-dim">(${_pvEsc(dep.uf)})</span>` : ''}${dep.manual ? ' <span class="pv-dim" title="Nome digitado: o deputado não está no cadastro do módulo">· digitado</span>' : ''}${selo}</td>
       <td class="pv-c">${pvLegDe(x, legAtual)}ª</td>
       <td class="pv-c">${x.ordem}ª</td>
       <td><b>${_pvEsc(x.sigla)}</b> <span class="pv-dim">${_pvEsc(comNome(x.sigla))}</span>${pvInacumulavel(x.sigla, GRUPOS_INCOMPATIVEIS) ? ' <span class="pv-inac">inacumulável</span>' : ''}</td>
@@ -214,9 +245,10 @@ function renderPainelPedidosVagas() {
         <button id="pv-registrar" class="btn btn-primary btn-sm">Registrar pedido</button>
       </div>
       <div id="pv-dep-situacao" class="pv-dim pv-situacao"></div>
+      <div id="pv-alerta" class="pv-alerta" style="display:none"></div>
       <div id="pv-erro" class="pv-erro" style="display:none"></div>
       <div class="pv-nota">Inacumulabilidade (RICD, art. 26, § 2º): o deputado só pode ser <b>titular</b> de uma das comissões marcadas como inacumuláveis.
-        O pedido de titular numa delas é recusado no registro quando ele já é titular em outra. Suplência e as comissões ressalvadas não têm esse limite.
+        O pedido de titular numa delas, quando ele já é titular em outra, <b>é registrado com alerta</b> e fica marcado na lista com o colegiado em conflito. Suplência e as comissões ressalvadas não têm esse limite.
         Na <b>legislatura atual</b>, conta a composição registrada no módulo e o que foi atendido; na <b>próxima</b>, só o que já foi atendido para ela.</div>
       <h3 class="pv-sub">Pedidos ${rotFiltro} <span class="pv-dim">(${lista.length})</span></h3>
       ${lista.length ? `<table class="pv-tabela"><thead><tr><th>Deputado</th><th class="pv-c">Leg.</th><th class="pv-c">Pref.</th><th>Comissão</th><th>Vaga</th><th>Situação</th><th>Registrado</th><th></th></tr></thead>
@@ -224,6 +256,13 @@ function renderPainelPedidosVagas() {
     </div>`;
 
   const depSel = document.getElementById('pv-dep'), legSel = document.getElementById('pv-leg');
+  const alertar = () => {
+    const p = pvLerFormulario();
+    const conf = p.depId && p.depId !== '__manual' && p.sigla ? pvConflitosInacumulaveis(p, pvCtx()) : [];
+    const el = document.getElementById('pv-alerta');
+    el.textContent = conf.length ? '⚠ ' + pvTextoConflito(conf, p.sigla, p.legislatura) : '';
+    el.style.display = conf.length ? '' : 'none';
+  };
   const atualizar = () => {
     const manual = depSel.value === '__manual', leg = Number(legSel.value);
     document.getElementById('pv-manual-nome').style.display = manual ? '' : 'none';
@@ -232,16 +271,20 @@ function renderPainelPedidosVagas() {
     const id = manual ? pvResolverManual(document.getElementById('pv-dep-nome').value, state.deputados).depId : depSel.value;
     document.getElementById('pv-ordem').value = String(pvProximaOrdem(id, pvLista(), leg, legAtual));
     document.getElementById('pv-erro').style.display = 'none';
+    alertar();
   };
   depSel.addEventListener('change', atualizar);
   legSel.addEventListener('change', atualizar);
   document.getElementById('pv-dep-nome').addEventListener('change', atualizar);
+  document.getElementById('pv-com').addEventListener('change', alertar);
+  document.getElementById('pv-tipo').addEventListener('change', alertar);
   document.getElementById('pv-registrar').addEventListener('click', pvRegistrar);
   document.querySelectorAll('[data-pv-sit]').forEach(b => b.addEventListener('click', () => pvMudarSituacao(b.dataset.pvId, b.dataset.pvSit)));
   document.querySelectorAll('[data-pv-del]').forEach(b => b.addEventListener('click', () => pvExcluir(b.dataset.pvDel)));
 }
 
-async function pvRegistrar() {
+/** Lê o formulário como um pedido (o deputado digitado vira o id "m_<nome>", ou o cadastrado de mesmo nome). */
+function pvLerFormulario() {
   const sel = document.getElementById('pv-dep').value;
   const p = { depId: sel, sigla: document.getElementById('pv-com').value, tipo: document.getElementById('pv-tipo').value,
     ordem: Number(document.getElementById('pv-ordem').value), legislatura: Number(document.getElementById('pv-leg').value) };
@@ -255,16 +298,26 @@ async function pvRegistrar() {
     const d = pvDigitados().find(([id]) => id === sel);
     if (d) Object.assign(p, { depManual: true, depNome: d[1].nome, depUf: d[1].uf });
   }
+  return p;
+}
+
+async function pvRegistrar() {
+  const p = pvLerFormulario();
   const v = pvValidarPedido(p, pvCtx());
   const erroEl = document.getElementById('pv-erro');
   if (!v.ok) { erroEl.textContent = v.erro; erroEl.style.display = ''; return; }
+  erroEl.style.display = 'none';
+  // inacumulabilidade: alerta quem cadastra; registrado, o pedido leva o conflito
+  if (v.conflitos.length && !confirm(`⚠ ${v.alerta}\n\nRegistrar o pedido mesmo assim?`)) return;
+  p.conflitos = v.conflitos;
   const id = `pv_${Date.now()}`;
   const reg = pvNovoRegistro(p, new Date().toISOString());
   try {
     await fbPut(`/pedidos-vagas/${id}`, reg);
   } catch (e) { mostrarToast('Não foi possível gravar o pedido: ' + e.message, 'erro'); return; }
   state.pedidosVagas[id] = reg;
-  mostrarToast(`Pedido registrado: ${pvDeputado(reg).nome} — ${p.tipo} em ${p.sigla} (${p.ordem}ª preferência, ${p.legislatura}ª legislatura).`);
+  mostrarToast(`Pedido registrado: ${pvDeputado(reg).nome} — ${p.tipo} em ${p.sigla} (${p.ordem}ª preferência, ${p.legislatura}ª legislatura)` +
+    (v.conflitos.length ? `, com conflito de inacumulabilidade: titular em ${v.conflitos.map(c => c.sigla).join(', ')}.` : '.'), v.conflitos.length ? 'aviso' : undefined, v.conflitos.length ? 6000 : undefined);
   renderSidebarPedidosVagas();
   renderPainelPedidosVagas();
 }
@@ -272,11 +325,16 @@ async function pvRegistrar() {
 async function pvMudarSituacao(id, situacao) {
   const reg = state.pedidosVagas[id];
   if (!reg) return;
-  // Reabrir não pode criar dois pedidos pendentes iguais, nem furar a inacumulabilidade
+  // Reabrir não pode criar dois pedidos pendentes iguais; a inacumulabilidade continua só marcada na lista
   if (situacao === 'pendente') {
     const outros = pvLista().filter(x => x.id !== id);
     const v = pvValidarPedido(reg, Object.assign(pvCtx(), { pedidos: outros }));
     if (!v.ok) { mostrarToast(v.erro, 'erro', 6000); return; }
+  }
+  // Atender um pedido de titular em conflito: alerta (a nomeação de titular segue barrada na composição)
+  if (situacao === 'atendido') {
+    const conf = pvConflitosInacumulaveis(Object.assign({ id }, reg), pvCtx());
+    if (conf.length && !confirm(`⚠ ${pvTextoConflito(conf, reg.sigla, pvLegDe(reg, pvLegislaturaDe()))}\n\nMarcar como atendido mesmo assim?`)) return;
   }
   const novo = pvComSituacao(reg, situacao, new Date().toISOString());
   try { await fbPut(`/pedidos-vagas/${id}`, novo); }
@@ -297,6 +355,6 @@ async function pvExcluir(id) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pvInacumulavel, pvValidarPedido, pvProximaOrdem, pvNovoRegistro, pvComSituacao, pvLegislaturaDe, pvLegislaturaPadrao,
+  module.exports = { pvInacumulavel, pvValidarPedido, pvConflitosInacumulaveis, pvTextoConflito, pvProximaOrdem, pvNovoRegistro, pvComSituacao, pvLegislaturaDe, pvLegislaturaPadrao,
     pvIdManual, pvResolverManual, PV_MAX_PREFERENCIA };
 }
