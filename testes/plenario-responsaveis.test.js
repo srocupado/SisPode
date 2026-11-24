@@ -95,7 +95,10 @@ const semente = s => () => { s = (s * 1103515245 + 12345) % 2147483648; return s
   ok(/aba|Servidores responsáveis por análises/.test(html) && /data-config-tab="servidores"/.test(html), 'aba "Servidores responsáveis" nas Configurações');
 
   console.log('\n== 3. importação do PDF ==');
-  const imp = fn('onPdfSelecionado');
+  // A importação mora em importarPautaPdf desde 24/11/2026: o PDF escolhido à mão (onPdfSelecionado) e o do
+  // calendário do Plenário (plenario-calendario.js) passam pelo mesmo caminho.
+  const imp = fn('importarPautaPdf');
+  ok(/await importarPautaPdf\(await file\.arrayBuffer\(\), file\.name\)/.test(fn('onPdfSelecionado')), 'o PDF escolhido à mão é importado por importarPautaPdf');
   const iDist = imp.indexOf('distribuirResponsaveis(state.pauta.itens'), iRender = imp.indexOf('renderizarPauta()'), iSalvar = imp.indexOf('fbSalvarPauta(state.pauta)');
   ok(iDist > 0 && iDist < iRender && iRender < iSalvar, 'sorteia antes de desenhar e de salvar: o nome vai gravado com os itens da pauta');
   const salvar = src.slice(src.indexOf('async function fbSalvarPauta('), src.indexOf('function marcarSujo()'));
