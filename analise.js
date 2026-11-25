@@ -168,10 +168,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Carrega os temas de interesse dos parlamentares (badge laranja) — não bloqueia
   carregarInteresse().catch(e => console.warn('Falha ao carregar interesses:', e.message));
 
-  // Lista pautas no sidebar e carrega a mais recente
-  await atualizarSidebarPautas();
-  await carregarUltimaPauta();
-  carregarServidores().catch(() => {});
+  // Notas Técnicas Individuais (analise.html?modo=notas, notas-individuais.js): a mesma página, sem pauta —
+  // a tela abre no acervo do servidor e cada nota é um item avulso, em memória.
+  if (niModoAtivo()) {
+    await niIniciar();
+  } else {
+    // Lista pautas no sidebar e carrega a mais recente
+    await atualizarSidebarPautas();
+    await carregarUltimaPauta();
+    carregarServidores().catch(() => {});
+  }
 
   // Varredura silenciosa de análises órfãs (sem bloquear UI)
   varrerAnalisesOrfas(false).catch(() => {});
@@ -859,6 +865,7 @@ function renderCard(it) {
         .catch(e => console.warn('Falha ao salvar analista:', e.message));
     }
     marcarSujo();
+    if (state.pauta?.notaIndividual) niAoMudarResponsavel(it);
   });
 
   // "Revisada": o(a) responsável marca À MÃO depois de gerar e revisar a nota. Fica na própria nota
@@ -963,7 +970,7 @@ function atualizarLinkPortal(it) {
 }
 
 function tipoLabel(sigla) {
-  return ({ PL: 'PL', PLP: 'PLP', PEC: 'PEC', PDL: 'PDL', MPV: 'MPV', PRC: 'PRC', REQ: 'REQ' })[sigla] || sigla;
+  return ({ PL: 'PL', PLP: 'PLP', PEC: 'PEC', PDL: 'PDL', MPV: 'MPV', PRC: 'PRC', REQ: 'REQ', MINUTA: 'Minuta' })[sigla] || sigla;
 }
 
 // Medida Provisória — Cenário 8.
@@ -1176,7 +1183,7 @@ function htmlLinhaUrgencia(it) {
 /** A Câmara respondeu e não tem a proposição: marca o item e consulta o Senado. */
 async function tratarSemRegistro(it, alvo) {
   const antes = it.provisorio || null;
-  const prov = { desde: antes?.desde || new Date().toISOString(), motivo: 'sem registro na Câmara', alvo: `${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}`, verificadoEm: new Date().toISOString() };
+  const prov = { desde: antes?.desde || new Date().toISOString(), motivo: it.fonteSenado ? 'matéria do Senado' : 'sem registro na Câmara', ...(it.fonteSenado ? { fonteSenado: true } : {}), alvo: `${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}`, verificadoEm: new Date().toISOString() };
   if (senadoTemSigla(alvo.sigla)) {
     try { const sen = await senadoBuscar(alvo, fetchJson); if (sen) prov.senado = sen; }
     catch (e) { if (isAbortError(e)) throw e; prov.senadoErro = e.message; if (antes?.senado) prov.senado = antes.senado; }
@@ -1199,7 +1206,7 @@ async function tratarSemRegistro(it, alvo) {
   it.enriquecimento = { status: 'ok', semRegistro: true };
   atualizarBadgesCard(it);
   if (mudou) marcarSujo();
-  if (!antes) mostrarToast(`⏳ ${prov.alvo}: a Câmara ainda não registrou a proposição — item marcado como "aguardando registro"${prov.senado ? '; dados e documentos lidos no Senado' : '; edite os detalhes à mão e anexe o documento, ou aguarde o registro'}.`, 'aviso');
+  if (!antes && !it.fonteSenado) mostrarToast(`⏳ ${prov.alvo}: a Câmara ainda não registrou a proposição — item marcado como "aguardando registro"${prov.senado ? '; dados e documentos lidos no Senado' : '; edite os detalhes à mão e anexe o documento, ou aguarde o registro'}.`, 'aviso');
 }
 
 /** A proposição apareceu na Câmara: desfaz o estado provisório, sem perder a análise já feita. */
@@ -1223,7 +1230,10 @@ function atualizarProvisorioCard(it, card) {
   if (!prov) { el.style.display = 'none'; el.innerHTML = ''; return; }
   const id = prov.alvo || `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
   const sen = prov.senado;
-  el.innerHTML = `<div>⏳ <b>${escapeHtml(PROVISORIO_ROTULO)}.</b> ${escapeHtml(provisorioAviso(prov, id))}</div>` +
+  const doSenado = !!prov.fonteSenado;   // nota individual de matéria do Senado: não há registro na Câmara a aguardar
+  el.innerHTML = (doSenado
+      ? `<div>🏛 <b>${escapeHtml(NI_ROTULO_SENADO)}.</b> ${escapeHtml(sen && (sen.documentos || []).length ? `A análise usa os documentos do Senado (${sen.documentos.length}) e avisa que o texto pode mudar.` : prov.senadoErro ? `A consulta ao Senado falhou (${prov.senadoErro}). Use "Verificar registro" para tentar de novo, ou anexe o documento em "Documento próprio".` : 'O Senado não tem documento desta matéria que sirva à análise. Anexe o documento em "Documento próprio".')}</div>`
+      : `<div>⏳ <b>${escapeHtml(PROVISORIO_ROTULO)}.</b> ${escapeHtml(provisorioAviso(prov, id))}</div>`) +
     (sen ? `<div style="margin-top:3px">${escapeHtml(senadoResumo(sen))}${sen.url ? ` · <a href="${escapeHtml(sen.url)}" target="_blank" rel="noopener">ver no Senado ↗</a>` : ''}</div>` : '') +
     (prov.conferir ? '<div style="margin-top:3px;color:#ffcc66">⚠ A ementa do Senado não se parece com a da pauta: confira se é a mesma matéria antes de usar os documentos.</div>' : '') +
     `<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
@@ -1239,7 +1249,7 @@ function atualizarProvisorioCard(it, card) {
     const b = ev.currentTarget; b.disabled = true; b.textContent = '… verificando';
     try {
       await enriquecerItem(it);
-      if (it.provisorio) mostrarToast(`${id}: ainda sem registro na Câmara${it.provisorio.senado ? '; dados do Senado atualizados' : ''}.`, 'info');
+      if (it.provisorio) mostrarToast(it.provisorio.fonteSenado ? `${id}: dados do Senado ${it.provisorio.senado ? 'atualizados' : 'não localizados'}.` : `${id}: ainda sem registro na Câmara${it.provisorio.senado ? '; dados do Senado atualizados' : ''}.`, 'info');
     } catch (e) { if (!isAbortError(e)) mostrarToast(`Não consegui verificar ${id}: ${e.message}`, 'erro'); }
     // o botão é redesenhado por atualizarProvisorioCard; se o item deixou de ser provisório, a linha some
   });
@@ -1319,6 +1329,15 @@ async function enriquecerItem(it) {
     atualizarBadgesCard(it);
     return;
   }
+  // Notas individuais (notas-individuais.js). Texto sem número (minuta, anteprojeto): não existe em Casa
+  // nenhuma; a análise é feita sobre o documento que o servidor anexar. Matéria do Senado: o mesmo número
+  // pode ser OUTRA proposição na Câmara, então a Câmara nem é consultada — vale o que o Senado informar.
+  if (it.textoProprio) {
+    it.enriquecimento = { status: 'ok', textoProprio: true };
+    atualizarBadgesCard(it);
+    return;
+  }
+  if (it.fonteSenado) return tratarSemRegistro(it, alvo);
 
   // Rastreia a etapa atual para que uma falha aponte exatamente onde ocorreu.
   // prop é declarado FORA do try para continuar acessível nas buscas de parecer
@@ -2489,10 +2508,16 @@ function atualizarBadgesCard(it) {
     return;
   }
   // Proposição que a Câmara ainda não registrou: não há autoria nem apensados a apurar lá.
+  if (enr.textoProprio) {   // nota individual de texto sem número: nada a apurar na Câmara
+    flag.className = 'an-badge an-badge--neutro';
+    flag.textContent = 'Texto sem número';
+    flag.title = 'Minuta, anteprojeto ou outro texto que ainda não tem número: a análise é feita sobre o documento anexado em "Documento próprio".';
+    return;
+  }
   if (it.provisorio) {
-    flag.className = 'an-badge an-badge--desatual';
-    flag.textContent = '⏳ ' + PROVISORIO_ROTULO;
-    flag.title = provisorioAviso(it.provisorio, it.provisorio.alvo);
+    flag.className = it.provisorio.fonteSenado ? 'an-badge an-badge--rel' : 'an-badge an-badge--desatual';
+    flag.textContent = it.provisorio.fonteSenado ? '🏛 ' + NI_ROTULO_SENADO : '⏳ ' + PROVISORIO_ROTULO;
+    flag.title = it.provisorio.fonteSenado ? 'Nota individual de matéria que tramita no Senado: os dados e os documentos vêm de lá.' : provisorioAviso(it.provisorio, it.provisorio.alvo);
     atualizarProvisorioCard(it, card);
     _seloDesatualizada(it, cont);
     return;
@@ -3168,7 +3193,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       return iniciarAnaliseLivreMPV(it);
     }
     if (!docs.length) {
-      const e = new Error(it.provisorio
+      const e = new Error(it.textoProprio ? 'Este texto não tem número: anexe o PDF ou o link dele em "📎 Documento próprio" para gerar a nota.'
+        : it.provisorio?.fonteSenado ? 'O Senado não entregou documento desta matéria que sirva à análise. Anexe o documento em "📎 Documento próprio".'
+        : it.provisorio
         ? `A Câmara ainda não tem registro de ${it.provisorio.alvo || 'esta proposição'}${it.provisorio.senado ? ', e o Senado não tem documento dela que sirva à análise' : it.provisorio.senadoErro ? ', e a consulta ao Senado falhou' : it.provisorio.semSenado ? ', e este tipo de proposição não tramita no Senado' : ', e o Senado também não'}.`
         : 'A Câmara ainda não tem documento desta matéria (parecer ou inteiro teor).');
       e.semDocumento = true; throw e;
@@ -3539,6 +3566,10 @@ async function escolherDocumentos(it) {
   // O enriquecimento falhou antes de achar o id (API da Câmara fora do ar,
   // 04/11/2026): resolve aqui — resolveProposicao cai no portal se a API não
   // responder. Sem o id não há parecer, redação final nem inteiro teor.
+  // Notas individuais: texto sem número não existe em Casa nenhuma (os documentos são os que o servidor
+  // anexar), e a matéria do Senado usa SÓ os documentos de lá — na Câmara, o mesmo número pode ser outra proposição.
+  if (it.textoProprio) return [];
+  if (it.fonteSenado) return (it.provisorio?.senado?.documentos || []).map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url, data: d.data, doSenado: true }));
   if (!enr.idProposicao) {
     const a = it.tipoCategoria === 'requerimento' && it.projetoUrgenciado ? it.projetoUrgenciado : it;
     if (a.sigla !== 'REQ') {
@@ -5564,6 +5595,9 @@ async function verificarAtualizacaoItem(it) {
       return desatSen;
     }
   }
+  // Notas individuais de matéria do Senado ou de texto sem número: não há o que reconsultar na Câmara
+  // (pelo mesmo número, ela devolveria outra proposição).
+  if (it.fonteSenado || it.textoProprio) return null;
   const enr = it.enriquecimento || (it.enriquecimento = {});
 
   // RECONSULTA A FONTE antes de comparar. Até 12/08/2026 esta função comparava
@@ -5837,6 +5871,7 @@ async function varrerAnalisesOrfas(verbose) {
 let _pautaParaApagar = null;
 
 async function atualizarSidebarPautas() {
+  if (niModoAtivo()) return;   // no módulo de notas individuais a barra lateral é a do acervo
   const cont = document.getElementById('sidebar-pautas');
   try {
     const res = await fetch(`${FIREBASE_URL}/pautas.json?shallow=false`);
@@ -5920,11 +5955,11 @@ async function carregarPautaPorId(id) {
         // Chegada tardia (retry/rede lenta) com o item já em edição: não
         // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
         if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); completarApelidoFaltante(it); }
+        else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
       }).catch(() => {});
       // Parecer de Especialista salvo nesta pauta: só a meta (poucos bytes) desce
       // agora; o documento inteiro desce ao clicar em "Abrir parecer".
-      fetch(PARECER_PATH(chaveParecer(it), 'meta')).then(r => r.ok ? r.json() : null)
-        .then(m => { if (m && m.em) { it.parecerMeta = m; atualizarBotaoParecer(it); } }).catch(() => {});
+      carregarMetaParecer(it);
     }
     enriquecerItens();
   } catch (e) {
@@ -6044,6 +6079,9 @@ async function _fbSalvarPautaExec(pauta) {
           // Aguardando registro na Câmara (com o que o Senado informou) e detalhes digitados à mão.
           provisorio: it.provisorio || null,
           detalhesManuais: it.detalhesManuais || null,
+          // Vindos das notas individuais ("Usar em pauta"): matéria do Senado e texto sem número.
+          fonteSenado: it.fonteSenado || null,
+          textoProprio: it.textoProprio || null,
           // Digitados no card: sem eles aqui, o responsável e o apelido preenchidos ANTES de a nota
           // existir sumiam ao recarregar, com o indicador dizendo "Sincronizado" (revisão de 11/11/2026).
           // O apelido só vai quando foi digitado: o de reserva (da ementa) é cache da sessão, e gravado
@@ -6173,8 +6211,11 @@ async function carregarUltimaPauta() {
           it.analiseStatus = 'ok';
           renderAnaliseCard(it);
           completarApelidoFaltante(it);
-        }
+        } else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
       }).catch(() => {});
+      // A NTA salva (só a meta): sem isto, a pauta aberta sozinha ao entrar ficava sem o botão "Abrir NTA"
+      // até alguém clicar nela na lista de pautas.
+      carregarMetaParecer(it);
     }
 
     enriquecerItens();
@@ -6442,7 +6483,7 @@ async function contextoApelido(it, nota) {
         enr.ementaDetalhada = d.ementaDetalhada || ''; enr.indexacao = d.keywords || '';
       } else {
         const a = _alvoItem(it);
-        if (a.sigla && a.sigla !== 'REQ') {
+        if (a.sigla && a.sigla !== 'REQ' && !it.fonteSenado && !it.textoProprio) {
           const p = await resolveProposicao(a.sigla, a.numero, a.ano);
           if (p.ementaDetalhada != null) { enr.ementaDetalhada = p.ementaDetalhada; enr.indexacao = p.indexacao || ''; }
         }
@@ -7599,7 +7640,8 @@ async function exportarPdf() {
   const logoDataUrl = await carregarLogoDataUrl();
 
   win.document.open();
-  win.document.write(_htmlImpressaoPautaPlenario(pautaExport, logoDataUrl, renumerar));
+  const optsPdf = state.pauta.notaIndividual ? { avulsa: true, meta: `Proposição fora da pauta · ${new Date().toLocaleDateString('pt-BR')}` } : {};
+  win.document.write(_htmlImpressaoPautaPlenario(pautaExport, logoDataUrl, renumerar, optsPdf));
   win.document.close();
 
   // Paged.js pagina e calcula os nº de página do índice (target-counter).
@@ -8497,7 +8539,9 @@ async function aplicarRecategorizar() {
 function abrirModalRemover(it) {
   _itemParaRemover = it;
   document.getElementById('remover-nome').textContent =
-    `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${it.ordem ? ' (item ' + it.ordem + ')' : ''}`;
+    `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${it.ordem && !state.pauta?.notaIndividual ? ' (item ' + it.ordem + ')' : ''}`;
+  const expl = document.querySelector('#modal-remover .modal-body p:nth-of-type(2)');
+  if (expl && state.pauta?.notaIndividual) expl.textContent = 'A proposição sai das notas individuais. A nota não é apagada agora: se a proposição estiver em uma pauta do Plenário, continua lá; se não estiver em nenhuma, a limpeza de notas sem uso a remove depois.';
   document.getElementById('modal-remover').style.display = 'flex';
 }
 
@@ -8509,6 +8553,9 @@ async function confirmarRemover() {
   state.selecionados.delete(it.chave);
   _itemParaRemover = null;
   document.getElementById('modal-remover').style.display = 'none';
+  // Notas individuais: "Remover" tira a proposição da lista do módulo. A nota não é apagada aqui — a mesma
+  // proposição pode estar numa pauta do Plenário, usando esta nota.
+  if (state.pauta?.notaIndividual) return niAoRemover(it);
   renderizarPauta();
 
   // Apaga a análise correspondente ao parecer registrado para este item,
@@ -8730,7 +8777,24 @@ async function salvarPautaManual() {
 
 const PARECER_PATH = (ch, sub) => `${FIREBASE_URL}/pareceres/${encodeURIComponent(ch)}${sub ? '/' + sub : ''}.json`;
 /** O parecer é da proposição NESTA pauta (a nota é compartilhada entre pautas; o parecer, não). */
-const chaveParecer = it => `${state.pauta.id}__${it.chave}`;
+const chaveParecer = it => it._chaveParecer || `${state.pauta.id}__${it.chave}`;
+/** A NTA feita no módulo de notas individuais fica sob a "pauta" da nota (nota-<chave>). */
+const chaveParecerIndividual = chave => `nota-${String(chave).toLowerCase()}__${chave}`;
+/**
+ * Meta da NTA do item. Sem NTA nesta pauta, vale a que foi feita para a proposição nas notas individuais:
+ * o botão "Abrir NTA" passa a abri-la (it._chaveParecer). Gerar de novo grava na pauta, sem tocar na individual.
+ */
+function carregarMetaParecer(it) {
+  const ler = ch => fetch(PARECER_PATH(ch, 'meta')).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  return ler(chaveParecer(it)).then(async m => {
+    if (!(m && m.em) && !state.pauta?.notaIndividual) {
+      const ind = chaveParecerIndividual(it.chave);
+      m = await ler(ind);
+      if (m && m.em) it._chaveParecer = ind;
+    }
+    if (m && m.em) { it.parecerMeta = m; atualizarBotaoParecer(it); }
+  });
+}
 
 /**
  * Botão "Abrir parecer" do card: aparece quando há parecer salvo (meta lida na
@@ -9026,6 +9090,7 @@ async function gerarParecerEspecialista(it) {
     // (varredura de 15/09/2026).
     let salvoNoFirebase = true, erroSalvar = '';
     try {
+      delete it._chaveParecer;   // NTA nova é desta pauta: a das notas individuais, se era a exibida, fica como está
       const r = await fetch(PARECER_PATH(chaveParecer(it)), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
       });

@@ -377,6 +377,7 @@ Além da nota técnica, cada card pode gerar uma **Nota Técnica Analítica (NTA
 - **Modelo da NTA**: vale a regra geral (versão mais alta entre os modelos de faixa conhecida; no Gemini, o 3.8 Flash). Em 21/11/2026 o padrão chegou a ser Claude Opus e Gemini 4 Argon, e voltou atrás no dia seguinte: uma nota no Opus consumiu 3,4 milhões de tokens de entrada, e o Argon não roda em chave sem faturamento. Os dois continuam disponíveis no diálogo, e um modelo pode ser fixado na configuração
 - **Tamanho**: cada chamada de redação tem teto de palavras e limite por seção, e a conferência acusa nota acima de 24 mil palavras (o alvo é de até 20 mil, perto de 60 páginas). Com isso a nota do PLP 299/2026 passou de 108 para 68 páginas sem perder item da leitura
 - **Diagramação compacta (24/11/2026)**: texto em 11 pt com entrelinha 1,45, margens de 14–15 mm, tabelas em 9,5 pt e caixas com menos espaço interno. Sem mudar uma palavra, a NTA do PL 4675/2025 passou de 46 para 38 páginas
+- **Botão "Abrir NTA" na pauta aberta ao entrar (25/11/2026)**: a pauta que o painel abre sozinho não buscava a NTA salva, e o botão só aparecia depois de clicar na pauta na lista; agora a busca é feita nos dois caminhos. Sem NTA na pauta, vale a feita nas Notas Técnicas Individuais
 - **Cobertura conferida**: todo ponto de gravidade alta ou média, toda estimativa, toda diferença entre versões e todo argumento que a leitura registrou tem de aparecer em algum bloco da nota; o que ficar de fora é apontado pelo identificador e vai ao revisor, que pode acrescentar a frase que falta
 - **Trecho literal**: cada item da leitura traz um trecho copiado do documento; o programa procura o trecho e **descarta o item que não localizar**. Pesquisa sem fonte também sai; link temporário de redirecionamento é trocado pelo endereço final
 - **Documento detalhado, em cinco partes**: I. A matéria (o que faz, o que muda na legislação, origem e tramitação, **documentos que embasam a proposição** — exposição de motivos, consulta pública, estudo, pelo título completo e com o endereço —, o que o texto em votação mudou em relação ao original, contexto e **histórico do tema no Congresso**: cada tentativa anterior, o desfecho e por que não avançou) · II. O debate, no formato do parecer original (**quem se posicionou e como**: texto corrido, um parágrafo por entidade — quem é, o que representa, a posição, sobre qual texto, quando, por que meio e o que defende —, fechando com quem não se manifestou; **os dois lados**: dois parágrafos por lado, o argumento no seu melhor e o que o texto e os documentos mostram sobre ele — o que procede, o que procede em parte, o que não procede e o que não há como verificar, com o artigo; **mapa de argumentos** por controvérsia — a favor e contra, quem sustenta, que evidência apresenta, como está no texto; e argumentos que ninguém levantou) · III. Experiência internacional (por país: a regra, o que aconteceu, as críticas; **quadro comparativo** com o texto brasileiro, com conversão para reais; o que a comparação não permite concluir) · IV. Análise técnica (pontos por campo, com o outro lado e o que resolveria; decisões judiciais com o limite da analogia; impacto) · V. Caminhos (**mapa de votos**, **o Podemos e a matéria**, opções **na fase atual**, **emendas redigidas**, perguntas a fazer, o que acompanhar). A Parte IV traz ainda o **risco de judicialização**: onde a lei pode ser questionada depois de aprovada, por quem, com que fundamento, o que existe de concreto e o que reduz o risco — exame de risco, nunca veredicto. A **abertura** é um resumo detalhado: o que se decide (qual texto se vota e o que o substitutivo mudou), o que muda (órgãos pelo nome completo, critérios enumerados), **quem é alcançado, pelo nome** (tabela com o critério que cada grupo supera e o dado público), quadro político, pontos de atenção e o que falta saber. O nome genérico é proibido: "uma unidade", "um estudo" e "alguns critérios" dão lugar ao nome e à enumeração
@@ -423,7 +424,29 @@ Além da nota técnica, cada card pode gerar uma **Nota Técnica Analítica (NTA
 
 ---
 
-### 6. Pautas CCJC
+### 6. Notas Técnicas Individuais
+
+Para a análise de proposições que **não estão em pauta**. A equipe recebia esses pedidos e produzia o material por fora; agora eles ficam no SisPode, com o mesmo padrão do Plenário. O módulo é a **página do Plenário em outro modo** (`analise.html?modo=notas`, `notas-individuais.js`): a nota sai pelo mesmo caminho de um item de pauta — documentos, cenários, prompts, conferência de citações, agente revisor, Nota Técnica Analítica (NTA), badges de autoria, apensados do Podemos, "pode estar desatualizada", PDF e Word — e fica no **mesmo acervo**, guardada por proposição.
+
+- **Quem está usando**: ao abrir, o módulo pede o nome do servidor (uma vez por navegador; o link **trocar** muda). A tela abre em **Minhas notas** — as que têm o servidor como responsável — e as dos demais ficam em **Todas as individuais**. A nota pedida ao bot pelo `/avulsa` entra na lista de quem pediu (o nome do Telegram, "Vinicius L", casa com "Vinícius Lára": sem acento e pelo começo do nome). O nome organiza, não protege: não há senha, e qualquer servidor pode trocar de nome
+- **Lista de servidores própria**, em **Configurações → Servidores das notas individuais** (um nome por linha, compartilhada com a equipe): há quem use o módulo sem ser da equipe de Plenário, então a lista não é a dos "Servidores responsáveis" do Plenário, que neste módulo nem aparece. Enquanto ninguém a gravou, a do Plenário serve de sugestão
+- **Nova nota**, por quatro entradas:
+  - **Número ou link** da ficha de tramitação — a proposição é conferida na Câmara antes de entrar
+  - **Consultar a Câmara** por palavras (ementa, indexação, autor), pela busca do portal: a lista traz autor e regime de tramitação
+  - **Matéria do Senado** que ainda não chegou à Câmara: os dados e os documentos vêm do Senado, e a Câmara não é consultada — lá o mesmo número pode ser outra proposição. A chave do acervo ganha o prefixo `SF-`
+  - **Texto sem número** (minuta, anteprojeto): vira "Minuta n/ano" e a nota é feita sobre o PDF ou o link anexado em **📎 Documento próprio**, que já abre ao criar
+- **A nota aberta é o card do Plenário**: Gerar Análise, Editar, Reanalisar com IA, Verificar atualização, Pergunte ao Revisor, NTA, Responsável e Revisada. O selo de **urgência** vem do regime de tramitação na Câmara (no Plenário ele vem da pauta). Mudar o responsável no card passa a nota para as notas do outro servidor
+- **Notas das pautas do Plenário**: o acervo inteiro da equipe, para consulta (só é baixado quando alguém abre esta visão)
+- **Uso no Plenário**:
+  - **Usar em pauta** inclui a proposição no fim de uma pauta salva (só o item novo é gravado)
+  - no Plenário, o item cuja proposição já tem nota no acervo — feita aqui, pelo bot ou numa pauta anterior, para outro parecer — **avisa**, dizendo de quando é, de quem e sobre que documentos foi feita. **Usar esta nota** passa a valê-la para o parecer da pauta, com a procedência registrada, e roda a conferência do "Verificar atualização". Nada é copiado sem o clique: a nota pode ser anterior a um parecer novo
+  - a **NTA** feita aqui aparece no item da pauta ("Abrir NTA"); gerar outra na pauta não mexe na individual
+- **Onde fica**: a nota, em `/analises_pauta` (como todas); o registro da nota individual, em `/analises_avulsas` — o mesmo nó do `/avulsa`, que a limpeza de notas sem uso respeita; a lista de servidores, em `/notas_individuais_servidores`. **Remover** tira a proposição das notas individuais e não apaga a nota (ela pode estar em uso numa pauta); sem pauta nem registro, a limpeza a remove depois
+- Limite conhecido: requerimentos (REQ, REC) não entram como nota individual — a nota do requerimento é a do projeto que ele urgencia
+
+---
+
+### 7. Pautas CCJC
 
 Gere resumos e análises dos projetos de lei da **Comissão de Constituição e Justiça e de Cidadania**, revise os textos e exporte a pauta consolidada em PDF.
 
@@ -462,7 +485,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 ---
 
-### 7. Pauta do Congresso Nacional
+### 8. Pauta do Congresso Nacional
 
 Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjunta** (vetos, PLNs e MPVs de crédito), com resumo e análise técnica por IA para a equipe.
 
@@ -516,7 +539,7 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 
 ---
 
-### 8. Reunião de Líderes
+### 9. Reunião de Líderes
 
 Módulo com **três sistemas internos**, navegados por abas no topo: **1 · Análise da Lista** (o PDF do Colégio de Líderes vira planilha de resumo), **2 · Demandas de Deputados** (registro dos interesses que os deputados manifestam sobre matérias) e **3 · E-mail de Demandas** (seleção das demandas registradas e formatação do texto de envio). Trocar de aba não descarta nada — cada sistema fica como estava.
 
@@ -579,7 +602,7 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 
 ---
 
-### 9. Orçamento
+### 10. Orçamento
 
 O card **Orçamento** abre três painéis: **Emendas** (o dinheiro da bancada, do proposto ao pago), **Notas Técnicas Orçamentárias** (LOA, LDO e PPA na Comissão Mista de Orçamento) e **Comparador de Portarias** (como eram e como ficaram os procedimentos regulados por portarias). Cada um abre em aba própria.
 
@@ -642,7 +665,7 @@ Notas técnicas sobre os atos que regulam procedimentos orçamentários (portari
 
 ---
 
-### 10. Bot do Telegram (SisPode Bot)
+### 11. Bot do Telegram (SisPode Bot)
 
 Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as análises e o **acompanhamento ao vivo do Plenário** para o grupo do Telegram. Usa o **mesmo Firebase** da extensão (as análises geradas no painel aparecem no bot) e roda a IA **na chave de cada usuário** (`/config`). Código em `bot/` — instalação em [`bot/INSTALACAO.md`](bot/INSTALACAO.md), guia de uso em [`bot/GUIA-ANALISTA.md`](bot/GUIA-ANALISTA.md).
 
@@ -699,7 +722,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - `/labsmapa [ano]` — **Labs · Mapa Territorial** (roda em segundo plano, sem travar o bot; uma coleta por vez; respeita o limite de 90 req/min do Portal): baixa o arquivo de votação por município do TSE (padrão 2026: os eleitos do PODE no arquivo, com a comparação com 2022; em 2022, a bancada de hoje), agrega os votos por município e, com `TRANSPARENCIA_CHAVE` no `.env`, as emendas pagas (ano anterior e atual); grava em `/labs/mapa`
 - **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
 
-### 11. Labs
+### 12. Labs
 
 **Área de desenvolvimento de novas soluções.** Dentro dela desenvolvemos e testamos funcionalidades; quando homologadas, elas saem para integrar novos módulos ou módulos já existentes. Cada protótipo depende só de `labs.js` (e de `ia-comum.js`, quando usa IA), para poder ser levado a outro módulo sem arrastar o resto. Tudo aqui é **experimental**.
 - **⚙ na barra do topo**: provedor, chave e modelo de IA — o mesmo modal de Relatórios (`modelo-ia.js`), gravando a configuração do aplicativo
@@ -864,6 +887,7 @@ sispode/
 ├── parecer.js / pipeline-parecer.js   # escolha do modelo do parecer; pipeline anterior (abre os pareceres já salvos)
 ├── docs-analista.js               # Documento próprio do analista: tipos, validação, rótulos e instrução ao modelo
 ├── senado-materia.js              # Matéria pautada sem registro na Câmara: consulta ao Senado, documentos, avisos e instrução ao modelo
+├── notas-individuais.js           # Notas Técnicas Individuais: a página do Plenário no modo de notas (servidores, acervo, nova nota, uso em pauta)
 ├── especialistas.js               # As 15 lentes temáticas e seus roteiros
 ├── dossie.js / ficha-objeto.js    # Lei vigente, séries e estimativas; ficha do objeto
 ├── tese.js / gates.js             # Tese com evidências, contraditório, portões e rubrica M1–M14
@@ -884,6 +908,7 @@ sispode/
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 │   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
+│   ├── notas-individuais.test.js   # Notas individuais: funções, ligação com o Plenário, a página no navegador (servidores, minhas notas, nova nota pelas quatro entradas, uso em pauta) e o aviso de nota do acervo no Plenário
 │   ├── pe5.test.js                 # NTA, formato atual: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
 │   ├── pe5-referencia.js           # caso de referência (PL 4675/2025) com as respostas gravadas no lugar do modelo
 │   ├── parecer-v3.test.js          # NTA, formato anterior: pipeline, tese, portões, rubrica

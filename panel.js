@@ -3553,6 +3553,14 @@ const MODULES = [
     acao:   abrirAnalise,
   },
   {
+    id:     'notas',
+    titulo: 'Notas Técnicas Individuais',
+    desc:   'Nota técnica e NTA de proposições fora da pauta, de matérias do Senado e de textos sem número, com as notas de cada servidor. A nota é aproveitada quando a proposição entra na pauta do Plenário.',
+    cor:    'verde',
+    icone:  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><circle cx="12" cy="13" r="2.2"/><path d="M8 19a4 4 0 0 1 8 0"/>',
+    acao:   abrirNotasIndividuais,
+  },
+  {
     id:     'lideres',
     titulo: 'Reunião de Líderes',
     desc:   'Importe a lista de proposições do Colégio de Líderes e gere por IA a planilha de resumo — objetivo, justificativa, situação, comissões e relatoria de Plenário.',
@@ -3737,6 +3745,11 @@ function abrirSubpainelComissoes(arquivo) {
 function abrirAnalise() {
   const url = chrome.runtime.getURL('analise.html');
   chrome.tabs.create({ url });
+}
+
+// Notas Técnicas Individuais: a página do Plenário em outro modo (notas-individuais.js).
+function abrirNotasIndividuais() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('analise.html?modo=notas') });
 }
 
 function abrirCCJC() {
