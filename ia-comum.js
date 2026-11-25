@@ -246,12 +246,37 @@ function iaFontesGemini(gm, acc) {
   return acc;
 }
 
+/** Página que o modelo ABRIU E LEU (não só o resultado da busca): entra em `paginas` e nas fontes. */
+function iaJuntarPagina(acc, url, meta) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return acc;
+  acc.paginas = acc.paginas || [];
+  if (!acc.paginas.includes(u)) acc.paginas.push(u);
+  iaJuntarFontes(acc.fontes, [iaFonte(u, meta || {})]);
+  return acc;
+}
+
+/** Gemini: páginas lidas pela ferramenta de contexto de URL (urlContextMetadata do candidato). */
+function iaPaginasGemini(cand, acc) {
+  const m = cand && (cand.urlContextMetadata || cand.url_context_metadata);
+  for (const u of ((m && (m.urlMetadata || m.url_metadata)) || [])) {
+    const st = String((u && (u.urlRetrievalStatus || u.url_retrieval_status)) || '');
+    if (!st || /SUCCESS/i.test(st)) iaJuntarPagina(acc, u && (u.retrievedUrl || u.retrieved_url));
+  }
+  return acc;
+}
+
 /** OpenAI: itens de output da Responses API. */
 function iaFontesOpenAI(output, acc) {
   for (const item of (output || [])) {
     if (item.type === 'web_search_call') {
       const q = (item.action && item.action.query) || item.query;
       iaJuntarBuscas(acc.buscas, Array.isArray(q) ? q : [q]);
+      // Modelos de raciocínio abrem a página (open_page) e procuram nela (find_in_page): é leitura, não só busca.
+      const a = item.action || {};
+      if (/^(open_page|find_in_page|find)$/.test(String(a.type || '')) && a.url) iaJuntarPagina(acc, a.url);
+      // Com include "web_search_call.action.sources", a lista completa do que a busca consultou.
+      iaJuntarFontes(acc.fontes, (Array.isArray(a.sources) ? a.sources : []).map(f => iaFonte(f && f.url, { titulo: f && f.title })));
     }
     for (const c of (item.content || [])) {
       const cits = (c.annotations || []).filter(a => a && (a.type === 'url_citation' || a.url));
@@ -288,6 +313,10 @@ function iaFontesAnthropic(blocos, acc) {
       iaJuntarFontes(acc.fontes, res.map(r =>
         iaFonte(r && r.url, { titulo: r && r.title, data: r && r.page_age })));
     }
+    // Página aberta e lida (web_fetch). Falha de leitura vem como web_fetch_tool_result_error e não conta.
+    if (b.type === 'web_fetch_tool_result' && b.content && b.content.type === 'web_fetch_result') {
+      iaJuntarPagina(acc, b.content.url, { titulo: b.content.content && b.content.content.title, data: b.content.retrieved_at });
+    }
     if (b.type === 'text') {
       iaJuntarFontes(acc.fontes, (b.citations || []).map(c =>
         iaFonte(c && c.url, { titulo: c && c.title, trecho: c && c.cited_text })));
@@ -298,6 +327,69 @@ function iaFontesAnthropic(blocos, acc) {
     }
   }
   return acc;
+}
+
+// LEITURA DE PÁGINAS (25/11/2026). Com `opcoes.lerPaginas`, além de buscar o modelo abre e lê as páginas: web_fetch
+// na Anthropic, contexto de URL no Gemini, e na OpenAI a busca com contexto alto (os modelos de raciocínio já abrem
+// a página). Só com a busca, o modelo trabalhava com o resumo do buscador, e a NTA do PL 4675/2025 saiu com dois
+// países e nenhuma decisão judicial. Tetos largos: são guarda contra laço, não limite de custo.
+const IA_MAX_BUSCAS = 60, IA_MAX_PAGINAS = 40, IA_TOKENS_POR_PAGINA = 30000, IA_MAX_RETOMADAS = 12;
+
+/**
+ * Tenta `fn(nivel)` do nível mais completo ao mais simples. Se o provedor recusar o pedido (HTTP 400: ferramenta
+ * que o modelo ou a conta não aceita), passa ao seguinte; se falhar a retomada de um turno pausado, vai direto ao
+ * último, que é a busca curta de sempre. O recuo fica em `proc.avisos`, para a nota dizer que não houve leitura.
+ */
+async function iaTentarNiveis(niveis, proc, fn) {
+  for (let i = 0; ;) {
+    try { return await fn(niveis[i]); }
+    catch (e) {
+      const ultimo = niveis.length - 1;
+      if (i >= ultimo || !(e && (e.status === 400 || e.retomada))) throw e;
+      i = e.retomada ? ultimo : i + 1;
+      const aviso = e.retomada ? `A pesquisa longa não pôde ser retomada (${String(e.message || '').slice(0, 140)}); foi refeita com a busca curta, sem leitura de páginas.`
+        : `O provedor recusou a leitura de páginas (${String(e.message || '').slice(0, 140)}); a pesquisa foi feita só com a busca.`;
+      const aindaLe = /web_fetch|url_context|search_context_size/.test(JSON.stringify(niveis[i] || ''));   // o nível seguinte ainda lê páginas (outra versão da ferramenta): nada a avisar
+      if (proc && Array.isArray(proc.avisos) && !aindaLe && !proc.avisos.includes(aviso)) proc.avisos.push(aviso);
+    }
+  }
+}
+
+/**
+ * Anthropic em streaming: remonta os blocos de conteúdo a partir dos eventos. É preciso tê-los inteiros para
+ * retomar um turno pausado (stop_reason "pause_turn": a pesquisa passou do limite de voltas do servidor e a
+ * resposta tem de ser devolvida como veio para continuar) e para ler as citações, que chegam em deltas.
+ */
+function iaAnthropicDoSse(eventos) {
+  const blocos = [], uso = {}; let parada = null;
+  for (const ev of eventos || []) {
+    const d = ev.dados || {};
+    if (ev.evento === 'error' || d.type === 'error') throw new Error(d.error?.message || 'erro da Anthropic');
+    if (d.type === 'message_start' && d.message?.usage) Object.assign(uso, d.message.usage);
+    if (d.type === 'message_delta') { if (d.delta?.stop_reason) parada = d.delta.stop_reason; if (d.usage) Object.assign(uso, d.usage); }
+    if (d.type === 'content_block_start' && d.content_block) {
+      const b = JSON.parse(JSON.stringify(d.content_block));
+      if (/tool_use$/.test(b.type)) b._json = '';
+      if (Number.isInteger(d.index)) blocos[d.index] = b; else blocos.push(b);
+    }
+    if (d.type === 'content_block_delta' && d.delta) {
+      const x = d.delta, comIndice = Number.isInteger(d.index);
+      let b = comIndice ? blocos[d.index] : blocos[blocos.length - 1];
+      // texto que chega sem o início do bloco (ou depois de um bloco de outro tipo) abre um bloco de texto
+      if (x.type === 'text_delta' && (!b || b.type !== 'text')) { b = { type: 'text', text: '' }; if (comIndice) blocos[d.index] = b; else blocos.push(b); }
+      if (!b) continue;
+      if (x.type === 'text_delta') b.text = (b.text || '') + (x.text || '');
+      else if (x.type === 'thinking_delta') b.thinking = (b.thinking || '') + (x.thinking || '');
+      else if (x.type === 'signature_delta') b.signature = (b.signature || '') + (x.signature || '');
+      else if (x.type === 'input_json_delta') b._json = (b._json || '') + (x.partial_json || '');
+      else if (x.type === 'citations_delta' && x.citation) (b.citations = b.citations || []).push(x.citation);
+    }
+  }
+  const prontos = blocos.filter(Boolean);
+  for (const b of prontos) {
+    if (b._json !== undefined) { if (b._json.trim()) { try { b.input = JSON.parse(b._json); } catch (_) { /* fica o input do início do bloco */ } } delete b._json; }
+  }
+  return { blocos: prontos, parada, uso: Object.keys(uso).length ? uso : null };
 }
 
 async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, opcoes = {} }) {
@@ -316,7 +408,9 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
   const usoAnthropic = u => u ? { entrada: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, raciocinio: 0, total: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0) } : null;
   // Sempre presente, mesmo sem `web`: quem chama não precisa se defender de
   // campo ausente, e lista vazia diz "não buscou" com clareza.
-  const proc = { fontes: [], buscas: [], trechos: [] };
+  // `paginas`: o que o modelo abriu e leu; `avisos`: recuo quando o provedor recusa a leitura de páginas.
+  const proc = { fontes: [], buscas: [], trechos: [], paginas: [], avisos: [] };
+  const lerPaginas = !!(web && opcoes.lerPaginas);
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
@@ -349,7 +443,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // 299/2026): mais de 5 minutos sem resposta, quatro tentativas perdidas. As partes de raciocínio chegam
     // marcadas com `thought` e são descartadas abaixo; o texto da resposta não muda.
     if (emStream && body.generationConfig.thinkingConfig) body.generationConfig.thinkingConfig.includeThoughts = true;
-    if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
+    // Grounding com Google Search; com leitura de páginas, também o contexto de URL (Tool.urlContext). A
+    // documentação não diz se as duas ferramentas podem ir juntas no generateContent: se o Gemini recusar, vai só a busca.
+    const niveisG = !web ? [null] : lerPaginas ? [[{ google_search: {} }, { url_context: {} }], [{ google_search: {} }]] : [[{ google_search: {} }]];
+    return iaTentarNiveis(niveisG, proc, async tools => {
+    if (tools) body.tools = tools;
     const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
     if (emStream) {
       let texto = '', fim = '', uso = null;
@@ -357,7 +455,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         if (ev.dados?.error) throw new Error(ev.dados.error.message || 'erro do Gemini');
         const cand = ev.dados?.candidates?.[0];
         for (const pt of cand?.content?.parts || []) if (pt.text && !pt.thought) texto += pt.text;
-        iaFontesGemini(cand?.groundingMetadata, proc);
+        iaFontesGemini(cand?.groundingMetadata, proc); iaPaginasGemini(cand, proc);
         if (cand?.finishReason) fim = cand.finishReason;
         if (ev.dados?.usageMetadata) uso = ev.dados.usageMetadata;   // o último evento traz o total
       }
@@ -367,13 +465,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const cand = json.candidates?.[0];
     // Com grounding o texto pode vir em vários parts — concatena todos.
     const texto = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
-    iaFontesGemini(cand?.groundingMetadata, proc);
+    iaFontesGemini(cand?.groundingMetadata, proc); iaPaginasGemini(cand, proc);
     return {
       text: exigirTexto(texto, json.promptFeedback?.blockReason || cand?.finishReason),
       truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
       usage: usoGemini(json.usageMetadata),
       ...proc,
     };
+    });
   }
 
   if (provedorId === 'openai') {
@@ -395,7 +494,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     if (/^(o\d|gpt-5)/.test(m)) delete body.temperature;
     if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
     else if (nivelPensar && /^(o\d|gpt-5)/.test(m)) { body.reasoning = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; body.max_output_tokens = Math.round(maxSaida * 1.5); }
-    if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
+    // Busca web na Responses API. Com leitura de páginas: contexto de busca alto e a lista completa das fontes
+    // consultadas (os modelos de raciocínio abrem a página por conta própria: open_page, find_in_page).
+    const niveisO = !web ? [null] : lerPaginas ? [{ tools: [{ type: 'web_search', search_context_size: 'high' }], include: ['web_search_call.action.sources'] }, { tools: [{ type: 'web_search' }] }] : [{ tools: [{ type: 'web_search' }] }];
+    return iaTentarNiveis(niveisO, proc, async nivel => {
+    if (nivel) { body.tools = nivel.tools; if (nivel.include) body.include = nivel.include; else delete body.include; }
     if (emStream) {
       body.stream = true;
       let texto = '', fim = null;
@@ -436,6 +539,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const recusa = (json.output || []).some(i => (i.content || []).some(c => c.type === 'refusal'));
     iaFontesOpenAI(json.output, proc);
     return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc, usage: usoOpenAI(json.usage), ...proc };
+    });
   }
 
   if (provedorId === 'anthropic') {
@@ -465,34 +569,45 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; body.max_tokens = Math.min(128000, maxSaida + orc * 4); }
       else { body.thinking = { type: 'enabled', budget_tokens: orc }; body.max_tokens = maxSaida + orc; }
     }
-    // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
-    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: Math.min(20, Math.max(1, opcoes.maxBuscas || 5)) }];
+    // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores. Com leitura de páginas, também o
+    // web_fetch (o de filtragem dinâmica nos 4.6 em diante; se a API recusar, o básico; se recusar de novo, só a busca).
+    const adapt = raciocinioAdaptativo(m);
+    const busca = n => ({ type: adapt ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: n });
+    const nBuscas = Math.min(opcoes.maxBuscas ? IA_MAX_BUSCAS : 20, Math.max(1, opcoes.maxBuscas || 5));
+    const leitura = tipo => ({ type: tipo, name: 'web_fetch', max_uses: Math.min(IA_MAX_PAGINAS, Math.max(1, opcoes.maxPaginas || 25)), max_content_tokens: IA_TOKENS_POR_PAGINA });
+    const niveisA = !web ? [null] : !lerPaginas ? [[busca(nBuscas)]]
+      : [...(adapt ? [[busca(nBuscas), leitura('web_fetch_20260209')]] : []), [busca(nBuscas), leitura('web_fetch_20250910')], [busca(nBuscas)], [busca(5)]];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
-    if (emStream) {
-      body.stream = true;
-      let texto = '', parada = null; const uso = {};
-      for (const ev of await fetchIASse('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) })) {
-        const d = ev.dados || {};
-        if (ev.evento === 'error' || d.type === 'error') throw new Error(d.error?.message || 'erro da Anthropic');
-        if (d.type === 'content_block_delta' && d.delta?.type === 'text_delta') texto += d.delta.text || '';
-        // No streaming os blocos de busca e de citação chegam inteiros aqui;
-        // os deltas de texto acima não os carregam.
-        if (d.type === 'content_block_start' && d.content_block) iaFontesAnthropic([d.content_block], proc);
-        if (d.type === 'message_delta' && d.delta?.stop_reason) parada = d.delta.stop_reason;
-        if (d.type === 'message_start' && d.message?.usage) Object.assign(uso, d.message.usage);
-        if (d.type === 'message_delta' && d.usage) Object.assign(uso, d.usage);
+    const url = 'https://api.anthropic.com/v1/messages';
+    return iaTentarNiveis(niveisA, proc, async tools => {
+      if (tools) body.tools = tools;
+      if (emStream) body.stream = true;
+      const mensagens = [{ role: 'user', content }], uso = {};
+      let texto = '', parada = null;
+      // Um turno com muitas buscas e leituras para com "pause_turn" (o servidor faz dez voltas por pedido): devolve-se
+      // a resposta como veio, sem mensagem nova, e o servidor continua de onde parou.
+      for (let volta = 0; volta <= IA_MAX_RETOMADAS; volta++) {
+        body.messages = mensagens;
+        let r;
+        try {
+          if (emStream) r = iaAnthropicDoSse(await fetchIASse(url, { method: 'POST', headers: cab, body: JSON.stringify(body) }));
+          else { const json = await fetchIA(url, { method: 'POST', headers: cab, body: JSON.stringify(body) }); r = { blocos: json.content || [], parada: json.stop_reason, uso: json.usage || null }; }
+        } catch (e) {
+          if (volta > 0 && e && e.status >= 400 && e.status < 500) throw Object.assign(new Error(e.message), { retomada: true });
+          throw e;
+        }
+        // Concatena todos os blocos de texto (com busca há blocos de busca no meio).
+        const partes = r.blocos.filter(b => b.type === 'text' && b.text).map(b => b.text);
+        if (partes.length) texto += (texto && !emStream ? '\n' : '') + partes.join(emStream ? '' : '\n');
+        iaFontesAnthropic(r.blocos, proc);
+        for (const k of ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']) if (r.uso && r.uso[k]) uso[k] = (uso[k] || 0) + r.uso[k];
+        parada = r.parada;
+        if (parada !== 'pause_turn') break;
+        mensagens.push({ role: 'assistant', content: r.blocos.filter(b => !(b.type === 'text' && !b.text)) });   // bloco de texto vazio é recusado na volta
       }
       if (parada === 'refusal') throw new Error('O modelo recusou a solicitação (stop_reason refusal).');
-      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens', usage: Object.keys(uso).length ? usoAnthropic(uso) : null, ...proc };
-    }
-    const json = await fetchIA('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) });
-    // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
-    let texto = '';
-    for (const item of (json.content || [])) {
-      if (item.type === 'text' && item.text) texto += (texto ? '\n' : '') + item.text;
-    }
-    iaFontesAnthropic(json.content, proc);
-    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens', usage: usoAnthropic(json.usage), ...proc };
+      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens' || parada === 'pause_turn', usage: Object.keys(uso).length ? usoAnthropic(uso) : null, ...proc };
+    });
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);
@@ -540,7 +655,7 @@ async function fetchIA(url, init) {
     let detalhe;
     try { detalhe = await res.json(); } catch (_) { detalhe = null; }
     const msg = detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`;
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   throw ultimaErro || new Error('Falha após retries');
 }
@@ -592,7 +707,7 @@ async function fetchIASse(url, init) {
       continue;
     }
     let detalhe; try { detalhe = await res.json(); } catch (_) { detalhe = null; }
-    throw new Error(detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`);
+    throw Object.assign(new Error(detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`), { status: res.status });
   }
   throw ultimaErro || new Error('Falha após retries');
 }

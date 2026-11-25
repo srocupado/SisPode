@@ -48,9 +48,9 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
   ok(!/grave/.test(marca[0]) && /grave/.test(marca[1]) && !/grave/.test(marca[2]), 'ponto grave: o art. 2º da Lei Kandir não marca o art. 2º da LC 200, e o art. 14 da LC 235 não marca o art. 14 do projeto');
   const base = { identificacao: 'PLP 299/2026', ementa: 'e', leitura, coleta: null, hoje: '22/11/2026' };
   const ctx = PR.pe5PromptContexto(base);
-  ok(/DISPOSITIVOS DA CONSTITUIÇÃO EM JOGO/.test(ctx) && /NO MÍNIMO 4 e até 10 decisões/.test(ctx) && /acórdãos do TCU/.test(ctx) && /Ação ainda sem decisão NÃO entra aqui/.test(ctx), 'contexto: no mínimo quatro decisões, uma por dispositivo, em quatro frentes; ação sem decisão vai para a judicialização');
+  ok(/DISPOSITIVOS DA CONSTITUIÇÃO EM JOGO/.test(ctx) && /NO MÍNIMO 6 e até 12 decisões/.test(ctx) && /SÓ ENTRA a decisão cuja página/.test(ctx) && /acórdãos do TCU/.test(ctx) && /Ação ainda sem decisão NÃO entra aqui/.test(ctx), 'contexto: no mínimo seis decisões, uma por dispositivo, em quatro frentes, só as de página lida; ação sem decisão vai para a judicialização');
   const intl = PR.pe5PromptInternacional(base);
-  ok(/NO MÍNIMO 5 e até 8 países/.test(intl) && /MECANISMOS DO TEXTO/.test(intl) && /Redução de compensações \(art\. 1º \(art\. 6º-F\)\) — tem ponto grave/.test(intl) && /"eixo": "qual dos eixos"/.test(intl), 'internacional: no mínimo cinco, um por eixo, com os mecanismos do texto e os de ponto grave marcados');
+  ok(/NO MÍNIMO 6 e até 10 países/.test(intl) && /MECANISMOS DO TEXTO/.test(intl) && /Redução de compensações \(art\. 1º \(art\. 6º-F\)\) — tem ponto grave/.test(intl) && /"eixo": "qual dos eixos"/.test(intl), 'internacional: no mínimo seis, um por eixo, com os mecanismos do texto e os de ponto grave marcados');
   const deb = PR.pe5PromptDebate({ ...base, foco: 'politica', noticias: [{ veiculo: 'Agência Senado', data: '18/11/2026', titulo: 'T', url: 'https://www12.senado.leg.br/x', texto: 'fala do senador' }] });
   ok(/NOTÍCIAS DAS AGÊNCIAS DO CONGRESSO/.test(deb) && /<<<NOTÍCIA 1: Agência Senado, 18\/11\/2026 — T — https:\/\/www12\.senado\.leg\.br\/x>>>/.test(deb) && !/NOTÍCIAS DAS AGÊNCIAS/.test(PR.pe5PromptDebate({ ...base, foco: 'economia', noticias: [{ url: 'u', texto: 't' }] })), 'as notícias das agências vão só à busca de governo e Congresso');
   const comp = PR.pe5PromptComplementar({ ...base, faltaPaises: 3, faltaDecisoes: 0, jaPaises: ['França', 'Itália'], eixosSemPais: ['Lei Kandir'] });
@@ -67,9 +67,10 @@ const ok = (c, m) => { console.log(`  ${c ? '✓' : '✗'} ${m}`); if (!c) falha
     pesquisa: { debate: { atores: o.atores || [] }, internacional: { jurisdicoes: [] }, contexto: { jurisprudencia: [] } }, leitura: {}, coleta: { mapa: { quorum: { regra: 'maioria absoluta dos deputados', minimo: 257, base: 'art. 69 da Constituição' } } }, trechos: { recusados: [] }, alteracoes: [] });
   const item = (c, re) => c.itens.find(i => re.test(i.teste));
   const c1 = K.pe5Conferir(p({ jur: [{}, {}], dec: [{}] }));
-  ok(!item(c1, /ao menos cinco países/).ok && !item(c1, /Decisões judiciais: ao menos quatro/).ok && !item(c1, /Quórum da matéria/).ok, 'dois países, uma decisão e a abertura sem os 257 votos: três apontamentos');
-  const c2 = K.pe5Conferir(p({ jur: [{}, {}, {}, {}, {}], dec: [{}, {}, {}, {}], decide: 'Por ser lei complementar, a aprovação exige 257 votos.' }));
-  ok(item(c2, /ao menos cinco países/).ok && item(c2, /Decisões judiciais: ao menos quatro/).ok && item(c2, /Quórum da matéria/).ok, 'cinco países, quatro decisões e o quórum dito: os três passam');
+  ok(!item(c1, /ao menos seis países/).ok && !item(c1, /Decisões judiciais: ao menos seis/).ok && !item(c1, /Quórum da matéria/).ok, 'dois países, uma decisão e a abertura sem os 257 votos: três apontamentos');
+  const c2 = K.pe5Conferir(p({ jur: [{}, {}, {}, {}, {}, {}], dec: [{}, {}, {}, {}, {}, {}], decide: 'Por ser lei complementar, a aprovação exige 257 votos.' }));
+  ok(item(c2, /ao menos seis países/).ok && item(c2, /Decisões judiciais: ao menos seis/).ok && item(c2, /Quórum da matéria/).ok, 'seis países, seis decisões e o quórum dito: os três passam');
+  ok(!item(K.pe5Conferir(p({ jur: [{}, {}, {}, {}, {}], dec: [{}, {}, {}, {}, {}] })), /ao menos seis países/).ok, 'cinco países e cinco decisões, o mínimo antigo, já não bastam');
   const atores = Array.from({ length: 8 }, (_, i) => ({ id: `Q${i + 1}`, ator: `Ator ${i + 1}`, grupo: i < 5 ? 'Governo e Congresso' : 'Setores', argumentos: [{ tese: `t${i}` }] }));
   const c3 = K.pe5Conferir(p({ atores, posicoes: [{ texto: 'a', ev: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8'] }] }));
   const c4 = K.pe5Conferir(p({ atores, posicoes: atores.slice(0, 6).map(a => ({ texto: 'a', ev: [a.id] })) }));

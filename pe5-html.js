@@ -342,6 +342,15 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
 }
 
 /** Relatório de conferência: o que o programa testou, o que saiu, o que a revisão mudou e quanto custou. */
+/** Quantas buscas o modelo fez e quantas páginas abriu nas pesquisas (quando o provedor informa); e se a leitura de páginas foi recusada. */
+function pe5ResumoLeituraWeb(chamadas) {
+  const web = (chamadas || []).filter(c => c && c.web);
+  const nB = web.reduce((n, c) => n + (c.buscas || 0), 0), nP = web.reduce((n, c) => n + (c.paginas || 0), 0);
+  const recusou = web.some(c => (c.avisos || []).some(a => /leitura de páginas/i.test(a)));
+  if (!nB && !nP && !recusou) return '';
+  const pl = (n, um, muitos) => `${n} ${n === 1 ? um : muitos}`;
+  return ` — quem leu foi o modelo: ${pl(nB, 'busca', 'buscas')} e ${pl(nP, 'página aberta', 'páginas abertas')} nas pesquisas${recusou ? '; em ao menos uma delas o provedor recusou a leitura de páginas, e a pesquisa foi só de busca' : ''}`;
+}
 function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const esc = pe5Esc, conf = p.conferencia || { itens: [] }, tr = p.trechos || { conferidos: 0, recusados: [] }, rv = p.revisao || {};
   const tab = (cab, linhas) => linhas.length ? `<table class="pe"><thead><tr>${cab.map(c => `<th${c === 'Resultado' ? ' style="width:16%"' : c === 'Teste' ? ' style="width:44%"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="pe-vazio">Nada a registrar.</p>';
@@ -358,7 +367,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <p class="pe-fonte" style="text-align:center">Gerado em ${pe5DataHora(p.geradoEm)}${p.modelo ? ` · modelo ${esc(p.modelo)}` : ''}${(p.chamadas || []).length ? ` · ${p.chamadas.length} chamadas` : ''}${c.total ? ` · ${mil(c.total)} tokens` : ''}${p.geradoPor ? ` · por ${esc(p.geradoPor)}` : ''}</p>
   <h2 class="item-h">Como a NTA foi produzida</h2>
   <ul>
-    <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
+    <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>${pe5ResumoLeituraWeb(p.chamadas)}. Use como mapa e confira a fonte antes de citar.</li>
     <li>Em "Os dois lados", o que se diz sobre cada argumento ("confirma-se", "procede", "não procede") é avaliação do modelo, feita contra o texto analisado e os dados da base.</li>
     <li>O histórico do tema no Congresso e os sinais de judicialização também vêm de pesquisa na internet feita pelo modelo. O risco de judicialização é exame de risco, não juízo sobre a constitucionalidade.</li>
     <li>O mapa de votos, as iniciativas e os projetos de deputados do Podemos e o voto da bancada em proposições correlatas foram lidos pelo programa nos dados abertos da Câmara. Quais projetos tratam do mesmo assunto foi escolha do modelo, a partir de uma busca por palavra-chave.</li>
@@ -394,5 +403,5 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5Tendencia, pe5TendenciaHtml, pe5MapaHtml, pe5PartidoHtml, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
+  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5Tendencia, pe5TendenciaHtml, pe5MapaHtml, pe5PartidoHtml, pe5IndicePesquisa, pe5ResumoLeituraWeb, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
 }

@@ -212,7 +212,96 @@ const PE5_REGRAS_PESQUISA = `REGRAS DA PESQUISA
 - Toda informação tem data ("dd/mm/aaaa" ou "mês de aaaa"). Sem data conhecida, escreva "sem data".
 - Se uma fonte disser algo que contradiz os FATOS DO TEXTO abaixo (um prazo, um valor, o regime de tramitação), não corrija a fonte em silêncio: registre a divergência em "avisos".
 - Em "avisos", diga também o que procurou e não encontrou.
+- ABRA E LEIA as páginas que a busca trouxer antes de registrar: o resumo do buscador não basta para dizer o que uma decisão decidiu, o que uma lei estrangeira exige ou o que uma entidade argumenta. Leia a decisão, a lei, a nota — a página da fonte primária, quando existir.
+- As PISTAS, quando houver, são sugestões de ONDE PROCURAR, escritas antes da busca e sem consulta a fonte alguma. Pista não é fato: use-a para escolher os termos de busca e só registre o que uma página lida confirmar. Pista que a busca não confirmou vai em "avisos" ("procurado e não localizado"), nunca na lista.
 - Uma busca só não basta. Faça VÁRIAS buscas, com termos diferentes: pelo número da matéria; pelo nome que a imprensa lhe dá; por cada grupo de atores ou de fontes pedido abaixo; por cada ponto sensível listado. Só pare quando as buscas novas deixarem de trazer nome ou fato novo.`;
+
+// MÍNIMOS DA PESQUISA (25/11/2026). A NTA do PL 4675/2025 gerada pelo Sonnet 5.5 saiu com 2 países, nenhuma decisão
+// judicial e 15 atores; a mesma matéria, pesquisada à mão, tinha 7 países, 4 decisões e 37 atores. Decisão da
+// Liderança: 6 países, 6 decisões, 20 atores (ao menos 5 a favor e 5 contra); o que faltar é pedido de novo, em até
+// três rodadas; se ainda faltar, a nota sai com aviso. A NTA é feita para matéria complexa: não há teto de custo.
+const PE5_MIN_PESQUISA = { paises: 6, decisoes: 6, atores: 20, porLado: 5, rodadas: 3 };
+
+/** De que lado o ator está: "favorável com ressalvas" conta a favor; "contrário com ressalvas", contra. */
+function pe5LadoAtor(posicao) { const p = String(posicao || '').trim(); return /^favor/i.test(p) ? 'favor' : /^contr/i.test(p) ? 'contra' : 'neutro'; }
+function pe5ContagemAtores(atores) {
+  const c = { total: 0, favor: 0, contra: 0, neutro: 0 };
+  for (const a of atores || []) { if (!a || !a.ator) continue; c.total++; c[pe5LadoAtor(a.posicao)]++; }
+  return c;
+}
+/** O que ainda falta para os mínimos. `alguma` diz se vale uma rodada complementar. */
+function pe5FaltasPesquisa({ paises = 0, decisoes = 0, atores = [], semContraste = false, faltaOrigens = [] } = {}) {
+  const M = PE5_MIN_PESQUISA, c = pe5ContagemAtores(atores);
+  const f = { paises: Math.max(0, M.paises - paises), decisoes: Math.max(0, M.decisoes - decisoes), atores: Math.max(0, M.atores - c.total),
+    favor: Math.max(0, M.porLado - c.favor), contra: Math.max(0, M.porLado - c.contra), contraste: !!semContraste, origens: faltaOrigens || [] };
+  f.alguma = !!(f.paises || f.decisoes || f.atores || f.favor || f.contra || f.contraste || f.origens.length);
+  return f;
+}
+
+/**
+ * ETAPA DE PISTAS (25/11/2026): antes de buscar, o modelo lista ONDE PROCURAR — leis de outros países, decisões,
+ * quem costuma se manifestar. É a única chamada em que ele usa o que sabe de memória, e nada dela vai para a nota:
+ * as pistas só orientam as buscas, e só entra o que uma página lida confirmar. Sem elas, o modelo gastava as buscas
+ * com termos genéricos e voltava com dois países.
+ */
+function pe5PromptPistas({ identificacao, ementa, leitura, coleta, hoje }) {
+  return `Você vai preparar a PESQUISA sobre a proposição abaixo. Ainda não é a pesquisa: é a lista de ONDE PROCURAR, que as buscas seguintes vão conferir uma a uma. Use o que você sabe sobre o assunto para apontar caminhos. Nada do que você escrever aqui entra na nota técnica sem ser confirmado depois em página lida — por isso prefira apontar um caminho a mais do que um a menos, e marque o que for incerto.
+
+MATÉRIA: ${identificacao}
+EMENTA: ${ementa || ''}
+DATA DE HOJE: ${hoje}
+
+FATOS DO TEXTO (lidos nos documentos):
+${pe5FatosDoTexto(leitura)}
+
+TRAMITAÇÃO:
+${pe5ResumoColeta(coleta)}
+
+PONTOS SENSÍVEIS DO TEXTO:
+${pe5PontosSensiveis(leitura)}
+
+O QUE DEVOLVER
+{
+ "termos": [ "os nomes pelos quais a imprensa e o setor chamam a matéria e o tema (apelidos, siglas, expressões em inglês)" ],
+ "paises": [ { "lugar": "país ou bloco", "norma": "nome pelo qual a regra ou o projeto é conhecido lá (sigla, número, se souber)", "por_que": "o que tem de parecido — ou de oposto — com o texto", "contraste": false, "certeza": "alta | média | baixa" } ],
+ "decisoes": [ { "tribunal": "STF | STJ | TCU", "referencia": "classe e número, tema de repercussão geral ou o nome pelo qual a decisão é conhecida", "por_que": "que ponto do texto ela toca", "certeza": "alta | média | baixa" } ],
+ "atores": {
+   "politica": [ { "nome": "…", "lado_provavel": "favorável | contrário | incerto", "onde": "onde costuma se manifestar (site, nota, audiência, rede social)" } ],
+   "economia": [ … ], "federacao": [ … ], "sociedade": [ … ]
+ }
+}
+- "paises": de 8 a 12, incluídos ao menos dois de MODELO OPOSTO ("contraste": true: o mecanismo é proibido lá, foi rejeitado, retirado ou é bem mais estreito) e os que discutiram e desistiram.
+- "decisoes": de 8 a 12 — sobre regras parecidas, sobre os dispositivos da Constituição em jogo e sobre as leis que o texto altera. Se não tiver certeza do número, descreva a decisão em "referencia" e marque "certeza": "baixa"; a busca confere.
+- "atores": de 8 a 12 por grupo, dos DOIS lados em cada grupo — politica (governo, relator, líderes, bancadas, parlamentares que costumam falar do tema), economia (confederações, associações setoriais, empresas atingidas, sindicatos), federacao (estados, municípios, órgãos públicos, agências, tribunais de contas, Ministério Público) e sociedade (organizações, institutos, pesquisadores, juristas, editoriais).
+- Não descreva o que cada um decidiu ou disse: isso é trabalho da busca. Aqui só o caminho.
+
+${PE5_SO_JSON}`;
+}
+/** Pistas devolvidas pelo modelo, só com o que tem nome; listas que não vieram ficam vazias. */
+function pe5PistasLimpar(j) {
+  const lista = (v, campo) => (Array.isArray(v) ? v : []).filter(x => x && typeof x === 'object' && String(x[campo] || '').trim()).slice(0, 14);
+  const at = (j && j.atores && typeof j.atores === 'object') ? j.atores : {};
+  return { termos: (Array.isArray(j && j.termos) ? j.termos : []).map(t => String(t || '').trim()).filter(Boolean).slice(0, 12),
+    paises: lista(j && j.paises, 'lugar'), decisoes: lista(j && j.decisoes, 'referencia'),
+    atores: Object.fromEntries(Object.keys(PE5_GRUPOS_DEBATE).map(g => [g, lista(at[g], 'nome')])) };
+}
+function pe5PistasVazias(p) { return !p || !((p.paises || []).length || (p.decisoes || []).length || (p.termos || []).length || Object.values(p.atores || {}).some(l => (l || []).length)); }
+/** O bloco de pistas de cada busca: `alvo` é um grupo do debate, 'atores' (os quatro), 'paises', 'decisoes' ou 'tudo' (rodada complementar). */
+function pe5PistasTexto(pistas, alvo) {
+  if (pe5PistasVazias(pistas)) return '';
+  const L = [], incerto = x => (/baixa/i.test(x.certeza || '') ? ' (incerto)' : '');
+  const termos = (pistas.termos || []).length ? `Termos de busca: ${pistas.termos.join('; ')}.` : '';
+  const pais = x => `- ${x.lugar}${x.norma ? `: ${x.norma}` : ''}${pe5EhContraste(x) ? ' [modelo oposto]' : ''}${x.por_que ? ` — ${x.por_que}` : ''}${incerto(x)}`;
+  const dec = x => `- ${[x.tribunal, x.referencia].filter(Boolean).join(' ')}${x.por_que ? ` — ${x.por_que}` : ''}${incerto(x)}`;
+  const ator = x => `- ${x.nome}${x.lado_provavel ? ` (${x.lado_provavel})` : ''}${x.onde ? ` — ${x.onde}` : ''}`;
+  if ((alvo === 'paises' || alvo === 'tudo') && (pistas.paises || []).length) L.push(`Países e blocos a conferir:\n${pistas.paises.map(pais).join('\n')}`);
+  if ((alvo === 'decisoes' || alvo === 'tudo') && (pistas.decisoes || []).length) L.push(`Decisões a conferir:\n${pistas.decisoes.map(dec).join('\n')}`);
+  for (const g of Object.keys(PE5_GRUPOS_DEBATE)) {
+    if ((alvo === g || alvo === 'atores' || alvo === 'tudo') && ((pistas.atores || {})[g] || []).length) L.push(`Quem procurar — ${PE5_GRUPOS_DEBATE[g].rotulo}:\n${pistas.atores[g].map(ator).join('\n')}`);
+  }
+  if (!L.length) return '';
+  return `\nPISTAS (onde procurar; escritas antes da busca, sem consulta a fonte: confira cada uma e registre só o que a página lida confirmar)\n${[termos, ...L].filter(Boolean).join('\n')}\n`;
+}
 
 /** Os pontos que a leitura marcou como graves: a pesquisa procura quem falou de cada um. */
 function pe5PontosSensiveis(L) {
@@ -237,7 +326,7 @@ function pe5NoticiasAgencias(noticias) {
   return n.length ? `NOTÍCIAS DAS AGÊNCIAS DO CONGRESSO (lidas pelo programa; são fonte primária: use o endereço de cada uma em "fonte_url"):\n${n.map((x, i) => `<<<NOTÍCIA ${i + 1}: ${x.veiculo}, ${x.data} — ${x.titulo} — ${x.url}>>>\n${x.texto}`).join('\n\n')}\n` : '';
 }
 
-function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje, foco = '', noticias = [] }) {
+function pe5PromptDebate({ identificacao, ementa, leitura, coleta, hoje, foco = '', noticias = [], pistas = null }) {
   return `Pesquise na internet QUEM SE POSICIONOU sobre a proposição abaixo e O QUE CADA UM ARGUMENTA. O objetivo é montar o mapa do debate para um assessor parlamentar: os dois lados, com os argumentos e a evidência que cada um apresenta.
 
 MATÉRIA: ${identificacao}
@@ -252,7 +341,7 @@ ${pe5ResumoColeta(coleta)}
 
 PONTOS SENSÍVEIS DO TEXTO (apontados na leitura; procure quem se manifestou sobre cada um):
 ${pe5PontosSensiveis(leitura)}
-${PE5_FOCO_DEBATE[foco] ? `\n${PE5_FOCO_DEBATE[foco]}\n` : ''}${foco === 'politica' ? `\n${pe5NoticiasAgencias(noticias)}` : ''}
+${PE5_FOCO_DEBATE[foco] ? `\n${PE5_FOCO_DEBATE[foco]}\n` : ''}${foco === 'politica' ? `\n${pe5NoticiasAgencias(noticias)}` : ''}${pe5PistasTexto(pistas, PE5_FOCO_DEBATE[foco] ? foco : 'atores')}
 O QUE PROCURAR
 - Governo, relator e autor: o que defendem e como respondem às críticas.
 - Empresas e setores diretamente afetados, e as entidades que os representam. Diga quem a entidade representa (associados, setor).
@@ -274,7 +363,7 @@ O QUE DEVOLVER
  "controversias": [ { "id": "D1", "questao": "a pergunta em disputa, em uma frase", "favor": ["Q1"], "contra": ["Q7"] } ],
  "avisos": [ "divergência entre fonte e texto; ator relevante sem manifestação localizada; documento citado e não encontrado" ]
 }
-${foco ? `O MAIOR NÚMERO POSSÍVEL de atores deste grupo — de 8 a 30 —, dos dois lados, cada um com TODOS os argumentos que a fonte traz. Ator que só repete outro entra assim mesmo, com a fonte dele: o número de quem se manifestou de cada lado é informação para o parlamentar. Não registre ator sem manifestação localizada (esse vai em "avisos"). De 3 a 8 controvérsias: a pergunta em disputa e os atores desta busca que argumentam de um lado e de outro (o programa junta com as buscas dos outros grupos).` : 'De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.'}
+${foco ? `O MAIOR NÚMERO POSSÍVEL de atores deste grupo — de 8 a 30 —, dos dois lados, cada um com TODOS os argumentos que a fonte traz. Ator que só repete outro entra assim mesmo, com a fonte dele: o número de quem se manifestou de cada lado é informação para o parlamentar. Ao menos TRÊS de cada lado (a favor e contra), se houver: a nota precisa de, no total, ${PE5_MIN_PESQUISA.atores} atores com ${PE5_MIN_PESQUISA.porLado} de cada lado. Não registre ator sem manifestação localizada (esse vai em "avisos"). De 3 a 8 controvérsias: a pergunta em disputa e os atores desta busca que argumentam de um lado e de outro (o programa junta com as buscas dos outros grupos).` : 'De 8 a 18 atores. De 4 a 9 controvérsias, cada uma ligando os atores que argumentam de um lado e de outro.'}
 
 ${PE5_SO_JSON}`;
 }
@@ -332,7 +421,7 @@ function pe5TemasDelegados(L) {
 }
 /** Jurisdição marcada como modelo oposto ao do texto. */
 const pe5EhContraste = j => j && (j.contraste === true || /^(sim|true)$/i.test(String(j.contraste || '')));
-function pe5PromptInternacional({ identificacao, ementa, leitura, hoje }) {
+function pe5PromptInternacional({ identificacao, ementa, leitura, hoje, pistas = null }) {
   return `Pesquise na internet a EXPERIÊNCIA DE OUTROS PAÍSES com regra parecida com a da proposição abaixo: o que cada um adotou, com quais parâmetros, e O QUE ACONTECEU depois.
 
 MATÉRIA: ${identificacao}
@@ -344,16 +433,16 @@ ${pe5FatosDoTexto(leitura)}
 
 MECANISMOS DO TEXTO (escolha entre eles de 3 a 5 EIXOS de comparação, priorizando os que têm ponto grave; um texto com vários mecanismos não se compara por um só):
 ${pe5EixosComparacao(leitura)}
-
+${pe5PistasTexto(pistas, 'paises')}
 O QUE PROCURAR
-- NO MÍNIMO 5 e até 8 países ou blocos, com AO MENOS UM por eixo escolhido. Cada jurisdição diz em "eixo" qual mecanismo do texto ela permite comparar. Para cada um: a norma, desde quando vale, a autoridade, quem é alcançado (com os números do critério na moeda original), como funciona, a sanção e a duração.
+- NO MÍNIMO ${PE5_MIN_PESQUISA.paises} e até 10 países ou blocos, com AO MENOS UM por eixo escolhido. Cada jurisdição diz em "eixo" qual mecanismo do texto ela permite comparar. Para cada um: a norma, desde quando vale, a autoridade, quem é alcançado (com os números do critério na moeda original), como funciona, a sanção e a duração.
 - AO MENOS UM país com o MODELO OPOSTO ao do texto num dos eixos (de preferência no que tem ponto grave): onde o mecanismo é proibido, depende de aprovação do Legislativo, tem limite fixado em lei bem mais estreito, ou foi revogado. Marque-o com "contraste": true e diga em "como_funciona" em que ele é o oposto. Ele conta para o mínimo. Os demais levam "contraste": false.
 - O que aconteceu: quantos casos, quem foi alcançado, decisões, multas, mudanças de conduta, revisões oficiais da própria lei, decisões de tribunais. Com data.
 - As críticas, dos dois lados: de quem acha a regra fraca ou mal aplicada e de quem acha que ela prejudica.
 - Países que discutiram regra parecida e DESISTIRAM, adiaram ou revogaram, e por quê. Contam para o mínimo.
 - Avaliações de organismos internacionais (OCDE, Banco Mundial, FMI, órgãos da ONU), se houver.
 - Estudos que meçam efeito (preço, investimento, entrada de concorrentes, arrecadação, conforme a matéria). Se não houver, diga em "avisos".
-- Fonte primária sempre que possível: a autoridade, o diário oficial, o relatório de revisão.
+- Fonte primária sempre que possível: a autoridade, o diário oficial, o relatório de revisão. Abra a página da norma ou da autoridade de cada país: jurisdição descrita só pelo resumo da busca não entra.
 
 ${PE5_REGRAS_PESQUISA}
 
@@ -395,7 +484,7 @@ function pe5TesesConstitucionais(L) {
   }
   return [...out.values()].slice(0, 10);
 }
-function pe5PromptContexto({ identificacao, ementa, leitura, hoje }) {
+function pe5PromptContexto({ identificacao, ementa, leitura, hoje, pistas = null }) {
   const teses = pe5TesesConstitucionais(leitura);
   const normas = [...new Set((leitura?.alteracoes || []).map(a => String(a.dispositivo).replace(/^arts?\.?[^d]*d[ae]\s+/i, '')))].join('; ');
   const pontos = (leitura?.achados || []).filter(a => a.gravidade !== 'baixa').map(a => `- ${a.questao} (${a.dispositivo})`).join('\n');
@@ -418,9 +507,9 @@ ${teses.length ? teses.map(t => `- ${t}`).join('\n') : '(a leitura não citou di
 
 DOCUMENTOS QUE A PROPOSIÇÃO CITA COMO BASE (localize cada um):
 ${refs || '(nenhum identificado na leitura)'}
-
+${pe5PistasTexto(pistas, 'decisoes')}
 O QUE PROCURAR
-- "jurisprudencia": NO MÍNIMO 4 e até 10 decisões já tomadas, buscadas em quatro frentes: (1) STF sobre cada dispositivo da Constituição listado acima; (2) ações contra as leis que o texto altera (as normas listadas no alto), já julgadas ou com liminar; (3) acórdãos do TCU sobre o mecanismo que o texto cria ou muda; (4) STJ, se a matéria for tributária ou administrativa. Ação ainda sem decisão NÃO entra aqui (vai para a pesquisa de judicialização). Identifique tribunal, órgão julgador, classe e número, relator e data. Diga O QUE A DECISÃO DECIDIU, por que interessa aqui e ONDE A ANALOGIA PARA (o que o caso tinha de diferente). Não atribua à decisão conclusão que ela não tomou. Se não tiver certeza do número ou do relator, não inclua.
+- "jurisprudencia": NO MÍNIMO ${PE5_MIN_PESQUISA.decisoes} e até 12 decisões já tomadas, buscadas em quatro frentes: (1) STF sobre cada dispositivo da Constituição listado acima; (2) ações contra as leis que o texto altera (as normas listadas no alto), já julgadas ou com liminar; (3) acórdãos do TCU sobre o mecanismo que o texto cria ou muda; (4) STJ, se a matéria for tributária ou administrativa. Ação ainda sem decisão NÃO entra aqui (vai para a pesquisa de judicialização). Identifique tribunal, órgão julgador, classe e número, relator e data. Diga O QUE A DECISÃO DECIDIU, por que interessa aqui e ONDE A ANALOGIA PARA (o que o caso tinha de diferente). Não atribua à decisão conclusão que ela não tomou. Se não tiver certeza do número ou do relator, não inclua. SÓ ENTRA a decisão cuja página (o acórdão, a notícia do tribunal, o informativo) você abriu e leu: "decidiu" diz o que foi decidido — quem ganhou, que regra caiu ou ficou de pé —, não o assunto do processo. Decisão de que você só conhece o tema fica em "avisos".
 - "normas": leis, decretos, portarias e resoluções em vigor que já disciplinam a matéria ou serão afetados, com o que cada um dispõe.
 - "dados": números oficiais ou de estudo que dimensionem quem é afetado, quanto custa, quanto se arrecada ou se gasta. Diga quem produziu o número e se é parte interessada.
 - "correlatas": outras proposições no Congresso sobre o mesmo tema, com a situação.
@@ -444,12 +533,16 @@ ${PE5_SO_JSON}`;
 }
 
 /**
- * Chamada complementar: só roda quando a pesquisa veio abaixo do mínimo (países ou decisões). Pede só o que
- * falta, dizendo o que já se tem para não repetir.
+ * Chamada complementar: roda quando a pesquisa veio abaixo dos mínimos (países, decisões, atores, atores de cada
+ * lado) ou sem o que é obrigatório (país de modelo oposto, origem das leis alteradas). Pede só o que falta, dizendo
+ * o que já se tem para não repetir. Pode rodar até três vezes (PE5_MIN_PESQUISA.rodadas); `rodada` diz qual é.
  */
-function pe5PromptComplementar({ identificacao, ementa, leitura, hoje, faltaPaises = 0, faltaDecisoes = 0, jaPaises = [], jaDecisoes = [], eixosSemPais = [], faltaContraste = false, faltaOrigens = [] }) {
+function pe5PromptComplementar({ identificacao, ementa, leitura, hoje, faltaPaises = 0, faltaDecisoes = 0, jaPaises = [], jaDecisoes = [], eixosSemPais = [], faltaContraste = false, faltaOrigens = [],
+  faltaAtores = 0, faltaFavor = 0, faltaContra = 0, jaAtores = [], pistas = null, rodada = 1 }) {
   const teses = pe5TesesConstitucionais(leitura);
-  return `Pesquise na internet para COMPLETAR a pesquisa sobre a proposição abaixo. A primeira busca trouxe menos do que o mínimo ou deixou de fora o que é obrigatório.
+  const querAtores = faltaAtores > 0 || faltaFavor > 0 || faltaContra > 0;
+  const pedidoAtores = [faltaAtores > 0 ? `mais ${faltaAtores} ator(es) com manifestação localizada sobre a matéria` : '', faltaFavor > 0 ? `ao menos ${faltaFavor} FAVORÁVEL(IS) ao texto (inclui "favorável com ressalvas")` : '', faltaContra > 0 ? `ao menos ${faltaContra} CONTRÁRIO(S) ao texto (inclui "contrário com ressalvas")` : ''].filter(Boolean).join('; ');
+  return `Pesquise na internet para COMPLETAR a pesquisa sobre a proposição abaixo. ${rodada > 1 ? `Esta é a ${rodada}ª tentativa: as anteriores não alcançaram o mínimo. Mude os termos de busca (outro idioma, o nome da norma, o nome da entidade, o número do processo) em vez de repetir os que já foram usados.` : 'A primeira busca trouxe menos do que o mínimo ou deixou de fora o que é obrigatório.'}
 
 MATÉRIA: ${identificacao}
 EMENTA: ${ementa || ''}
@@ -457,9 +550,9 @@ DATA DE HOJE: ${hoje}
 
 FATOS DO TEXTO:
 ${pe5FatosDoTexto(leitura)}
-
+${querAtores ? `\nPONTOS SENSÍVEIS DO TEXTO:\n${pe5PontosSensiveis(leitura)}\n` : ''}${pe5PistasTexto(pistas, 'tudo')}
 O QUE FALTA
-${faltaPaises > 0 ? `- "jurisdicoes": mais ${faltaPaises} país(es) ou bloco(s) com regra comparável (ou que discutiram e desistiram).${eixosSemPais.length ? ` Mecanismos ainda sem país: ${eixosSemPais.join('; ')}.` : ''} Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaDecisoes > 0 ? `- "jurisprudencia": mais ${faltaDecisoes} decisão(ões) já tomada(s) do STF, STJ ou TCU. Dispositivos da Constituição em jogo: ${teses.join('; ') || '(ver os fatos do texto)'}. Também ações já julgadas contra as leis que o texto altera. Já localizadas (NÃO repita): ${jaDecisoes.join('; ') || 'nenhuma'}.\n` : ''}${faltaContraste ? `- "jurisdicoes": UM país ou bloco com o MODELO OPOSTO ao do texto num dos mecanismos (o mecanismo é proibido lá, depende de aprovação do Legislativo, tem limite fixado em lei bem mais estreito, ou foi revogado), com "contraste": true e, em "como_funciona", em que ele é o oposto. Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaOrigens.length ? `- "historico": o projeto que deu origem a cada uma destas leis, que o texto altera: ${faltaOrigens.join('; ')}. Número, ano, autor, quando virou lei e o que ela criou; "tipo": "origem da lei alterada" e, em "lei_resultante", a lei.\n` : ''}
+${faltaPaises > 0 ? `- "jurisdicoes": mais ${faltaPaises} país(es) ou bloco(s) com regra comparável (ou que discutiram e desistiram).${eixosSemPais.length ? ` Mecanismos ainda sem país: ${eixosSemPais.join('; ')}.` : ''} Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaDecisoes > 0 ? `- "jurisprudencia": mais ${faltaDecisoes} decisão(ões) já tomada(s) do STF, STJ ou TCU. Dispositivos da Constituição em jogo: ${teses.join('; ') || '(ver os fatos do texto)'}. Também ações já julgadas contra as leis que o texto altera. Só entra a decisão cuja página você abriu e leu: "decidiu" diz o que foi decidido, não o assunto do processo. Já localizadas (NÃO repita): ${jaDecisoes.join('; ') || 'nenhuma'}.\n` : ''}${faltaContraste ? `- "jurisdicoes": UM país ou bloco com o MODELO OPOSTO ao do texto num dos mecanismos (o mecanismo é proibido lá, depende de aprovação do Legislativo, tem limite fixado em lei bem mais estreito, ou foi revogado), com "contraste": true e, em "como_funciona", em que ele é o oposto. Já pesquisados (NÃO repita): ${jaPaises.join('; ') || 'nenhum'}.\n` : ''}${faltaOrigens.length ? `- "historico": o projeto que deu origem a cada uma destas leis, que o texto altera: ${faltaOrigens.join('; ')}. Número, ano, autor, quando virou lei e o que ela criou; "tipo": "origem da lei alterada" e, em "lei_resultante", a lei.\n` : ''}${querAtores ? `- "atores": ${pedidoAtores}. Cada um com a posição, TODOS os argumentos que a fonte traz e a página em que se manifestou; em "grupo", um destes: ${Object.values(PE5_GRUPOS_DEBATE).map(g => `"${g.rotulo}"`).join(', ')}. Não registre ator sem manifestação localizada, nem mude a posição de ninguém para fechar a conta: se não houver quem se manifeste de um lado, diga em "avisos" onde procurou. Já registrados (NÃO repita): ${jaAtores.join('; ') || 'nenhum'}.\n` : ''}
 ${PE5_REGRAS_PESQUISA}
 
 O QUE DEVOLVER
@@ -467,9 +560,10 @@ O QUE DEVOLVER
  "jurisdicoes": [ { "id": "W1", "eixo": "…", "contraste": false, "lugar": "…", "norma": "nome e número", "desde": "…", "autoridade": "…", "quem_e_alcancado": "…", "como_funciona": "…", "sancao": "…", "duracao": "…", "aconteceu": [ { "fato": "…", "data": "…" } ], "criticas": [ { "critica": "…", "quem": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…" } ], "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "jurisprudencia": [ { "id": "R1", "tribunal": "…", "processo": "…", "relator": "…", "data": "dd/mm/aaaa", "decidiu": "…", "pertinencia": "…", "limite": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "historico": [ { "id": "H1", "tipo": "origem da lei alterada", "proposicao": "PL 0000/0000", "casa": "…", "ano": "aaaa", "autor": "…", "o_que_propunha": "…", "desfecho": "virou lei", "lei_resultante": "…", "por_que": "…", "data": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "atores": [ { "id": "Q1", "grupo": "…", "ator": "nome (e porta-voz, se houver)", "quem_e": "o que é e que interesse representa", "posicao": "favorável | favorável com ressalvas | contrário com ressalvas | contrário | neutro", "versao": "original | substitutivo | não especificada", "data": "dd/mm/aaaa", "argumentos": [ { "tese": "…", "evidencia_citada": "…" } ], "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "avisos": [ "o que procurou e não encontrou" ]
 }
-Se não houver o que acrescentar num dos grupos, devolva a lista vazia e diga em "avisos" onde procurou. Não invente número de processo, relator ou data.
+Se não houver o que acrescentar num dos grupos, devolva a lista vazia e diga em "avisos" onde procurou. Não invente número de processo, relator, data ou manifestação.
 
 ${PE5_SO_JSON}`;
 }
@@ -782,5 +876,5 @@ ${PE5_SO_JSON}`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_ESTILO, PE5_GRUPOS_DEBATE, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptComplementar, pe5TesesConstitucionais, pe5EixosComparacao, pe5LeisAlteradas, pe5OrigensFaltantes, pe5TemasDelegados, pe5EhContraste, pe5NoticiasAgencias, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
+  module.exports = { PE5_ESTILO, PE5_GRUPOS_DEBATE, PE5_MIN_PESQUISA, pe5LadoAtor, pe5ContagemAtores, pe5FaltasPesquisa, pe5PromptPistas, pe5PistasLimpar, pe5PistasVazias, pe5PistasTexto, pe5ResumoColeta, pe5PromptLeitura, pe5PromptDebate, pe5PromptComplementar, pe5TesesConstitucionais, pe5EixosComparacao, pe5LeisAlteradas, pe5OrigensFaltantes, pe5TemasDelegados, pe5EhContraste, pe5NoticiasAgencias, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5Base, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao, pe5RecortarRedacao };
 }

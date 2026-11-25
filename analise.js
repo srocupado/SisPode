@@ -8878,7 +8878,8 @@ async function listarModelosDoProvedor(pid) {
 // geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
 // documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
 // isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
-const AVISO_PARECER = { tempo: 'de 25 a 45 minutos', chamadas: '12 chamadas ao modelo, cinco delas com busca na internet', tokens: 'varia com o modelo e com o número de documentos; o consumo real desta geração fica registrado no relatório de conferência' };
+// 25/11/2026: as pesquisas passaram a ler as páginas e a insistir até três vezes no que ficou abaixo do mínimo; o tempo de antes (25 a 45 minutos) é o piso.
+const AVISO_PARECER = { tempo: 'a partir de 30 minutos; pode passar de uma hora quando a pesquisa precisa insistir', chamadas: 'de 16 a 19 chamadas ao modelo; de sete a dez delas buscam e leem páginas na internet, sem teto de custo', tokens: 'varia com o modelo e com o número de documentos; o consumo real desta geração fica registrado no relatório de conferência' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
@@ -9071,7 +9072,8 @@ async function gerarParecerEspecialista(it) {
     };
     const io = {
       // `pensar` vem do pipeline: alto na leitura e na redação, médio nas pesquisas e na revisão.
-      chamarModelo: ({ prompt, pdfBuffers, web, pensar, buscas }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: pensar || 'medio', stream: true, ...(buscas ? { maxBuscas: buscas } : {}) } }),
+      // `ler`: nas pesquisas, o modelo abre e lê as páginas além de buscar (ver LEITURA DE PÁGINAS em ia-comum.js).
+      chamarModelo: ({ prompt, pdfBuffers, web, pensar, buscas, ler }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: pensar || 'medio', stream: true, ...(buscas ? { maxBuscas: buscas } : {}), ...(ler ? { lerPaginas: true } : {}) } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
       onPasso: passo,
