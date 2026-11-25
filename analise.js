@@ -8812,6 +8812,8 @@ function atualizarBotaoParecer(it, card) {
   if (!m) { btn.style.display = 'none'; if (btnC) btnC.style.display = 'none'; return; }
   btn.style.display = 'inline-flex';
   btn.textContent = '📄 Abrir NTA';
+  // NTA guardada como PDF pronto (feita fora do sistema): não há relatório de conferência a mostrar.
+  if (m.pdf) { btn.title = `Nota Técnica Analítica (NTA) em PDF, gravada em ${formatDataHora(m.em)} por ${m.por || 'equipe'}`; if (btnC) btnC.style.display = 'none'; return; }
   // `pontos`: quantos pontos de atenção a conferência anotou. Meta da 4.0.0 ou
   // anterior só tem `aprovado`; false ali quer dizer "há pontos", sem contagem.
   const pontos = typeof m.pontos === 'number' ? m.pontos : (m.aprovado === false ? null : 0);
@@ -9135,6 +9137,19 @@ async function gerarParecerEspecialista(it) {
 async function abrirParecerEspecialista(it, documento = 'parecer') {
   const p = it.parecer;
   if (!p) return;
+  // NTA guardada como PDF pronto (25/11/2026, PL 4675/2025: a nota foi feita fora do sistema e gravada no banco
+  // para não ser gerada de novo). Não há o que montar: o botão abre o próprio arquivo.
+  if (p.versao === 'pdf') {
+    if (documento === 'conferencia') { mostrarToast('Esta NTA foi gravada em PDF: não tem relatório de conferência no sistema.', 'aviso'); return; }
+    try {
+      const bin = atob(p.pdfBase64 || ''), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      if (!window.open(url, '_blank')) mostrarToast('Permita pop-ups para abrir a NTA.', 'aviso');
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (e) { mostrarToast('Não consegui abrir o PDF da NTA: ' + e.message, 'erro'); }
+    return;
+  }
   const novoFormato = p.versao === 5;          // pe5-*.js; os salvos antes de 17/11/2026 abrem pelo código antigo
   if (!novoFormato && (!p.ficha || !p.rubrica)) { mostrarToast('Esta NTA foi gerada por uma versão anterior; gere de novo.', 'aviso'); return; }
   const conferencia = documento === 'conferencia';

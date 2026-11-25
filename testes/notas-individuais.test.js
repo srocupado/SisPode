@@ -196,6 +196,18 @@ const ANO = String(new Date().getFullYear());
       'abrir a nota: um item avulso em memória, com a nota salva carregada e o responsável do registro');
     ok(ab.urg === 'Urgência (Art. 155, RICD)' && ab.nta === 'inline-flex' && ab.chNTA === 'nota-pl-100-2025__PL-100-2025', 'o card traz o selo de urgência (regime na Câmara) e o botão "Abrir NTA" da nota individual');
     ok(!ab.selbar && !ab.num && !ab.carregar && ab.usar, 'o que é de pauta some (seleção para o PDF, número de ordem, "Carregar pauta"); aparece "Usar em pauta"');
+    // NTA guardada como PDF pronto (feita fora do sistema): "Abrir NTA" abre o arquivo; não há conferência
+    const pdfNta = await pg.evaluate(async () => { const it = state.pauta.itens[0], c = document.querySelector('.an-card'); const abertos = [], abrir = window.open; window.open = u => { abertos.push(String(u)); return {}; };
+      const antes = { parecer: it.parecer, meta: it.parecerMeta };
+      it.parecer = { versao: 'pdf', arquivo: 'nta.pdf', pdfBase64: btoa('%PDF-1.4 teste'), meta: { em: '2026-11-25T15:00:00.000Z', por: 'Vinicius L', modelo: 'PDF', pdf: true } };
+      atualizarBotaoParecer(it);
+      const r = { conf: c.querySelector('[data-role=btn-abrir-conferencia]').style.display, titulo: c.querySelector('[data-role=btn-abrir-parecer]').title };
+      await abrirParecerEspecialista(it); await abrirParecerEspecialista(it, 'conferencia');
+      const tam = abertos[0] ? (await (await fetch(abertos[0])).blob()) : null;
+      window.open = abrir; it.parecer = antes.parecer; it.parecerMeta = antes.meta; atualizarBotaoParecer(it);
+      return { ...r, abertos, tipo: tam && tam.type, bytes: tam && tam.size, confDepois: c.querySelector('[data-role=btn-abrir-conferencia]').style.display }; });
+    ok(pdfNta.abertos.length === 1 && /^blob:/.test(pdfNta.abertos[0]) && pdfNta.tipo === 'application/pdf' && pdfNta.bytes === 14 && pdfNta.conf === 'none' && /NTA\) em PDF, gravada em/.test(pdfNta.titulo) && pdfNta.confDepois === 'inline-flex',
+      'NTA gravada em PDF: "Abrir NTA" abre o próprio arquivo, e o botão da conferência não aparece (nas demais, continua)');
     await pg.fill('.an-card [data-role=inp-analista]', 'Maria Exemplo'); await pg.press('.an-card [data-role=inp-analista]', 'Tab');
     await pg.waitForFunction(() => /Maria Exemplo/.test(document.getElementById('pauta-meta').textContent));
     await pg.waitForTimeout(300);
