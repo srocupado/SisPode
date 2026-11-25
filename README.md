@@ -887,6 +887,7 @@ sispode/
 ├── parecer.js / pipeline-parecer.js   # escolha do modelo do parecer; pipeline anterior (abre os pareceres já salvos)
 ├── docs-analista.js               # Documento próprio do analista: tipos, validação, rótulos e instrução ao modelo
 ├── senado-materia.js              # Matéria pautada sem registro na Câmara: consulta ao Senado, documentos, avisos e instrução ao modelo
+├── html-inerte.js                 # Primeiro script de cada página: o DOMParser recebe o HTML de terceiros sem atributos de evento (sem isso, o Chrome registra um erro de política de segurança por atributo)
 ├── notas-individuais.js           # Notas Técnicas Individuais: a página do Plenário no modo de notas (servidores, acervo, nova nota, uso em pauta)
 ├── especialistas.js               # As 15 lentes temáticas e seus roteiros
 ├── dossie.js / ficha-objeto.js    # Lei vigente, séries e estimativas; ficha do objeto
@@ -908,6 +909,7 @@ sispode/
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 │   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
+│   ├── html-inerte.test.js         # Filtro de atributos de evento: a função, todas as páginas carregam o arquivo, e no Chromium a leitura deixa de registrar erro de política de segurança
 │   ├── notas-individuais.test.js   # Notas individuais: funções, ligação com o Plenário, a página no navegador (servidores, minhas notas, nova nota pelas quatro entradas, uso em pauta) e o aviso de nota do acervo no Plenário
 │   ├── pe5.test.js                 # NTA, formato atual: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
 │   ├── pe5-referencia.js           # caso de referência (PL 4675/2025) com as respostas gravadas no lugar do modelo
