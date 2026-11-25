@@ -372,12 +372,13 @@ async function gerarParecerPE5(ctx, io) {
     catch (_) { pistas = null; }
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
     const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR, noticias, pistas };
-    // Cada pesquisa busca E LÊ as páginas (`ler`), com folga de buscas: a NTA é feita para matéria complexa e não
+    // Cada pesquisa busca E LÊ as páginas (`ler`), com até doze buscas e doze páginas por chamada (eram trinta e 25 no
+    // primeiro dia; baixou porque são sete pesquisas em paralelo e as rodadas complementares cobrem o que faltar): a NTA é feita para matéria complexa e não
     // tem teto de custo (decisão de 25/11/2026). Com cinco buscas por chamada e sem abrir página, a do PL 4675/2025
     // saiu com dois países e nenhuma decisão judicial.
     const avisosLeitura = new Set();
     const uma = async (nome, prompt, grupos) => {
-      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 30, ler: true }); for (const a of r.avisos || []) avisosLeitura.add(a); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
+      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 12, ler: true }); for (const a of r.avisos || []) avisosLeitura.add(a); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
     // O debate vai em QUATRO buscas, uma por grupo de atores, cada uma com os dois lados (ver PE5_GRUPOS_DEBATE).

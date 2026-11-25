@@ -574,7 +574,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const adapt = raciocinioAdaptativo(m);
     const busca = n => ({ type: adapt ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: n });
     const nBuscas = Math.min(opcoes.maxBuscas ? IA_MAX_BUSCAS : 20, Math.max(1, opcoes.maxBuscas || 5));
-    const leitura = tipo => ({ type: tipo, name: 'web_fetch', max_uses: Math.min(IA_MAX_PAGINAS, Math.max(1, opcoes.maxPaginas || 25)), max_content_tokens: IA_TOKENS_POR_PAGINA });
+    const leitura = tipo => ({ type: tipo, name: 'web_fetch', max_uses: Math.min(IA_MAX_PAGINAS, Math.max(1, opcoes.maxPaginas || 12)), max_content_tokens: IA_TOKENS_POR_PAGINA });
     const niveisA = !web ? [null] : !lerPaginas ? [[busca(nBuscas)]]
       : [...(adapt ? [[busca(nBuscas), leitura('web_fetch_20260209')]] : []), [busca(nBuscas), leitura('web_fetch_20250910')], [busca(nBuscas)], [busca(5)]];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };

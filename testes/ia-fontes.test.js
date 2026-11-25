@@ -234,9 +234,9 @@ const ia = args => vm.runInContext('chamarIA', ctx)(args);
       { type: 'text', text: 'a resposta' },
     ];
     respostas.push({ json: { content, stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } } });
-    const r = await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-sonnet-5-5', prompt: 'p', web: true, opcoes: { lerPaginas: true, maxBuscas: 30 } });
+    const r = await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-sonnet-5-5', prompt: 'p', web: true, opcoes: { lerPaginas: true, maxBuscas: 12 } });
     const t = pedidos.at(-1).body.tools;
-    ok(t.length === 2 && t[0].name === 'web_search' && t[0].max_uses === 30 && t[1].type === 'web_fetch_20260209' && t[1].name === 'web_fetch' && t[1].max_uses === 25 && t[1].max_content_tokens === 30000, 'o pedido leva a busca (trinta) e a leitura de páginas, com teto de tamanho por página');
+    ok(t.length === 2 && t[0].name === 'web_search' && t[0].max_uses === 12 && t[1].type === 'web_fetch_20260209' && t[1].name === 'web_fetch' && t[1].max_uses === 12 && t[1].max_content_tokens === 30000, 'o pedido leva a busca e a leitura de páginas, doze de cada, com teto de tamanho por página');
     ok(r.paginas.join() === 'https://portal.stf.jus.br/a' && r.fontes.find(f => f.url === 'https://portal.stf.jus.br/a').titulo === 'STF' && r.avisos.length === 0, 'a página lida fica em `paginas` e nas fontes; a que deu erro de leitura não conta');
     respostas.push({ json: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' } });
     await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-haiku-4-5', prompt: 'p', web: true, opcoes: { lerPaginas: true } });
