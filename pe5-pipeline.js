@@ -29,7 +29,7 @@ function _pe5Refs() {
   if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ...__pe5m.N, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
   /* eslint-disable no-undef */
   return { pe5ColetarTramitacao, pe5MapaVotos, pe5ColetarPartido, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
-    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptComplementar, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
+    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptComplementar, pe5PromptPistas, pe5PistasLimpar, pe5PistasVazias, pe5FaltasPesquisa, PE5_MIN_PESQUISA, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
     PE5_GRUPOS_DEBATE, pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste, pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma, agenciasBuscarNoticias };
   /* eslint-enable no-undef */
 }
@@ -268,7 +268,7 @@ function pe5AplicarRevisao(doc, correcoes, acrescimos) {
 /**
  * ctx: { identificacao, sigla, numero, ano, ementa, idProposicao, docs: [{ rotulo, url, buffer }], disponiveis, temas, hoje, geradoPor, textoEmVotacao }
  *        (coletaPronta: tramitação já coletada — usada nos testes)
- * io:  { chamarModelo({ prompt, pdfBuffers, web, etapa, pensar }) → { text, truncated, usage }, fetchFn, lerPdf(buffer) → texto, onPasso, semWeb }
+ * io:  { chamarModelo({ prompt, pdfBuffers, web, etapa, pensar, buscas, ler }) → { text, truncated, usage, paginas, avisos }, fetchFn, lerPdf(buffer) → texto, onPasso, semWeb }
  */
 async function gerarParecerPE5(ctx, io) {
   const R = _pe5Refs();
@@ -277,8 +277,11 @@ async function gerarParecerPE5(ctx, io) {
   const hojeBR = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
   const chamar = async (nome, prompt, extra = {}) => {
     const ini = Date.now();
-    const r = await io.chamarModelo({ prompt, pdfBuffers: extra.pdfBuffers || [], web: !!extra.web, etapa: nome, pensar: extra.pensar || 'medio', buscas: extra.buscas || 0 });
-    chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated, web: !!extra.web, ms: Date.now() - ini, tokens: r.usage || null });
+    // `ler`: além de buscar, o modelo abre e lê as páginas (ver chamarIA, em ia-comum.js). `avisos` traz o que o
+    // provedor recusou (por exemplo, a ferramenta de leitura), para a nota dizer que a pesquisa foi só de busca.
+    const r = await io.chamarModelo({ prompt, pdfBuffers: extra.pdfBuffers || [], web: !!extra.web, etapa: nome, pensar: extra.pensar || 'medio', buscas: extra.buscas || 0, ler: !!extra.ler });
+    chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated, web: !!extra.web, ms: Date.now() - ini, tokens: r.usage || null,
+      ...(extra.web ? { buscas: (r.buscas || []).length, paginas: (r.paginas || []).length } : {}), ...((r.avisos || []).length ? { avisos: r.avisos } : {}) });
     return r;
   };
 
@@ -359,10 +362,23 @@ async function gerarParecerPE5(ctx, io) {
       const fetchTexto = async u => { const r = await io.fetchFn(u); if (!r || !r.ok) throw new Error(`HTTP ${r && r.status}`); return typeof r.text === 'function' ? r.text() : Buffer.from(await r.arrayBuffer()).toString('utf8'); };
       try { noticias = await R.agenciasBuscarNoticias({ sigla: ctx.sigla, numero: ctx.numero, ano: ctx.ano, idCamara: ctx.idProposicao || coleta?.proposicao?.id }, fetchTexto); } catch (_) { noticias = []; }
     }
+    const M = R.PE5_MIN_PESQUISA;
+    // PISTAS (25/11/2026): antes de buscar, o modelo lista onde procurar — países, decisões e atores prováveis. Nada
+    // disso vai para a nota: as pistas entram nos pedidos de busca, que só registram o que uma página lida confirmar.
+    // Se a chamada falhar, a pesquisa segue sem pistas.
+    passo('listando onde procurar: países, decisões e atores a conferir…');
+    let pistas = null;
+    try { const rp = await chamar('pesquisa-pistas', R.pe5PromptPistas({ identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR }), { pensar: 'medio' }); pistas = R.pe5PistasLimpar(pe5ExtrairJson(rp.text)); if (R.pe5PistasVazias(pistas)) pistas = null; }
+    catch (_) { pistas = null; }
     passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
-    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR, noticias };
+    const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR, noticias, pistas };
+    // Cada pesquisa busca E LÊ as páginas (`ler`), com até doze buscas e doze páginas por chamada (eram trinta e 25 no
+    // primeiro dia; baixou porque são sete pesquisas em paralelo e as rodadas complementares cobrem o que faltar): a NTA é feita para matéria complexa e não
+    // tem teto de custo (decisão de 25/11/2026). Com cinco buscas por chamada e sem abrir página, a do PL 4675/2025
+    // saiu com dois países e nenhuma decisão judicial.
+    const avisosLeitura = new Set();
     const uma = async (nome, prompt, grupos) => {
-      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 5 }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
+      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 12, ler: true }); for (const a of r.avisos || []) avisosLeitura.add(a); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
     // O debate vai em QUATRO buscas, uma por grupo de atores, cada uma com os dois lados (ver PE5_GRUPOS_DEBATE).
@@ -376,26 +392,41 @@ async function gerarParecerPE5(ctx, io) {
       uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
       uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', judicializacao: 'L' }),
     ]);
-    const deb = pe5JuntarDebates(...debates);
-    // Mínimos (cinco países, quatro decisões, um país de modelo oposto, a origem das leis alteradas): abaixo
-    // deles, UMA chamada complementar pede só o que falta. O país oposto e a origem da lei alterada entraram em
-    // 22/11/2026: a NTA do PLP 299/2026 não trouxe os Estados Unidos (o Executivo não pode reter gasto aprovado)
-    // nem o PLP 93/2023, projeto que criou a Lei Complementar nº 200/2023, a lei mais alterada pelo texto.
-    const PE5_MIN_PAISES = 5, PE5_MIN_DECISOES = 4;
-    const nP = (intl.jurisdicoes || []).length, nD = (cx.jurisprudencia || []).length;
-    const semContraste = !(intl.jurisdicoes || []).some(R.pe5EhContraste);
-    const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura, { anoRef: hoje.getFullYear() }), cg.historico).map(l => l.lei);
-    if (nP < PE5_MIN_PAISES || nD < PE5_MIN_DECISOES || semContraste || faltaOrigens.length) {
-      passo('completando a pesquisa (o que ficou abaixo do mínimo ou faltou)…');
+    let deb = pe5JuntarDebates(...debates);
+    // MÍNIMOS (PE5_MIN_PESQUISA: seis países, seis decisões, vinte atores com cinco de cada lado), mais um país de
+    // modelo oposto e a origem das leis alteradas. Abaixo deles, a chamada complementar pede só o que falta, em até
+    // três rodadas; para antes se nada faltar ou se a rodada não trouxer nada novo. O que ainda faltar no fim sai
+    // como aviso na conferência da nota. Histórico: o país oposto e a origem da lei entraram em 22/11/2026 (a NTA do
+    // PLP 299/2026 ficou sem os Estados Unidos e sem o PLP 93/2023); os atores e as rodadas, em 25/11/2026.
+    const chv = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const soma = (lista, novos, pref, chave) => {
+      const out = [...lista], vistos = new Set(lista.map(chave).filter(Boolean));
+      for (const x of novos || []) { const k = chave(x); if (k && vistos.has(k)) continue; if (k) vistos.add(k); out.push({ ...x, id: `${pref}${out.length + 1}` }); }
+      return out;
+    };
+    const rotulos = Object.values(R.PE5_GRUPOS_DEBATE || {}).map(g => g.rotulo);
+    intl.jurisdicoes = intl.jurisdicoes || []; cx.jurisprudencia = cx.jurisprudencia || []; cg.historico = cg.historico || [];
+    for (let rodada = 1; rodada <= M.rodadas; rodada++) {
+      const semContraste = !intl.jurisdicoes.some(R.pe5EhContraste);
+      const faltaOrigens = R.pe5OrigensFaltantes(R.pe5LeisAlteradas(leitura, { anoRef: hoje.getFullYear() }), cg.historico).map(l => l.lei);
+      const F = R.pe5FaltasPesquisa({ paises: intl.jurisdicoes.length, decisoes: cx.jurisprudencia.length, atores: deb.atores, semContraste, faltaOrigens });
+      if (!F.alguma) break;
+      passo(rodada === 1 ? 'completando a pesquisa (o que ficou abaixo do mínimo ou faltou)…' : `completando a pesquisa (${rodada}ª tentativa)…`);
       const eixos = Array.isArray(intl.eixos) ? intl.eixos : [];
-      const comp = await uma('pesquisa-complementar', R.pe5PromptComplementar({ ...base, faltaPaises: Math.max(0, PE5_MIN_PAISES - nP), faltaDecisoes: Math.max(0, PE5_MIN_DECISOES - nD),
-        jaPaises: (intl.jurisdicoes || []).map(j => j.lugar), jaDecisoes: (cx.jurisprudencia || []).map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !(intl.jurisdicoes || []).some(j => String(j.eixo || '') === e)), faltaContraste: semContraste, faltaOrigens }), { jurisdicoes: 'W', jurisprudencia: 'R', historico: 'H' });
-      const soma = (lista, novos, pref) => { const n0 = lista.length; return [...lista, ...(novos || []).map((x, i) => ({ ...x, id: `${pref}${n0 + i + 1}` }))]; };
-      intl.jurisdicoes = soma(intl.jurisdicoes || [], comp.jurisdicoes, 'W');
-      cx.jurisprudencia = soma(cx.jurisprudencia || [], comp.jurisprudencia, 'R');
-      cg.historico = soma(cg.historico || [], comp.historico, 'H');
+      const comp = await uma(rodada === 1 ? 'pesquisa-complementar' : `pesquisa-complementar-${rodada}`, R.pe5PromptComplementar({ ...base, rodada, faltaPaises: F.paises, faltaDecisoes: F.decisoes,
+        jaPaises: intl.jurisdicoes.map(j => j.lugar), jaDecisoes: cx.jurisprudencia.map(j => `${j.tribunal || ''} ${j.processo || ''}`.trim()), eixosSemPais: eixos.filter(e => !intl.jurisdicoes.some(j => String(j.eixo || '') === e)), faltaContraste: F.contraste, faltaOrigens: F.origens,
+        faltaAtores: F.atores, faltaFavor: F.favor, faltaContra: F.contra, jaAtores: deb.atores.map(a => a.ator) }), { jurisdicoes: 'W', jurisprudencia: 'R', historico: 'H', atores: 'Q' });
+      const antes = intl.jurisdicoes.length + cx.jurisprudencia.length + cg.historico.length + deb.atores.length;
+      intl.jurisdicoes = soma(intl.jurisdicoes, comp.jurisdicoes, 'W', j => chv(`${j.lugar} ${j.norma || ''}`));
+      cx.jurisprudencia = soma(cx.jurisprudencia, comp.jurisprudencia, 'R', j => chv(j.processo));
+      cg.historico = soma(cg.historico, comp.historico, 'H', h => chv(h.proposicao));
+      // Ator novo entra pelo mesmo caminho das buscas do debate: quem já estava (com outro nome ou sigla) não é contado de novo.
+      const novos = (comp.atores || []).filter(a => a && a.ator).map(a => ({ ...a, id: '', grupo: rotulos.includes(a.grupo) ? a.grupo : (rotulos.find(g => chv(g) === chv(a.grupo)) || 'Outros') }));
+      if (novos.length) deb = pe5JuntarDebates(deb, { atores: novos, controversias: [], avisos: [] });
       intl.avisos = [...(intl.avisos || []), ...(comp.avisos || [])];
+      if (intl.jurisdicoes.length + cx.jurisprudencia.length + cg.historico.length + deb.atores.length === antes) break;   // a rodada não achou nada novo: insistir com o mesmo pedido não muda
     }
+    if (avisosLeitura.size) deb.avisos = [...(deb.avisos || []), ...avisosLeitura];
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];
     pesquisa.debate.controversias.forEach((c, i) => { if (c && !c.id) c.id = `D${i + 1}`; });

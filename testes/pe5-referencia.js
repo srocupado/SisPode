@@ -15,20 +15,26 @@ const RESPOSTAS = {
   'pesquisa-contexto': 'resposta-pesquisa-contexto.json', 'pesquisa-congresso': 'resposta-pesquisa-congresso.json', 'redacao-1': 'resposta-redacao-1.json', 'redacao-2': 'resposta-redacao-2.json',
 };
 
+// Etapa de pistas (25/11/2026): onde procurar, antes das buscas. Nada disto entra na nota.
+const PISTAS = JSON.stringify({ termos: ['mercados digitais', 'DMA brasileiro'],
+  paises: [{ lugar: 'União Europeia', norma: 'Digital Markets Act', por_que: 'designação prévia de plataformas', contraste: false, certeza: 'alta' }, { lugar: 'Estados Unidos', norma: 'American Innovation and Choice Online Act', por_que: 'projeto que não avançou', contraste: true, certeza: 'média' }],
+  decisoes: [{ tribunal: 'STF', referencia: 'ADI sobre poder normativo de agência', por_que: 'delegação ao Cade', certeza: 'baixa' }],
+  atores: { politica: [{ nome: 'Ministério da Fazenda', lado_provavel: 'favorável', onde: 'notas da Secretaria de Reformas Econômicas' }], economia: [{ nome: 'Brasscom', lado_provavel: 'contrário', onde: 'notas à imprensa' }], federacao: [], sociedade: [{ nome: 'Idec', lado_provavel: 'favorável', onde: 'site' }] } });
+
 function ioDeReferencia({ respostas = {}, onChamada = null } = {}) {
   const prompts = {};
   return {
     prompts,
     io: {
-      chamarModelo: async ({ prompt, etapa, web, pensar }) => {
+      chamarModelo: async ({ prompt, etapa, web, pensar, buscas, ler: lerPaginas }) => {
         prompts[etapa] = prompt;
-        if (onChamada) onChamada({ etapa, web, pensar, tamanho: prompt.length });
+        if (onChamada) onChamada({ etapa, web, pensar, buscas, ler: lerPaginas, tamanho: prompt.length });
         // Etapas criadas em 21 e 22/11/2026: a leitura dos documentos de apoio devolve os grupos dela, tirados da mesma
         // leitura gravada; as buscas do debate dos outros grupos voltam vazias (a junção fica igual à busca única);
         // a complementar não acrescenta nada; "Quem se posicionou e como" (redacao-1c) sai da mesma resposta gravada.
         const apoio = () => { const L = JSON.parse(ler(RESPOSTAS.leitura)); return JSON.stringify({ emendas: L.emendas || [], justificativa: L.justificativa || [], estimativas: L.estimativas || [], referencias: L.referencias || [], controversias: [], achados: [], ausencias: [] }); };
         // a redação vai em quatro chamadas; as respostas gravadas (duas metades) servem às duas partes de cada metade
-        const texto = etapa in respostas ? respostas[etapa] : /^redacao-(1[bc]|2b)$/.test(etapa) && etapa.slice(0, -1) in respostas ? respostas[etapa.slice(0, -1)] : etapa === 'revisao' ? '{"correcoes":[],"observacoes":[]}' : etapa === 'leitura-apoio' ? apoio() : /^pesquisa-debate-/.test(etapa) ? '{"atores":[],"controversias":[],"avisos":[]}' : etapa === 'pesquisa-complementar' ? '{"jurisdicoes":[],"jurisprudencia":[],"avisos":["nada a acrescentar"]}' : ler(RESPOSTAS[etapa.replace(/^(redacao-1)[bc]$/, '$1').replace(/^(redacao-2)b$/, '$1')]);
+        const texto = etapa in respostas ? respostas[etapa] : /^redacao-(1[bc]|2b)$/.test(etapa) && etapa.slice(0, -1) in respostas ? respostas[etapa.slice(0, -1)] : etapa === 'revisao' ? '{"correcoes":[],"observacoes":[]}' : etapa === 'leitura-apoio' ? apoio() : /^pesquisa-debate-/.test(etapa) ? '{"atores":[],"controversias":[],"avisos":[]}' : /^pesquisa-complementar/.test(etapa) ? '{"jurisdicoes":[],"jurisprudencia":[],"avisos":["nada a acrescentar"]}' : etapa === 'pesquisa-pistas' ? PISTAS : ler(RESPOSTAS[etapa.replace(/^(redacao-1)[bc]$/, '$1').replace(/^(redacao-2)b$/, '$1')]);
         // o modelo de verdade às vezes embrulha o JSON em cerca de código: o pipeline tem de aguentar
         return { text: etapa === 'redacao-1' ? '```json\n' + texto + '\n```' : texto, truncated: false, usage: { entrada: Math.round(prompt.length / 4), saida: Math.round(texto.length / 4), raciocinio: 0, total: Math.round((prompt.length + texto.length) / 4) } };
       },

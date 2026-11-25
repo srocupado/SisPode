@@ -316,11 +316,18 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   // o teste avisa.
   const jurD = doc.internacional?.jurisdicoes || [], decD = doc.analise?.jurisprudencia || [];
   if ((pq.debate || pq.internacional) && pq.semBusca !== true) {   // sem busca na internet não há o que cobrar
-    add('Experiência internacional: ao menos cinco países ou blocos', jurD.length >= 5, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < 5 ? '; o mínimo é cinco' : ''}.`);
-    add('Decisões judiciais: ao menos quatro', decD.length >= 4, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < 4 ? '; o mínimo é quatro' : ''}.`);
     // Um país de modelo oposto (o mecanismo é vedado, depende do Legislativo ou é mais estreito) e a origem das
     // leis que o texto altera (22/11/2026: a NTA do PLP 299/2026 ficou sem os EUA e sem o PLP 93/2023).
-    const P = (typeof pe5LeisAlteradas === 'function') ? { pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste } : require('./pe5-prompts.js');   // eslint-disable-line no-undef
+    const P = (typeof pe5LeisAlteradas === 'function') ? { pe5LeisAlteradas, pe5OrigensFaltantes, pe5EhContraste, PE5_MIN_PESQUISA, pe5ContagemAtores } : require('./pe5-prompts.js');   // eslint-disable-line no-undef
+    // Mínimos de 25/11/2026 (PE5_MIN_PESQUISA): seis países, seis decisões, vinte atores com cinco de cada lado. O
+    // pipeline insiste em até três rodadas; o que ainda faltar aparece aqui, e a nota sai com o aviso.
+    const MP = P.PE5_MIN_PESQUISA, ext = n => ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez'][n] || (n === 20 ? 'vinte' : String(n));
+    add(`Experiência internacional: ao menos ${ext(MP.paises)} países ou blocos`, jurD.length >= MP.paises, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < MP.paises ? `; o mínimo é ${ext(MP.paises)}` : ''}.`);
+    add(`Decisões judiciais: ao menos ${ext(MP.decisoes)}`, decD.length >= MP.decisoes, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < MP.decisoes ? `; o mínimo é ${ext(MP.decisoes)}` : ''}.`);
+    const cA = P.pe5ContagemAtores(atores);
+    add(`Debate: ao menos ${ext(MP.atores)} atores com posição e fonte`, cA.total >= MP.atores, `${cA.total} ator(es) na pesquisa${cA.total < MP.atores ? `; o mínimo é ${ext(MP.atores)}. A busca foi refeita e não localizou mais manifestações: o mapa do debate pode estar incompleto` : ''}.`);
+    add(`Debate: ao menos ${ext(MP.porLado)} atores de cada lado`, cA.favor >= MP.porLado && cA.contra >= MP.porLado,
+      `${cA.favor} favorável(is) e ${cA.contra} contrário(s), contadas as posições com ressalvas; ${cA.neutro} neutro(s)${cA.favor < MP.porLado || cA.contra < MP.porLado ? `. O mínimo é ${ext(MP.porLado)} de cada lado: ${cA.favor < MP.porLado && cA.contra < MP.porLado ? 'os dois lados estão' : cA.favor < MP.porLado ? 'o lado favorável está' : 'o lado contrário está'} abaixo dele, e a tendência do debate deve ser lida com essa ressalva` : ''}.`);
     const opostos = jur.filter(P.pe5EhContraste), opostosNaNota = opostos.filter(j => usados.has(j.id));
     add('Experiência internacional: ao menos um país com modelo oposto ao do texto', opostosNaNota.length > 0,
       opostos.length ? `${opostos.map(j => j.lugar).join('; ')}${opostosNaNota.length ? '' : ' — está na pesquisa, mas não na nota'}.` : 'A pesquisa não trouxe país em que o mecanismo seja vedado, dependa do Legislativo ou seja mais estreito.');

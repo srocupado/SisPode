@@ -287,10 +287,10 @@ const rejeita = async p => { try { await p; return null; } catch (e) { return e;
   console.log('\n== 9. OpenAI: modelos de raciocínio sem temperature ==');
   {
     const corpos = [];
-    const IA = new Function('arrayBufferToBase64', 'fetchIA', 'fetchIASse', 'exigirTexto', 'iaFontesGemini', 'iaFontesOpenAI', 'iaFontesAnthropic', 'raciocinioAdaptativo',
+    const IA = new Function('arrayBufferToBase64', 'fetchIA', 'fetchIASse', 'exigirTexto', 'iaFontesGemini', 'iaFontesOpenAI', 'iaFontesAnthropic', 'raciocinioAdaptativo', 'iaTentarNiveis',
       `${trechoDe(srcIA, /async function chamarIA\([\s\S]*?\n}/)}\nreturn chamarIA;`)(
       () => '', async (_u, init) => { corpos.push(JSON.parse(init.body)); return { status: 'completed', output: [{ content: [{ type: 'output_text', text: 'ok' }] }] }; },
-      async () => [], t => t, () => {}, () => {}, () => {}, () => false);
+      async () => [], t => t, () => {}, () => {}, () => {}, () => false, async (niveis, _proc, fn) => fn(niveis[0]));   // 25/11/2026: a chamada passa pelo recuo da leitura de páginas
     for (const modelo of ['gpt-5', 'o3', 'gpt-5-mini', 'gpt-4o']) await IA({ provedorId: 'openai', apiKey: 'k', modelo, prompt: 'p' });
     ok(corpos[0].temperature === undefined && corpos[1].temperature === undefined && corpos[2].temperature === undefined, 'gpt-5, o3 e gpt-5-mini na chamada comum (nota, apelido, chat): sem temperature (antes: 0.2 → 400)');
     ok(corpos[0].reasoning === undefined && corpos[0].max_output_tokens === 12000, 'e sem esforço de raciocínio nem teto dobrado: isso continua só no raciocínio alto');
