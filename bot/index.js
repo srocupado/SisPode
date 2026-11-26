@@ -90,7 +90,7 @@ const TEXTO_AJUDA =
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
-  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou. Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
+  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou. Admin: /faltamvotar auto on|off — acompanhamento automático: depois que 257 deputados votaram, uma mensagem no grupo com quem do Podemos falta, atualizada a cada 15 segundos\n' +
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
   '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
@@ -1536,15 +1536,19 @@ bot.command('oradores', ctx => cmdOradores(ctx, ctx.match));
 
 // ---------- /faltamvotar — quem do PODE ainda não votou na nominal aberta ----------
 // Autorizados, no grupo ou privado. Fonte: painel do app Infoleg (host infoleg),
-// só em votação NOMINAL. Admin liga/desliga a rede de segurança: /faltamvotar auto on|off.
+// só em votação NOMINAL. Admin liga/desliga o acompanhamento automático: /faltamvotar auto on|off.
 async function cmdFaltamVotar(ctx) {
   if (!isAutorizado(ctx.from.id)) return;
   const arg = String(ctx.match || '').trim().toLowerCase();
   if (arg.startsWith('auto')) {
-    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga a rede de segurança.');
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga o acompanhamento automático dos faltantes.');
     const on = /\bon\b|liga/.test(arg), off = /\boff\b|desliga/.test(arg);
-    if (on || off) { setFaltantesAuto(on); return ctx.reply(`Rede de segurança de faltantes ${on ? 'LIGADA' : 'DESLIGADA'}.`); }
-    return ctx.reply(`Rede de segurança de faltantes: ${getFaltantesAuto() ? '🟢 ligada' : '🔴 desligada'}. Use /faltamvotar auto on|off.`);
+    if (on || off) {
+      setFaltantesAuto(on);
+      return ctx.reply(on ? 'Acompanhamento automático dos faltantes LIGADO. Em cada votação nominal, depois que 257 deputados tiverem votado, ponho no grupo quem do Podemos ainda não votou e atualizo a mensagem a cada 15 segundos, até a bancada toda votar ou a votação encerrar.'
+        : 'Acompanhamento automático dos faltantes DESLIGADO. A lista continua saindo para quem pedir, com /faltamvotar ou perguntando.');
+    }
+    return ctx.reply(`Acompanhamento automático dos faltantes: ${getFaltantesAuto() ? '🟢 ligado' : '🔴 desligado'}. Ligado, depois de 257 votos na Casa o grupo recebe quem do Podemos falta votar, com atualização a cada 15 segundos. Use /faltamvotar auto on|off.`);
   }
   return responderFaltantes(ctx);
 }

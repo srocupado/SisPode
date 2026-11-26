@@ -11,7 +11,7 @@
 const { fbGet, fbPatch, fbPut } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
 const { listasDeOradores, oradoresDaLista, esperaPorTaxa } = require('./oradores');
-const { faltamVotar, formatarFaltantes } = require('./faltamvotar');
+const { criarAcompanhamentoFaltantes } = require('./faltamvotar');
 const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
@@ -750,7 +750,7 @@ async function carregarEstado(eventoId) {
     resultadosPag:    e.resultadosPag || {},   // resultado (página do evento) já anunciado, por chave
     nominaisChave:    e.nominaisChave || {},   // matérias vistas em votação NOMINAL (não anunciar como simbólicas)
     oradoresAvisados: e.oradoresAvisados || {},  // avisos "na tribuna" já dados (deputado-lista)
-    faltantesAvisados: e.faltantesAvisados || {},  // rede de segurança de faltantes já disparada, por idVotacao
+    faltantesAvisados: e.faltantesAvisados || {},  // acompanhamento dos faltantes, por idVotacao: { chat, mid } da mensagem ou { fim: true } (true = aviso do formato antigo)
     assumidos:        e.assumidos || {},       // resultados simbólicos ASSUMIDOS (mid/chat/texto) aguardando o carimbo real
   };
 }
@@ -896,13 +896,37 @@ const QUORUM_MIN = 257;       // maioria absoluta (257 de 513) — quórum de de
 let _presencaSessao = null;   // numSessao com aviso de presença já enviado
 let _quorumSessao = null;     // numSessao com aviso de quórum já enviado (ambos persistidos)
 
-// Rede de segurança dos FALTANTES: um auto-aviso por votação nominal quando a
-// Casa já registrou muito voto (LIMIAR) e ainda há PODE presente sem votar —
-// pro caso de ninguém ter pedido /faltamvotar. Liga/desliga persistido.
-const FALTANTES_LIMIAR = 0.80;   // fração da Casa que já registrou voto
-let _faltantesAuto = true;       // default ligado (a Liderança pediu com a rede)
-function setFaltantesAuto(v) { _faltantesAuto = !!v; marcarCosev({ faltantesAuto: _faltantesAuto }); }
+// ACOMPANHAMENTO DOS FALTANTES (26/11/2026; ver faltamvotar.js): na votação nominal, depois que 257 deputados
+// votaram, o grupo recebe UMA mensagem com quem do Podemos ainda não votou, atualizada a cada 15 segundos, até a
+// bancada toda votar ou a votação encerrar. Substitui a "rede de segurança" (um aviso aos 80% da Casa, só com
+// deputado PRESENTE sem voto — lista que saía sempre vazia, porque o painel só marca presença depois do voto).
+// Liga/desliga persistido (/faltamvotar auto on|off).
+let _faltantesAuto = true;       // default ligado (era o da rede de segurança, pedida pela Liderança)
+let _acompFaltantes = null;
+function setFaltantesAuto(v) { _faltantesAuto = !!v; marcarCosev({ faltantesAuto: _faltantesAuto }); if (!v && _acompFaltantes) _acompFaltantes.parar(); }
 function getFaltantesAuto() { return _faltantesAuto; }
+/** O acompanhamento, ligado ao envio e ao registro do monitor (criado na primeira nominal). */
+function acompFaltantes() {
+  if (_acompFaltantes) return _acompFaltantes;
+  const gravar = (id, valor) => {
+    if (!_sessao || !_sessao.estado) return;
+    _sessao.estado.faltantesAvisados[id] = valor;
+    marcar(_sessao.id, { [`faltantesAvisados/${id}`]: valor });
+  };
+  _acompFaltantes = criarAcompanhamentoFaltantes({
+    ligado: () => !!(_cfg && _cfg.ligado && _faltantesAuto),
+    enviar: async texto => {
+      const destino = _cfg.destino();
+      if (!destino) throw new Error('sem destino configurado');
+      const m = await _cfg.api.sendMessage(destino, texto);
+      return { chat: destino, mid: m.message_id };
+    },
+    editar: (msg, texto) => _cfg.api.editMessageText(msg.chat, msg.mid, texto),
+    aoEnviar: (id, msg) => gravar(id, msg),          // o bot pode reiniciar no meio da votação: retoma a MESMA mensagem
+    aoConcluir: id => gravar(id, { fim: true }),
+  });
+  return _acompFaltantes;
+}
 
 function marcarCosev(patch) { fbPatch('/bot/monitor_cosev', patch).catch(() => {}); }
 
@@ -1036,23 +1060,11 @@ async function tickAbertura() {
             marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
           }
         }
-        // REDE DE SEGURANÇA dos faltantes: uma vez por votação, quando a Casa
-        // já registrou ≥ LIMIAR do total (votação madura) e ainda há PODE
-        // PRESENTE sem votar. Evita falso positivo da abertura (quase ninguém
-        // votou ainda) e cobre o caso de ninguém ter pedido /faltamvotar.
-        if (_faltantesAuto && !est.faltantesAvisados[v.id]) {
-          try {
-            const r = await faltamVotar('PODE');
-            if (r.aberta && r.casaTotal && (r.casaRegistrou / r.casaTotal) >= FALTANTES_LIMIAR
-                && r.presentesNaoVotaram.length) {
-              est.faltantesAvisados[v.id] = true;
-              marcar(_sessao.id, { [`faltantesAvisados/${v.id}`]: true });
-              const pct = Math.round((r.casaRegistrou / r.casaTotal) * 100);
-              await enviar(`⏰ *Votação nominal madura* (${pct}% da Casa já votou) — ainda faltam votar (presentes):\n${r.presentesNaoVotaram.map(n => `• ${n}`).join('\n')}`, { md: true });
-              console.log(`[monitor] rede de segurança de faltantes disparada (votação ${v.id}, ${r.presentesNaoVotaram.length} presentes sem votar).`);
-            }
-          } catch (e) { console.warn('[monitor] rede de faltantes falhou:', e.message); }
-        }
+      }
+      // Toda NOMINAL em curso (a de destaque também) entra no acompanhamento dos faltantes. Só a primeira
+      // chamada de cada votação o inicia; depois ele anda sozinho, de 15 em 15 segundos.
+      if (!v.simbolica && String(v.tipoVotacao || '').toUpperCase() === 'E' && v.id != null && _faltantesAuto) {
+        acompFaltantes().acompanhar(v.id, v.titulo, est.faltantesAvisados[v.id]);
       }
     }
   }
