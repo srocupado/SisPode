@@ -137,7 +137,26 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
     ok(e.ed.length === 1 && /310 de 513/.test(e.ed[0].texto), 'e na leitura boa seguinte a mensagem volta a se atualizar');
     const f = amb([ret(300, 25, ['A (SP)'])]);
     await f.iniciar(14017, ''); f.desligar(); await f.passos(1);
-    ok(f.env.length === 1 && f.ed.length === 0 && f.A.emCurso() === null && !f.marcas.some(m => m[0] === 'fim'), '/faltamvotar auto off no meio da votação: para de atualizar e deixa a mensagem como está');
+    ok(f.env.length === 1 && f.ed.length === 1 && /Última leitura às 22:57:47\. O acompanhamento automático foi desligado: esta mensagem não é mais atualizada\.$/.test(f.ed[0].texto) && !/se atualiza a cada 15 segundos/.test(f.ed[0].texto) && f.A.emCurso() === null && !f.marcas.some(m => m[0] === 'fim'),
+      '/faltamvotar auto off no meio da votação: para de atualizar e a mensagem passa a dizer isso (não fica prometendo atualização)');
+    const f2 = amb([ret(300, 25, ['A (SP)'])]);
+    await f2.iniciar(14017, ''); await f2.A.desligar();
+    ok(f2.ed.length === 1 && /foi desligado/.test(f2.ed[0].texto) && f2.t.parou === 1 && f2.A.emCurso() === null, 'o mesmo pelo comando (o monitor chama desligar): edita na hora, sem esperar o passo seguinte');
+    const f3 = amb([ret(310, 26, ['A (SP)'])]);
+    ok(await f3.iniciar(14017, '', { chat: 'GRUPO', mid: 901 }) === true && f3.ed.length === 1 && /se atualiza a cada 15 segundos/.test(f3.ed[0].texto), 'religando com a votação ainda aberta, a mesma mensagem volta a ser atualizada');
+    // mensagem apagada no grupo: a edição passa a falhar sempre
+    const apagada = { marcas: [] };
+    const AA = F.criarAcompanhamentoFaltantes({ consultarAtual: async () => ret(300 + Math.floor(Math.random() * 50), 25, ['A (SP)'], { idVotacao: 14030 }), consultarPorId: async () => null,
+      enviar: async () => ({ chat: 'GRUPO', mid: 1 }), editar: async () => { throw new Error('Bad Request: message to edit not found'); }, ligado: () => true,
+      aoConcluir: id => apagada.marcas.push(['fim-apagada', id]), agora: () => new Date(Date.now() + Math.random() * 1e6), timers: { setInterval: () => 1, clearInterval: () => {} } });
+    const logOriginal = console.warn; console.warn = () => {};
+    AA.acompanhar(14030, ''); await new Promise(x => setTimeout(x, 5));
+    for (let k = 0; k < F.ACOMP_MAX_ERROS - 1; k++) await AA.passo();
+    const aindaTentando = !!AA.emCurso();
+    await AA.passo();
+    console.warn = logOriginal;
+    ok(F.ACOMP_MAX_ERROS === 8 && aindaTentando && AA.emCurso() === null && apagada.marcas.some(m => m[0] === 'fim-apagada' && m[1] === 14030) && AA.acompanhar(14030, '') === false,
+      'mensagem apagada no grupo (a edição falha sempre): depois de oito tentativas o acompanhamento desiste desta votação, em vez de insistir até a próxima nominal');
     ok(amb([ret(300, 25, ['A (SP)'])], { ligado: false }).A.acompanhar(14017, '') === false, 'desligado, nenhuma votação é acompanhada');
     // o bot reiniciou no meio da votação: retoma a mesma mensagem; votação já encerrada não recomeça
     const g = amb([ret(300, 25, ['A (SP)'])]);
@@ -181,6 +200,12 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
     global.fetch = async () => { throw new Error('x'); };
     ok(await C.sessaoAtual() === null && (await C.leituraDaSessao()).falha === true, 'quem usa sessaoAtual continua recebendo null na falha (nada muda para o monitor)');
 
+    // painel sem ninguém do partido não é "toda a bancada votou (0 de 0)"
+    global.fetch = async u => (/sessao-atual/.test(u) ? resp(SESSAO) : /ws-plenario\/votacao\/14017$/.test(u) ? resp({ nomeProposicao: 'PL 1/2026', parlamentaresVotos: [{ nomeParlamentar: 'Fulano', siglaPartido: 'PT', uf: 'SP', dataRegistroVoto: '2026-11-26T10:00:00' }] }) : { ok: false, status: 404, text: async () => '' });
+    const semBancada = await faltamVotar('PODE');
+    ok(semBancada.aberta === false && semBancada.idVotacao === 14017 && /não trouxe os votos individuais da bancada/.test(semBancada.motivo) && await F.retratoDaVotacao(14017, 'PODE') === null && !/0\/0|Toda a bancada/.test(formatarFaltantes(semBancada)),
+      'painel sem nenhum deputado do partido: não vira "0 de 0 — toda a bancada votou"; quem pede recebe que o painel ainda não trouxe os votos, e o acompanhamento espera');
+
     // faltamVotar diz que a votação continua aberta mesmo sem os votos individuais; o retrato por id serve à encerrada
     global.fetch = async u => (/sessao-atual/.test(u) ? resp(SESSAO) : /ws-plenario\/votacao\/14017$/.test(u) ? resp({ parlamentaresVotos: [] }) : { ok: false, status: 404, text: async () => '' });
     const semVotos = await faltamVotar('PODE');
@@ -193,7 +218,7 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
     const mon = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'monitor.js'), 'utf8'), idx = fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8');
     ok(/if \(!v\.simbolica && String\(v\.tipoVotacao \|\| ''\)\.toUpperCase\(\) === 'E' && v\.id != null && _faltantesAuto\) \{\s*acompFaltantes\(\)\.acompanhar\(v\.id, v\.titulo, est\.faltantesAvisados\[v\.id\]\);/.test(mon) && !/FALTANTES_LIMIAR|presentesNaoVotaram/.test(mon),
       'o monitor entrega ao acompanhamento toda nominal em curso (a de destaque também); a rede de segurança dos 80% saiu');
-    ok(/ligado: \(\) => !!\(_cfg && _cfg\.ligado && _faltantesAuto\)/.test(mon) && /editar: \(msg, texto\) => _cfg\.api\.editMessageText\(msg\.chat, msg\.mid, texto\)/.test(mon) && /aoConcluir: id => gravar\(id, \{ fim: true \}\)/.test(mon) && /if \(!v && _acompFaltantes\) _acompFaltantes\.parar\(\);/.test(mon),
+    ok(/ligado: \(\) => !!\(_cfg && _cfg\.ligado && _faltantesAuto\)/.test(mon) && /editar: \(msg, texto\) => _cfg\.api\.editMessageText\(msg\.chat, msg\.mid, texto\)/.test(mon) && /aoConcluir: id => gravar\(id, \{ fim: true \}\)/.test(mon) && /if \(!v && _acompFaltantes\) _acompFaltantes\.desligar\(\)\.catch\(/.test(mon),
       'liga/desliga pelo mesmo /faltamvotar auto on|off; a mensagem é editada no lugar; o estado fica gravado na sessão');
     ok(/Acompanhamento automático dos faltantes LIGADO\./.test(idx) && /Acompanhamento automático dos faltantes DESLIGADO\. A lista continua saindo para quem pedir/.test(idx) && !/Rede de segurança de faltantes/.test(idx), 'o comando fala do acompanhamento, não mais da rede de segurança');
   }

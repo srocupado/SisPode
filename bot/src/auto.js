@@ -149,7 +149,8 @@ async function rotinaAuto(ev, cfg, { retomar = false } = {}) {
     return { ok: true, pautaId: r.pautaId, ...(enviosFalhos.length ? { enviosFalhos } : {}) };
   } catch (e) {
     console.error(`[auto] rotina da sessão ${ev.id} falhou:`, e);
-    const msg = `⚠️ Modo automático: não consegui preparar a pauta da ${sessaoBR(ev)} (${e.message}). O que já foi feito está salvo; termine com /importar, /analisar e /exportar.`;
+    // Não se sabe em que ponto parou: a pauta pode já estar importada (e /importar de novo pediria para sobrescrever).
+    const msg = `⚠️ Modo automático: não consegui preparar a pauta da ${sessaoBR(ev)} (${e.message}). O que já foi feito está salvo. Se a pauta já aparece no /pauta, termine com /analisar e /exportar; se não, comece por /importar.`;
     if (status) await editar(msg); else await cfg.api.sendMessage(destino, msg).catch(() => {});
     await fim({ erro: String(e.message || e).slice(0, 300) });
     return { erro: e.message };

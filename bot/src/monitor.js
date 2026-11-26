@@ -903,7 +903,7 @@ let _quorumSessao = null;     // numSessao com aviso de quórum já enviado (amb
 // Liga/desliga persistido (/faltamvotar auto on|off).
 let _faltantesAuto = true;       // default ligado (era o da rede de segurança, pedida pela Liderança)
 let _acompFaltantes = null;
-function setFaltantesAuto(v) { _faltantesAuto = !!v; marcarCosev({ faltantesAuto: _faltantesAuto }); if (!v && _acompFaltantes) _acompFaltantes.parar(); }
+function setFaltantesAuto(v) { _faltantesAuto = !!v; marcarCosev({ faltantesAuto: _faltantesAuto }); if (!v && _acompFaltantes) _acompFaltantes.desligar().catch(() => {}); }
 function getFaltantesAuto() { return _faltantesAuto; }
 /** O acompanhamento, ligado ao envio e ao registro do monitor (criado na primeira nominal). */
 function acompFaltantes() {

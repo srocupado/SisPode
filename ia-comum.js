@@ -113,6 +113,7 @@ const MOTIVO_SEM_TEXTO = {
   REFUSAL: 'o modelo recusou a solicitação',
   INCOMPLETE: 'a resposta veio incompleta, sem texto',
   END_TURN: 'o modelo encerrou o turno sem escrever nada',
+  PAUSE_TURN: 'a pesquisa foi pausada pelo provedor mais vezes do que o limite de retomadas e não chegou a escrever a resposta (buscas e leituras demais para um pedido só)',
   STOP: 'o modelo encerrou a geração sem escrever nada',
   COMPLETED: 'o provedor deu a resposta por concluída, mas ela não trazia texto',
 };
@@ -347,6 +348,9 @@ async function iaTentarNiveis(niveis, proc, fn) {
       const ultimo = niveis.length - 1;
       if (i >= ultimo || !(e && (e.status === 400 || e.retomada))) throw e;
       i = e.retomada ? ultimo : i + 1;
+      // A tentativa descartada pode ter buscado e lido páginas antes de falhar (retomada recusada no meio): nada
+      // disso sustenta a resposta da tentativa seguinte, então não pode constar como fonte nem como página lida dela.
+      if (proc) for (const k of ['fontes', 'buscas', 'trechos', 'paginas']) if (Array.isArray(proc[k])) proc[k].length = 0;
       const aviso = e.retomada ? `A pesquisa longa não pôde ser retomada (${String(e.message || '').slice(0, 140)}); foi refeita com a busca curta, sem leitura de páginas.`
         : `O provedor recusou a leitura de páginas (${String(e.message || '').slice(0, 140)}); a pesquisa foi feita só com a busca.`;
       const aindaLe = /web_fetch|url_context|search_context_size/.test(JSON.stringify(niveis[i] || ''));   // o nível seguinte ainda lê páginas (outra versão da ferramenta): nada a avisar
@@ -598,7 +602,9 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         }
         // Concatena todos os blocos de texto (com busca há blocos de busca no meio).
         const partes = r.blocos.filter(b => b.type === 'text' && b.text).map(b => b.text);
-        if (partes.length) texto += (texto && !emStream ? '\n' : '') + partes.join(emStream ? '' : '\n');
+        // Entre uma volta e a seguinte vai uma quebra de linha (o texto de voltas diferentes saía colado: "…a lei.A nota…").
+        // É seguro para o JSON: a pausa acontece entre blocos, nunca no meio de um valor de texto.
+        if (partes.length) texto += (texto ? '\n' : '') + partes.join(emStream ? '' : '\n');
         iaFontesAnthropic(r.blocos, proc);
         for (const k of ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']) if (r.uso && r.uso[k]) uso[k] = (uso[k] || 0) + r.uso[k];
         parada = r.parada;

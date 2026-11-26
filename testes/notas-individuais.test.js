@@ -54,6 +54,20 @@ const ANO = String(new Date().getFullYear());
     'nota que só existe no acervo das pautas: o registro sai da chave; chave fora do padrão fica de fora');
   ok(N.niFiltrar([linha, { ...linha, rotulo: 'PL 1/2020', descricao: 'Outra', responsavel: 'Zé', chave: 'PL-1-2020' }], 'apeli').length === 1 && N.niFiltrar([linha], 'VINICIUS').length === 1 && N.niFiltrar([linha], '').length === 1, 'busca na lista: por apelido e por responsável, sem acento');
 
+  // Varredura de 26/11/2026: os pequenos.
+  ok(!N.niMesmoServidor('Daniel', 'Daniela Silva') && !N.niMesmoServidor('Suellen Ali', 'Suellen Alice') && N.niMesmoServidor('Daniel', 'Daniel Roriz') && N.niMesmoServidor('Vinicius L.', 'Vinícius Lára') && N.niMesmoServidor('Maria E', 'Maria Exemplo') && !N.niMesmoServidor('L Vinicius', 'Vinícius Lára'),
+    'mesmo servidor, palavra por palavra: "Daniel" não é "Daniela Silva" nem "Suellen Ali" é "Suellen Alice"; "Daniel" é "Daniel Roriz" e a última palavra pode ser a inicial ("Vinicius L.")');
+  ok(N.niLerEntrada('PL 12 3456') === null && N.niLerEntrada('PL 12/2099') === null && le('PEC 6 2019') === '{"sigla":"PEC","numero":"6","ano":"2019"}', 'ano que não existe ("PL 12 3456", erro de digitação) não vira nota; o formato com espaço continua valendo para ano de verdade');
+  ok(le('PLP 12/25') === '{"sigla":"PLP","numero":"12","ano":"2025"}' && le('PL 5/98') === '{"sigla":"PL","numero":"5","ano":"1998"}' && le('https://dadosabertos.camara.leg.br/api/v2/proposicoes/2345678') === '{"idCamara":2345678}',
+    'ano com dois dígitos ("PLP 12/25") e o link da API de Dados Abertos são aceitos');
+  ok(N.niFiltrar([linha], '9').length === 1 && N.niFiltrar([{ ...linha, rotulo: 'PL 1234/2025', chave: 'PL-1234-2025' }], '1.234').length === 1 && N.niFiltrar([{ ...linha, rotulo: 'PL 1234/2025', chave: 'PL-1234-2025' }], 'pl 1.234/2025').length === 1, 'a busca acha o número escrito com ponto ("1.234")');
+  {
+    const fonte = fs.readFileSync(path.join(RAIZ, 'notas-individuais.js'), 'utf8');
+    ok(/filter\(ch => !ni\.registros\[ch\] && niRegistroDaChave\(ch\)\)\.length/.test(fonte), 'a contagem de "Notas das pautas do Plenário" é a do que a lista mostra (chave fora do padrão não é contada sem aparecer)');
+    ok(/Date\.now\(\) - \(ni\.equipeEm \|\| 0\) > NI_EQUIPE_VALE_MS/.test(fonte) && /const NI_EQUIPE_VALE_MS = 5 \* 60e3;/.test(fonte), 'a visão da equipe é relida quando a cópia tem mais de cinco minutos');
+    ok(!/o item avisa que já existe nota no acervo/.test(fonte) && /use “Usar em pauta”/.test(fonte), 'o texto da lateral não promete mais o aviso que saiu do Plenário');
+  }
+
   console.log('\n== 2. ligação com o Plenário e com o painel (código) ==');
   const an = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8'), pn = fs.readFileSync(path.join(RAIZ, 'panel.js'), 'utf8'), html = fs.readFileSync(path.join(RAIZ, 'analise.html'), 'utf8');
   ok(/<script src="notas-individuais\.js"><\/script>\s*<script src="analise\.js">/.test(html), 'analise.html carrega notas-individuais.js antes do analise.js');
@@ -92,6 +106,7 @@ const ANO = String(new Date().getFullYear());
     // ---- Câmara: quatro proposições; a de número 100 tem urgência
     const props = { 9100: { n: 100, a: 2025, e: 'Ementa cem', regime: 'Urgência (Art. 155, RICD)' }, 9200: { n: 200, a: 2025, e: 'Ementa duzentos' }, 9300: { n: 300, a: 2024, e: 'Ementa trezentos' }, 9400: { n: 400, a: 2025, e: 'Ementa quatrocentos' } };
     let fbFalha = null;   // regex do caminho do Firebase cuja LEITURA deve falhar
+    let atrasoCamara = 0; // ms de espera nas respostas da API da Câmara (para simular consulta lenta)
     const novaPagina = async (b, { nome = '' } = {}) => {
       const pg = await b.newPage({ viewport: { width: 1440, height: 900 } });
       const rede = { escritas: [], pedidos: [], erros: [] };
@@ -118,6 +133,7 @@ const ANO = String(new Date().getFullYear());
           return json({ hits: { hits: [src(9400, 'PL'), src(9200, 'PL'), src(9300, 'REQ')] } });
         }
         if (met !== 'GET') return rt.abort();
+        if (atrasoCamara && /dadosabertos\.camara\.leg\.br/.test(u)) await new Promise(r => setTimeout(r, atrasoCamara));
         let m;
         if ((m = /dadosabertos\.camara\.leg\.br\/api\/v2\/proposicoes\?(.*)/.exec(u))) {
           const qs = new URLSearchParams(m[1]);
@@ -352,6 +368,17 @@ const ANO = String(new Date().getFullYear());
       ok(fb.analises_avulsas['PL-200-2025'].responsavel === 'Maria Exemplo' && fb.analises_avulsas['PL-200-2025'].pedidoEm === '2026-11-26T12:00:00.000Z' && !redeV.escritas.slice(antes).some(e => /^PUT analises_avulsas\/PL-200-2025$/.test(e)),
         'criar confere no banco antes de gravar: o registro da colega fica como estava (o responsável dela não é trocado)');
       ok(await v.evaluate(() => document.body.innerText.includes('já tinha nota individual, com Maria Exemplo')), 'e a tela diz que a nota já existia e com quem está, abrindo a que existe');
+      // trocar de aba com a consulta ainda no ar: a resposta atrasada não pode repor o "achado"
+      await v.click('#ni-volta'); await v.waitForSelector('.ni-tab, .ni-vazio');
+      await v.click('#ni-nova');
+      atrasoCamara = 1500;
+      await v.fill('#ni-n-texto', 'PL 300/2024');
+      await v.evaluate(() => { document.querySelector('[data-ni=buscar-numero]').click(); });
+      await v.click('.ni-aba[data-aba=senado]');
+      atrasoCamara = 0;
+      await v.waitForTimeout(2500);
+      const troca = await v.evaluate(() => ({ achado: document.getElementById('ni-achado').style.display, criar: document.querySelector('[data-ni=criar]').disabled, st: document.getElementById('ni-nova-st').textContent }));
+      ok(troca.achado === 'none' && troca.criar === true && troca.st === '', 'consulta na Câmara ainda no ar e o servidor troca para a aba do Senado: a resposta atrasada é descartada ("Criar a nota" continua desligado)');
       ok(redeV.erros.length === 0, `nenhum erro na página${redeV.erros.length ? ' — ' + redeV.erros[0] : ''}`);
       await v.close();
     }

@@ -325,7 +325,10 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
     add(`Experiência internacional: ao menos ${ext(MP.paises)} países ou blocos`, jurD.length >= MP.paises, `${jurD.length} na nota (${jur.length} na pesquisa)${jurD.length < MP.paises ? `; o mínimo é ${ext(MP.paises)}` : ''}.`);
     add(`Decisões judiciais: ao menos ${ext(MP.decisoes)}`, decD.length >= MP.decisoes, `${decD.length} na nota (${juris.length} na pesquisa)${decD.length < MP.decisoes ? `; o mínimo é ${ext(MP.decisoes)}` : ''}.`);
     const cA = P.pe5ContagemAtores(atores);
-    add(`Debate: ao menos ${ext(MP.atores)} atores com posição e fonte`, cA.total >= MP.atores, `${cA.total} ator(es) na pesquisa${cA.total < MP.atores ? `; o mínimo é ${ext(MP.atores)}. A busca foi refeita e não localizou mais manifestações: o mapa do debate pode estar incompleto` : ''}.`);
+    // Só se diz que "a busca foi refeita" quando foi: nota anterior às rodadas complementares, ou em que elas
+    // falharam, não tem chamada complementar registrada.
+    const refeita = (Array.isArray(p.chamadas) ? p.chamadas : []).some(c => c && /^pesquisa-complementar/.test(c.nome || ''));
+    add(`Debate: ao menos ${ext(MP.atores)} atores com posição e fonte`, cA.total >= MP.atores, `${cA.total} ator(es) na pesquisa${cA.total < MP.atores ? `; o mínimo é ${ext(MP.atores)}. ${refeita ? 'A busca foi refeita e não localizou mais manifestações: o' : 'O'} mapa do debate pode estar incompleto` : ''}.`);
     add(`Debate: ao menos ${ext(MP.porLado)} atores de cada lado`, cA.favor >= MP.porLado && cA.contra >= MP.porLado,
       `${cA.favor} favorável(is) e ${cA.contra} contrário(s), contadas as posições com ressalvas; ${cA.neutro} neutro(s)${cA.favor < MP.porLado || cA.contra < MP.porLado ? `. O mínimo é ${ext(MP.porLado)} de cada lado: ${cA.favor < MP.porLado && cA.contra < MP.porLado ? 'os dois lados estão' : cA.favor < MP.porLado ? 'o lado favorável está' : 'o lado contrário está'} abaixo dele, e a tendência do debate deve ser lida com essa ressalva` : ''}.`);
     const opostos = jur.filter(P.pe5EhContraste), opostosNaNota = opostos.filter(j => usados.has(j.id));

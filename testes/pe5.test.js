@@ -451,6 +451,24 @@ const item = (conf, re) => conf.itens.find(i => re.test(i.teste));
     ok(etapas3.filter(e => /^pesquisa-complementar/.test(e)).length === 3, 'três rodadas que falham: para na terceira (o teto continua valendo)');
   }
 
+  console.log('\n== 10. varredura de 26/11/2026: os pequenos da NTA ==');
+  {
+    ok(/TODOS, no mínimo seis quando a pesquisa os trouxer/.test(prompts['redacao-1b']) && !/no mínimo cinco/.test(Object.values(prompts).join('\n')), 'a redação pede os mesmos seis países que a conferência cobra (dizia "no mínimo cinco")');
+    // "a busca foi refeita" só quando foi
+    const at = n => Array.from({ length: n }, (_, i) => ({ ator: `Ator ${i}`, posicao: i % 2 ? 'favorável' : 'contrário' }));
+    const base8 = { doc: {}, leitura: {}, coleta: {}, pesquisa: { debate: { atores: at(12) }, internacional: { jurisdicoes: [] }, contexto: { jurisprudencia: [] } } };
+    const semRodada = item(K.pe5Conferir(base8, { hoje: new Date('2026-11-26T15:00:00Z') }), /ao menos vinte atores/).detalhe;
+    const comRodada = item(K.pe5Conferir({ ...base8, chamadas: [{ nome: 'leitura' }, { nome: 'pesquisa-complementar' }] }, { hoje: new Date('2026-11-26T15:00:00Z') }), /ao menos vinte atores/).detalhe;
+    ok(semRodada === '12 ator(es) na pesquisa; o mínimo é vinte. O mapa do debate pode estar incompleto.' && /A busca foi refeita e não localizou mais manifestações: o mapa do debate pode estar incompleto\.$/.test(comRodada),
+      'nota sem rodada complementar (as antigas, ou quando as rodadas falharam) não diz que "a busca foi refeita"; com rodada, diz');
+    // "ADI 4.874" e "ADI 4874" são a mesma decisão
+    const dec = await gerarReferencia({ respostas: { 'pesquisa-complementar': JSON.stringify({ jurisdicoes: [], atores: [], avisos: [],
+      jurisprudencia: [{ tribunal: 'STF', processo: 'ADI 4874', decidiu: 'a mesma, sem o ponto', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/a' }, { tribunal: 'STF', processo: 'RE 1083955 AgR', decidiu: 'idem', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/b' },
+        { tribunal: 'STF', processo: 'ADI 5.501', decidiu: 'd', limite: 'l', pertinencia: 'p', data: '01/01/2020', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/c' }] }) } });
+    const procs = dec.p.pesquisa.contexto.jurisprudencia.map(j => j.processo);
+    ok(procs.length === 4 && procs.filter(x => /4\.?874/.test(x)).length === 1 && procs.filter(x => /1\.?083\.?955/.test(x)).length === 1 && procs.at(-1) === 'ADI 5.501', 'a decisão que volta escrita sem o ponto de milhar ("ADI 4874", "RE 1083955 AgR") é reconhecida como a que já estava; só a nova entra');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

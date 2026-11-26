@@ -287,14 +287,27 @@ const ia = args => vm.runInContext('chamarIA', ctx)(args);
     ok(pedidos.length === n0 + 2 && volta.length === 2 && volta[0].role === 'user' && volta[1].role === 'assistant' && JSON.stringify(pedidos.at(-1).body.tools) === JSON.stringify(pedidos.at(-2).body.tools), 'turno pausado: o pedido volta com a resposta do modelo, sem mensagem nova e com as mesmas ferramentas');
     const bl = volta[1].content;
     ok(bl.map(b => b.type).join() === 'thinking,server_tool_use,web_search_tool_result,text,server_tool_use' && bl[0].thinking === 'vou procurar' && bl[0].signature === 'ASSINATURA' && bl[1].input.query === 'DMA revisão 2026' && bl[1]._json === undefined && bl[2].content[0].encrypted_content === 'abc' && bl[3].text === '{"jurisdicoes":[' && bl[3].citations[0].encrypted_index === 'i1' && bl[4].input.url === 'https://ec.europa.eu/dma', 'os blocos voltam inteiros (raciocínio com assinatura, consulta, resultado, texto com citação); o bloco de texto vazio fica de fora');
-    ok(r.text === '{"jurisdicoes":[{"lugar":"UE"}]}' && !r.truncated && r.usage.entrada === 400 && r.usage.saida === 100, 'o texto das duas partes sai junto, e o consumo é a soma das duas');
+    ok(r.text === '{"jurisdicoes":[\n{"lugar":"UE"}]}' && JSON.parse(r.text).jurisdicoes[0].lugar === 'UE' && !r.truncated && r.usage.entrada === 400 && r.usage.saida === 100, 'o texto das duas partes sai junto, separado por quebra de linha (o JSON continua válido), e o consumo é a soma das duas');
     ok(r.paginas.join() === 'https://ec.europa.eu/dma' && r.buscas.join() === 'DMA revisão 2026' && r.fontes.length === 1 && r.fontes[0].trecho === 'trecho', 'buscas, página lida e citação (que no streaming chega em delta) ficam registradas');
     // a retomada falha: a pesquisa é refeita com a busca curta, que cabe num turno
     const n1 = pedidos.length;
     respostas.push({ sse: [{ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'q' } } }, { type: 'message_delta', delta: { stop_reason: 'pause_turn' } }] },
       { status: 400, erro: 'messages.1: invalid block' }, { sse: [{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'resposta curta' } }, { type: 'message_delta', delta: { stop_reason: 'end_turn' } }] });
     const rr = await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-sonnet-5-5', prompt: 'p', web: true, opcoes: { lerPaginas: true, maxBuscas: 30, stream: true } });
+    ok(rr.buscas.length === 0 && rr.fontes.length === 0 && rr.paginas.length === 0, 'o que a tentativa descartada buscou não entra como fonte nem como busca da resposta que valeu (varredura de 26/11/2026)');
     ok(pedidos.length === n1 + 3 && pedidos.at(-1).body.tools.length === 1 && pedidos.at(-1).body.tools[0].max_uses === 5 && pedidos.at(-1).body.messages.length === 1 && rr.text === 'resposta curta' && /não pôde ser retomada.*refeita com a busca curta/.test(rr.avisos[0]), 'se a retomada é recusada, a pesquisa é refeita do início com a busca curta, e isso fica dito');
+  }
+
+  {
+    // retomadas esgotadas: o provedor pausa de novo a cada volta
+    const pausa = texto => ({ sse: [{ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 's', name: 'web_search', input: { query: 'q' } } }, ...(texto ? [{ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: texto } }] : []), { type: 'message_delta', delta: { stop_reason: 'pause_turn' } }] });
+    const n2 = pedidos.length;
+    for (let k = 0; k < 13; k++) respostas.push(pausa(''));
+    let erro = null; try { await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-sonnet-5-5', prompt: 'p', web: true, opcoes: { stream: true } }); } catch (e) { erro = e; }
+    ok(pedidos.length === n2 + 13 && erro && /a pesquisa foi pausada pelo provedor mais vezes do que o limite de retomadas/.test(erro.message) && respostas.length === 0, 'treze pausas seguidas sem texto: para no limite de retomadas, com mensagem que diz o que houve (antes: "o provedor informou pause_turn")');
+    for (let k = 0; k < 13; k++) respostas.push(pausa(k === 0 ? 'parte escrita' : ''));
+    const parcial = await ia({ provedorId: 'anthropic', apiKey: 'k', modelo: 'claude-sonnet-5-5', prompt: 'p', web: true, opcoes: { stream: true } });
+    ok(parcial.text === 'parte escrita' && parcial.truncated === true, 'se já havia texto, ele é devolvido marcado como incompleto');
   }
 
   console.log('\n== leitura de páginas: Gemini ==');

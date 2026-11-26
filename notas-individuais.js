@@ -24,20 +24,26 @@
 const NI_SIGLAS = ['PL', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC'];
 const NI_SIGLA_TEXTO = 'MINUTA';
 const NI_ROTULO_SENADO = 'Matéria do Senado Federal';
+const NI_EQUIPE_VALE_MS = 5 * 60e3;   // por quanto tempo a cópia do acervo da equipe vale antes de ser relida
 
 const niNorm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
- * Dois nomes são o mesmo servidor? Iguais sem acento e sem caixa, ou um é o começo do outro: o bot grava o
- * nome do Telegram ("Vinicius L") e a lista do módulo tem o nome completo ("Vinícius Lára"). O prefixo
- * precisa de ao menos 5 letras, para "Ana" não casar com "Ana Paula" e "Anabela".
+ * Dois nomes são o mesmo servidor? Iguais sem acento e sem caixa, ou o mais curto é o começo do outro PALAVRA POR
+ * PALAVRA: "Daniel" é "Daniel Roriz"; e a última palavra do curto pode ser só a inicial — o bot grava o nome do
+ * Telegram ("Vinicius L") e a lista do módulo tem o nome completo ("Vinícius Lára"). O curto precisa de ao menos
+ * 5 letras, para "Ana" não casar com "Ana Paula". Até 26/11/2026 bastava ser o começo do TEXTO: "Daniel" casava
+ * com "Daniela Silva", e "Suellen Ali" com "Suellen Alice".
  */
 function niMesmoServidor(a, b) {
   a = niNorm(a); b = niNorm(b);
   if (!a || !b) return false;
   if (a === b) return true;
   const [curto, longo] = a.length < b.length ? [a, b] : [b, a];
-  return curto.length >= 5 && longo.startsWith(curto);
+  if (curto.length < 5) return false;
+  const pc = curto.split(' '), pl = longo.split(' ');
+  if (pc.length > pl.length) return false;
+  return pc.every((p, i) => p === pl[i] || (i > 0 && i === pc.length - 1 && /^[a-z]\.?$/.test(p) && pl[i][0] === p[0]));
 }
 
 /** Lista de servidores sem vazios nem repetidos (o mesmo nome com outra caixa ou acento conta como repetido). */
@@ -58,13 +64,22 @@ function niListaServidores(v) {
 function niLerEntrada(texto) {
   const t = String(texto || '').trim();
   if (!t) return null;
-  const link = /camara\.leg\.br\/[^\s]*?(?:idProposicao=|propostas-legislativas\/)(\d{4,9})/i.exec(t);
+  // a ficha no portal, a página da proposta ou o endereço da API de Dados Abertos
+  const link = /camara\.leg\.br\/[^\s]*?(?:idProposicao=|propostas-legislativas\/|api\/v2\/proposicoes\/)(\d{4,9})/i.exec(t);
   if (link) return { idCamara: Number(link[1]) };
-  const m = /\b(PLP|PL|PEC|PDL|MPV|MP|PRC)\s*(?:n[ºo°.]*\s*)?(\d[\d.]*)\s*(?:\/|,?\s*de\s+|\s+)(\d{4})\b/i.exec(t);
-  if (!m) return null;
+  const anoAtual = new Date().getFullYear();
+  let m = /\b(PLP|PL|PEC|PDL|MPV|MP|PRC)\s*(?:n[ºo°.]*\s*)?(\d[\d.]*)\s*(?:\/|,?\s*de\s+|\s+)(\d{4})\b/i.exec(t), ano = m && m[3];
+  if (!m) {
+    // ano com dois dígitos, só com a barra ("PLP 12/25"): 25 → 2025; 98 → 1998
+    m = /\b(PLP|PL|PEC|PDL|MPV|MP|PRC)\s*(?:n[ºo°.]*\s*)?(\d[\d.]*)\s*\/\s*(\d{2})(?!\d)/i.exec(t);
+    if (!m) return null;
+    ano = String((Number(m[3]) <= (anoAtual + 1) % 100 ? 2000 : 1900) + Number(m[3]));
+  }
   const numero = String(parseInt(m[2].replace(/\./g, ''), 10));
   if (!/^\d+$/.test(numero) || numero === '0') return null;
-  return { sigla: m[1].toUpperCase() === 'MP' ? 'MPV' : m[1].toUpperCase(), numero, ano: m[3] };
+  // "PL 12 3456" (erro de digitação) criava a nota do "ano 3456": o ano tem de existir
+  if (Number(ano) < 1946 || Number(ano) > anoAtual + 1) return null;
+  return { sigla: m[1].toUpperCase() === 'MP' ? 'MPV' : m[1].toUpperCase(), numero, ano };
 }
 
 /** Chave do acervo. A da Câmara é a de sempre (a mesma do item de pauta); Senado e texto têm prefixo próprio. */
@@ -147,12 +162,12 @@ function niRegistroDaChave(chave) {
 
 /** Filtra as linhas pelo que foi digitado na busca (número, apelido, ementa, responsável). */
 function niFiltrar(linhas, termo) {
-  const t = niNorm(termo);
+  const semPonto = x => niNorm(x).replace(/(\d)\.(?=\d)/g, '$1');   // "1.234" e "1234" são o mesmo número
+  const t = semPonto(termo);
   if (!t) return linhas;
-  return linhas.filter(l => niNorm(`${l.rotulo} ${l.descricao} ${l.responsavel} ${l.chave}`).includes(t));
+  return linhas.filter(l => semPonto(`${l.rotulo} ${l.descricao} ${l.responsavel} ${l.chave}`).includes(t));
 }
 
-/** Texto do aviso, no Plenário, de que a proposição já tem nota no acervo (feita para outro parecer ou fora da pauta). */
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { NI_SIGLAS, NI_SIGLA_TEXTO, NI_ROTULO_SENADO, niNorm, niMesmoServidor, niListaServidores, niLerEntrada, niChave, niProximaMinuta,
     niRegistro, niResponsavel, niDoServidor, niEntrada, niRotulo, niItem, niNotaMaisRecente, niLinha, niRegistroDaChave, niFiltrar };
@@ -362,8 +377,8 @@ function niDesenharLateral() {
       <div class="ni-quem">👤 <b>${escapeHtml(ni.eu || 'sem nome')}</b> <a href="#" id="ni-trocar">trocar</a></div>
       ${f('minhas', 'Minhas notas', minhas)}${f('individuais', 'Todas as individuais', regs.length)}
       <div class="ni-grupo">Acervo da equipe</div>
-      ${f('equipe', 'Notas das pautas do Plenário', ni.equipe ? Object.keys(ni.equipe).filter(ch => !ni.registros[ch]).length : null)}
-      <div class="ni-nota-lateral">A nota é guardada por proposição: se ela entrar em uma pauta do Plenário, o item avisa que já existe nota no acervo.</div>
+      ${f('equipe', 'Notas das pautas do Plenário', ni.equipe ? Object.keys(ni.equipe).filter(ch => !ni.registros[ch] && niRegistroDaChave(ch)).length : null)}
+      <div class="ni-nota-lateral">A nota é guardada por proposição. Para levá-la a uma pauta do Plenário, abra a nota e use “Usar em pauta”.</div>
     </div>`;
   side.querySelector('#ni-trocar').addEventListener('click', async ev => { ev.preventDefault(); await niEscolherServidor(false); niDesenharLateral(); if (!ni.aberta) niDesenharLista(); });
   side.querySelectorAll('[data-visao]').forEach(el => el.addEventListener('click', () => niMudarVisao(el.dataset.visao)));
@@ -372,10 +387,13 @@ function niDesenharLateral() {
 async function niMudarVisao(visao) {
   ni.visao = visao;
   if (ni.aberta) niFecharNota(false);
-  if (visao === 'equipe' && !ni.equipe) {
-    document.getElementById('ni-lista').innerHTML = '<div class="ni-vazio">Carregando as notas das pautas…</div>';
-    // É o acervo inteiro (todas as notas da equipe): só é baixado quando alguém pede esta visão.
-    try { ni.equipe = (await niGet('analises_pauta')) || {}; } catch (e) { ni.equipe = null; mostrarToast(`Não consegui ler o acervo da equipe: ${e.message}`, 'erro'); }
+  // É o acervo inteiro (todas as notas da equipe): só é baixado quando alguém pede esta visão — e de novo quando
+  // a cópia tem mais de cinco minutos (antes, só recarregando a página a lista via as notas feitas depois).
+  if (visao === 'equipe' && (!ni.equipe || Date.now() - (ni.equipeEm || 0) > NI_EQUIPE_VALE_MS)) {
+    if (!ni.equipe) document.getElementById('ni-lista').innerHTML = '<div class="ni-vazio">Carregando as notas das pautas…</div>';
+    try { ni.equipe = (await niGet('analises_pauta')) || {}; ni.equipeEm = Date.now(); }
+    catch (e) { if (!ni.equipe) ni.equipe = null; mostrarToast(`Não consegui ${ni.equipe ? 'atualizar' : 'ler'} o acervo da equipe: ${e.message}`, 'erro'); }
+    if (ni.visao !== visao) return;   // o servidor já mudou de visão enquanto o acervo descia
   }
   niDesenharLateral(); niDesenharLista();
 }
@@ -520,6 +538,10 @@ function niAbrirNovaNota() {
     <div class="modal-footer"><button class="btn btn-ghost btn-sm" data-ni="fechar">Cancelar</button><button class="btn btn-primary btn-sm" data-ni="criar" disabled>Criar a nota</button></div>
   </div>`;
   let achado = null, aba = 'numero';
+  // Cada consulta leva um número; trocar de aba (ou consultar de novo) invalida a que ainda está no ar. Sem isto,
+  // a resposta da Câmara que chegava depois da troca de aba repunha o "achado" antigo, e "Criar a nota" criava a
+  // nota da proposição errada (varredura de 26/11/2026).
+  let seqBusca = 0;
   const $ = s => o.querySelector(s);
   const st = t => { $('#ni-nova-st').textContent = t || ''; };
   const mostrarAchado = a => {
@@ -534,7 +556,7 @@ function niAbrirNovaNota() {
     $('[data-ni=criar]').textContent = ja ? 'Abrir a nota' : 'Criar a nota';
   };
   const trocarAba = nova => {
-    aba = nova; mostrarAchado(null); st('');
+    aba = nova; seqBusca++; mostrarAchado(null); st('');
     o.querySelectorAll('.ni-aba').forEach(x => x.classList.toggle('ativa', x.dataset.aba === nova));
     o.querySelectorAll('[data-painel]').forEach(x => { x.style.display = x.dataset.painel === nova ? '' : 'none'; });
     $('[data-ni=criar]').textContent = 'Criar a nota';
@@ -549,6 +571,7 @@ function niAbrirNovaNota() {
     const b = ev.target.closest('[data-ni]'); if (!b) return;
     if (b.dataset.ni === 'fechar') return o.remove();
     b.disabled = true;
+    const minha = /^buscar-/.test(b.dataset.ni) ? ++seqBusca : 0, superada = () => minha !== 0 && minha !== seqBusca;
     try {
       if (b.dataset.ni === 'buscar-numero') {
         const e = niLerEntrada($('#ni-n-texto').value);
@@ -563,6 +586,7 @@ function niAbrirNovaNota() {
           const p = await resolveProposicao(e.sigla, e.numero, e.ano);
           d = { ...e, id: p.id, ementa: p.ementa || '' };
         }
+        if (superada()) return;
         if (!NI_SIGLAS.includes(d.sigla)) { st(`${d.sigla} não é um tipo de proposição que o módulo analisa (${NI_SIGLAS.join(', ')}).`); return; }
         st(''); mostrarAchado(daCamara(d));
       }
@@ -573,6 +597,7 @@ function niAbrirNovaNota() {
         const lido = niLerEntrada(q);
         const consulta = lido && lido.sigla ? `siglaProposicao:${lido.sigla} AND numero:${lido.numero} AND ano:${lido.ano}` : `(${q}) AND siglaProposicao:(${NI_SIGLAS.join(' OR ')})`;
         const hits = (await buscaPortalProposicoes(consulta)).filter(h => NI_SIGLAS.includes(String(h.siglaProposicao).toUpperCase())).slice(0, 12);
+        if (superada()) return;
         st(hits.length ? '' : 'Nada encontrado com essas palavras.');
         $('#ni-b-result').innerHTML = hits.map(h => {
           const autores = (h.autores || []).filter(a => a.bolAutorExibir !== false).slice(0, 2).map(a => `${a.nome}${a.siglaPartido ? ` (${a.siglaPartido}${a.siglaUF ? '-' + a.siglaUF : ''})` : ''}`).join(', ');
@@ -585,6 +610,7 @@ function niAbrirNovaNota() {
         if (!numero || !/^\d{4}$/.test(ano)) { st('Informe número e ano (4 dígitos).'); return; }
         st('Procurando no Senado…'); mostrarAchado(null);
         const sen = await senadoBuscar({ sigla, numero, ano }, fetchJson);
+        if (superada()) return;
         if (!sen) { st(`O Senado não tem ${sigla} ${numero}/${ano}.`); return; }
         st('');
         mostrarAchado({ entrada: 'senado', sigla, numero, ano, ementa: sen.ementa || '', chave: niChave({ entrada: 'senado', sigla, numero, ano }), rotulo: `${sigla} ${numero}/${ano} (Senado)`,
@@ -627,7 +653,7 @@ function niAbrirNovaNota() {
         niDesenharLateral();
         await niAbrirNota(a.chave, { anexar: a.entrada === 'texto' });
       }
-    } catch (e) { st(`Não deu certo: ${e.message}`); }
+    } catch (e) { if (!superada()) st(`Não deu certo: ${e.message}`); }
     finally { b.disabled = b.dataset.ni === 'criar' ? !(achado || (aba === 'texto' && $('#ni-t-titulo').value.trim().length >= 5)) : false; }
   });
   o.addEventListener('keydown', ev => {
@@ -664,7 +690,7 @@ async function niMenuUsarEmPauta(botao) {
   setTimeout(() => document.addEventListener('mousedown', fechar), 0);
   m.querySelectorAll('.op:not(.ja)').forEach(el => el.addEventListener('click', async () => {
     m.remove(); document.removeEventListener('mousedown', fechar);
-    try { const nome = await niIncluirEmPauta(chave, el.dataset.pid); mostrarToast(`✓ Incluída em "${nome}". No Plenário, o item avisa que já existe nota no acervo.`, 'sucesso'); }
+    try { const nome = await niIncluirEmPauta(chave, el.dataset.pid); mostrarToast(`✓ Incluída em "${nome}".`, 'sucesso'); }
     catch (e) { mostrarToast(`Não consegui incluir na pauta: ${e.message}`, 'erro'); }
   }));
 }

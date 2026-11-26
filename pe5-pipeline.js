@@ -438,7 +438,8 @@ async function gerarParecerPE5(ctx, io) {
         faltaAtores: F.atores, faltaFavor: F.favor, faltaContra: F.contra, jaAtores: deb.atores.map(a => a.ator) }), { jurisdicoes: 'W', jurisprudencia: 'R', historico: 'H', atores: 'Q' });
       const antes = intl.jurisdicoes.length + cx.jurisprudencia.length + cg.historico.length + deb.atores.length;
       intl.jurisdicoes = soma(intl.jurisdicoes, comp.jurisdicoes, 'W', j => chv(`${j.lugar} ${j.norma || ''}`));
-      cx.jurisprudencia = soma(cx.jurisprudencia, comp.jurisprudencia, 'R', j => chv(j.processo));
+      // "ADI 4.874" e "ADI 4874" são a mesma decisão: o ponto de milhar sai antes de comparar
+      cx.jurisprudencia = soma(cx.jurisprudencia, comp.jurisprudencia, 'R', j => chv(String(j.processo || '').replace(/(\d)\.(?=\d)/g, '$1')));
       cg.historico = soma(cg.historico, comp.historico, 'H', h => chv(h.proposicao));
       // Ator novo entra pelo mesmo caminho das buscas do debate: quem já estava (com outro nome ou sigla) não é contado de novo.
       const novos = (comp.atores || []).filter(a => a && a.ator).map(a => ({ ...a, id: '', grupo: rotulos.includes(a.grupo) ? a.grupo : (rotulos.find(g => chv(g) === chv(a.grupo)) || 'Outros') }));

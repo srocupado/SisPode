@@ -132,7 +132,7 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     // erro no painel
     const h = ambiente({ respostas: [new Error('A extensão mudou — funções não encontradas no painel: importarPautaPdf')] });
     const rh = await A.rotinaAuto(EV, h.cfg);
-    ok(rh.erro && h.travaAberta() && h.env.length === 1 && /^⚠️ Modo automático: não consegui preparar a pauta da sessão de 26\/11, 10h \(A extensão mudou[^)]*\)\. O que já foi feito está salvo; termine com \/importar, \/analisar e \/exportar\.$/.test(h.edicoes.at(-1).texto) && /A extensão mudou/.test(h.fb['/bot/auto_rotinas/83300'].erro),
+    ok(rh.erro && h.travaAberta() && h.env.length === 1 && /^⚠️ Modo automático: não consegui preparar a pauta da sessão de 26\/11, 10h \(A extensão mudou[^)]*\)\. O que já foi feito está salvo\. Se a pauta já aparece no \/pauta, termine com \/analisar e \/exportar; se não, comece por \/importar\.$/.test(h.edicoes.at(-1).texto) && /A extensão mudou/.test(h.fb['/bot/auto_rotinas/83300'].erro),
       'erro no painel: o grupo é avisado com a causa e o caminho manual, a trava é devolvida e nada estoura');
     ok(A.cargaResponsaveis([]) === '' && A.nomePdf('') === 'pauta.pdf' && /sessão de 26\/11\.$|sessão de 26\/11…$/.test(A.textoProgresso({ data: '2026-11-26' }, { fase: 'pauta' })), 'textos de reserva: sem responsáveis, sem título e sessão sem hora');
   }
@@ -194,6 +194,7 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     const rot = worker.slice(worker.indexOf('async function rotinaPautaDaSessao('), worker.indexOf('/** Renderiza o HTML de impressão'));
     ok(/String\(p\.sessaoOficial\?\.eventoId \|\| ''\) === String\(ev\.id\)/.test(rot) && /await carregarPautaPorId\(ja\[0\]\);/.test(rot) && rot.indexOf('carregarPautaPorId(ja[0])') < rot.indexOf('plenPdfDaSessao(ev.id)'), 'pauta desta sessão já importada pela equipe: é ela que vale, antes de baixar qualquer coisa');
     ok(/await importarPautaPdf\(pdf\.buffer, plenNomeArquivo\(ev\.data, [^)]*\),\s*\{ eventoId: String\(ev\.id\), url: pdf\.url, data: ev\.data \}, \{ automatico: true \}\)/.test(rot), 'senão, importa a pauta oficial pelo caminho do calendário do Plenário, em modo automático');
+    ok(/if \(r !== 'existente'\) \{ try \{ await fbSalvarPauta\(state\.pauta\); \} catch \(e\) \{ return \{ erro: `a pauta foi lida, mas não consegui gravá-la no banco/.test(rot), 'a pauta importada só segue adiante depois de GRAVADA (o navegador fecha no fim do trabalho; antes a gravação não era aguardada)');
     ok(/if \(perfil\?\.apiKey\) \{[\s\S]*?gerarEAguardar\(page,/.test(rot) && /montarMensagemApelidos\(\)\.texto/.test(rot) && /podemos: montarMensagemPropPartido\(\)/.test(rot) && /_htmlImpressaoPautaPlenario\(state\.pauta, logo, false\)/.test(rot) && !/\beval\(/.test(rot),
       'o painel gera só com chave, e o material sai das funções da extensão (apelidos, itens do Podemos, PDF); sem eval, que a página da extensão proíbe');
     // tudo o que a rotina chama existe no painel

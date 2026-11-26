@@ -246,6 +246,9 @@ async function rotinaPautaDaSessao({ perfil, sessao, onProgress, timeoutMin = 60
       const r = await importarPautaPdf(pdf.buffer, plenNomeArquivo(ev.data, { dataHoraInicio: `${ev.data}T${ev.hora || ''}` }),
         { eventoId: String(ev.id), url: pdf.url, data: ev.data }, { automatico: true });
       if (!r || !state.pauta || !(state.pauta.itens || []).length) return { erro: 'a pauta oficial foi baixada, mas o leitor não identificou itens nela' };
+      // A importação dispara a gravação sem esperar por ela. Aqui o navegador fecha ao fim do trabalho: sem a
+      // gravação confirmada, a pauta podia não chegar ao Firebase e o grupo receber o PDF de uma pauta que não existe.
+      if (r !== 'existente') { try { await fbSalvarPauta(state.pauta); } catch (e) { return { erro: `a pauta foi lida, mas não consegui gravá-la no banco (${e.message})` }; } }
       return retrato(r === 'existente');
     }, sessao);
     if (pauta.semPdf) return { semPdf: true };
