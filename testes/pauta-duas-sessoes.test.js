@@ -152,6 +152,14 @@ const itens = (...refs) => refs.map(r => { const [s, n, a] = r.split(/[ /]/); re
     respostaModal = 'separada';
     ok(await A.resolverIdImportacao('02-09-2026', { itens: itens('PL 9 2026') }) === '02-09-2026-3',
        'com -2 ocupado, o próximo livre é -3');
+
+    // Modo automático (/auto do bot, 26/11/2026): ninguém na tela — nunca pergunta e nunca sobrescreve.
+    perguntas.length = 0; respostaModal = 'substituir'; respostaConfirm = true;
+    const auto = { automatico: true };
+    ok(await A.resolverIdImportacao('06-09-2026', { itens: itens('PL 1 2026') }, auto) === '06-09-2026', 'automático, id livre → segue');
+    ok(JSON.stringify(await A.resolverIdImportacao('02-09-2026', { itens: itens('PDL 995 2026') }, auto)) === '{"existente":"02-09-2026"}', 'automático, mesmos itens → fica a pauta que a equipe já tem');
+    ok(await A.resolverIdImportacao('02-09-2026', { itens: itens('PL 77 2026') }, auto) === '02-09-2026-3', 'automático, itens diferentes → id separado (o primeiro livre)');
+    ok(perguntas.length === 0 && BANCO['02-09-2026'].itens.length === 1, 'e nenhuma pergunta foi feita nem a pauta salva foi tocada');
   }
 
   console.log('\n== monitor do bot: a 2ª sessão do dia é pauta NOVA ==');

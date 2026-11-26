@@ -144,21 +144,121 @@ async function analisarPauta({ perfil, pautaId, onProgress, timeoutMin = 45 }) {
   try {
     await carregarPauta(page, pautaId);
 
-    // Dispara sem aguardar (a geração leva minutos); o progresso é observado por polling.
-    await page.evaluate(() => { gerarTodasAsAnalises(); });
+    return await gerarEAguardar(page, { onProgress, timeoutMin });
+  } finally {
+    await fecharNavegador();
+  }
+}
 
-    const limite = Date.now() + timeoutMin * 60e3;
-    let comecou = false, ultimo = null;
-    while (Date.now() < limite) {
-      await new Promise(r => setTimeout(r, 5000));
-      const p = await progressoSnapshot(page);
-      if (p.rodando) comecou = true;
-      if (onProgress && JSON.stringify(p) !== JSON.stringify(ultimo)) { ultimo = p; await onProgress(p); }
-      // Termina quando o lote parou depois de ter começado (ou nunca começou
-      // porque não havia pendências) e nada mais está gerando.
-      if (!p.rodando && !p.gerando && (comecou || p.ok + p.erro >= p.total)) return p;
+/** Dispara o "Gerar todas" da pauta aberta no painel e acompanha até o lote terminar. Devolve o retrato final. */
+async function gerarEAguardar(page, { onProgress, timeoutMin = 45 } = {}) {
+  // Dispara sem aguardar (a geração leva minutos); o progresso é observado por polling.
+  await page.evaluate(() => { gerarTodasAsAnalises(); });
+
+  const limite = Date.now() + timeoutMin * 60e3;
+  let comecou = false, ultimo = null;
+  while (Date.now() < limite) {
+    await new Promise(r => setTimeout(r, 5000));
+    const p = await progressoSnapshot(page);
+    if (p.rodando) comecou = true;
+    if (onProgress && JSON.stringify(p) !== JSON.stringify(ultimo)) { ultimo = p; await onProgress(p); }
+    // Termina quando o lote parou depois de ter começado (ou nunca começou
+    // porque não havia pendências) e nada mais está gerando.
+    if (!p.rodando && !p.gerando && (comecou || p.ok + p.erro >= p.total)) return p;
+  }
+  throw new Error(`Tempo esgotado (${timeoutMin} min) — o que já foi gerado está salvo no Firebase.`);
+}
+
+
+/**
+ * ROTINA AUTOMÁTICA (/auto, 26/11/2026): a pauta de uma sessão convocada, do site da Câmara ao material pronto —
+ * tudo com o código do painel, como se um analista fizesse à mão.
+ *   1. Pauta: se a equipe já importou a desta sessão, é ela que vale (nada é sobrescrito). Senão, baixa a pauta
+ *      oficial (o PDF do link "Pauta" da página da sessão) e importa pelo caminho do calendário do Plenário, em
+ *      modo automático: responsável mantido para a matéria que volta, sorteio para as demais.
+ *   2. Notas: "Gerar todas" na chave de `perfil` — só as matérias sem nota são geradas. Sem chave, a etapa é pulada.
+ *   3. Material: o PDF institucional, a mensagem dos apelidos e os itens do Podemos na pauta.
+ * `sessao`: { id, data: 'AAAA-MM-DD', hora: 'HH:MM' }. onProgress({ fase, ...retrato }) — fase 'pauta' | 'notas' | 'material'.
+ * Devolve { semPdf: true } quando a página da sessão ainda não tem o PDF da pauta; senão
+ * { pautaId, titulo, numItens, existente, responsaveis, notas, semChave, apelidos, podemos: { texto, total }, incertos, pdf }.
+ */
+async function rotinaPautaDaSessao({ perfil, sessao, onProgress, timeoutMin = 60 }) {
+  const { browser, page } = await abrirPainel({ perfil });
+  const fase = async (f, extra = {}) => { if (onProgress) { try { await onProgress({ fase: f, ...extra }); } catch (_) {} } };
+  try {
+    // Ninguém responde a diálogos aqui: confirm()/alert() do painel são recusados em vez de travar a página.
+    page.on('dialog', d => { d.dismiss().catch(() => {}); });
+    // Funções do painel que só esta rotina usa. Conferidas pelo nome, sem eval (a página da extensão o proíbe);
+    // `enriquecimentoFalhou` é const, não está em globalThis.
+    /* eslint-disable no-undef */
+    const faltando = await page.evaluate(() => [
+      ['importarPautaPdf', () => importarPautaPdf], ['plenPdfDaSessao', () => plenPdfDaSessao], ['plenNomeArquivo', () => plenNomeArquivo],
+      ['montarMensagemApelidos', () => montarMensagemApelidos], ['montarMensagemPropPartido', () => montarMensagemPropPartido],
+      ['enriquecerItem', () => enriquecerItem], ['enriquecimentoFalhou', () => enriquecimentoFalhou],
+    ].filter(([, pega]) => { try { return typeof pega() !== 'function'; } catch (_) { return true; } }).map(([n]) => n));
+    /* eslint-enable no-undef */
+    if (faltando.length) throw new Error(`A extensão mudou — funções não encontradas no painel: ${faltando.join(', ')}. Atualize o bot.`);
+    // O painel abre sozinho a última pauta da equipe; a desta sessão só entra depois disso.
+    await page.waitForFunction(() => typeof state === 'object' && state.pauta, { timeout: 20000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 1500));
+
+    await fase('pauta');
+    const pauta = await page.evaluate(async ev => {
+      try { await carregarConfig(); } catch (_) {}
+      const retrato = existente => ({
+        pautaId: state.pauta.id, titulo: state.pauta.nome || state.pauta.titulo || state.pauta.id, numItens: state.pauta.itens.length, existente,
+        responsaveis: state.pauta.itens.map(it => ({ item: `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`, analista: it.analista || '' })),
+      });
+      // a equipe (ou uma rodada anterior) já importou a pauta desta sessão?
+      let todas = null;
+      try { const r = await fetch(`${FIREBASE_URL}/pautas.json`); if (r.ok) todas = await r.json(); } catch (_) {}
+      const ja = Object.entries(todas || {}).filter(([, p]) => p && String(p.sessaoOficial?.eventoId || '') === String(ev.id))
+        .sort((a, b) => String(b[1].uploadedAt || '').localeCompare(String(a[1].uploadedAt || '')))[0];
+      if (ja) {
+        await carregarPautaPorId(ja[0]);
+        if (!state.pauta || state.pauta.id !== ja[0]) return { erro: `o painel não conseguiu abrir a pauta "${ja[0]}"` };
+        return retrato(true);
+      }
+      const pdf = await plenPdfDaSessao(ev.id);
+      if (!pdf) return { semPdf: true };
+      const r = await importarPautaPdf(pdf.buffer, plenNomeArquivo(ev.data, { dataHoraInicio: `${ev.data}T${ev.hora || ''}` }),
+        { eventoId: String(ev.id), url: pdf.url, data: ev.data }, { automatico: true });
+      if (!r || !state.pauta || !(state.pauta.itens || []).length) return { erro: 'a pauta oficial foi baixada, mas o leitor não identificou itens nela' };
+      return retrato(r === 'existente');
+    }, sessao);
+    if (pauta.semPdf) return { semPdf: true };
+    if (pauta.erro) throw new Error(pauta.erro);
+
+    let notas = null;
+    if (perfil?.apiKey) {
+      await fase('notas', pauta);
+      notas = await gerarEAguardar(page, { timeoutMin, onProgress: p => fase('notas', { ...pauta, ...p }) });
     }
-    throw new Error(`Tempo esgotado (${timeoutMin} min) — o que já foi gerado está salvo no Firebase.`);
+
+    await fase('material', pauta);
+    // Autoria e apensados resolvidos (com teto de tempo): deles saem os itens do Podemos e os selos do índice.
+    await page.waitForFunction(() => (state.pauta?.itens || []).every(it => ['ok', 'erro'].includes(it.enriquecimento?.status)), { timeout: 240000 }).catch(() => { /* segue com o que houver */ });
+    await new Promise(r => setTimeout(r, 3000));
+    const material = await page.evaluate(async () => {
+      const itens = state.pauta.itens;
+      const pend = itens.filter(it => !['ok', 'erro'].includes(it.enriquecimento?.status));
+      await Promise.all(pend.map(it => enriquecerItem(it).catch(() => {})));
+      // Pauta recém-importada não traz as notas que a equipe já tem (o painel só as busca ao abrir uma pauta salva
+      // ou ao gerar): sem isto, o PDF de uma importação sem geração sairia vazio.
+      await Promise.all(itens.filter(it => !it.analise).map(it => fbCarregarAnalise(it).then(a => { if (a) { it.analise = a; it.analiseStatus = 'ok'; } }).catch(() => {})));
+      try { await prepararApelidos(itens); } catch (_) {}
+      const logo = await carregarLogoDataUrl();
+      return {
+        apelidos: montarMensagemApelidos().texto,
+        podemos: montarMensagemPropPartido(),
+        incertos: itens.filter(enriquecimentoFalhou).map(it => `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`),
+        comNota: itens.filter(it => it.analise).length,
+        html: _htmlImpressaoPautaPlenario(state.pauta, logo, false),
+      };
+    });
+    const pdf = await imprimirHtml(browser, material.html);
+    delete material.html;
+    return { ...pauta, notas, semChave: !perfil?.apiKey, ...material, pdf };
   } finally {
     await fecharNavegador();
   }
@@ -352,4 +452,4 @@ async function resumoSessao({ pautaId, dataISO }) {
   }
 }
 
-module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, fecharNavegador };
+module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, rotinaPautaDaSessao, fecharNavegador };

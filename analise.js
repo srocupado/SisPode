@@ -297,8 +297,11 @@ async function onPdfSelecionado(ev) {
  * a pauta do calendário sair igual à do PDF carregado à mão. `sessaoOficial` (opcional) fica gravada na pauta:
  * { eventoId, url, data } — a sessão e o link da pauta oficial de onde o PDF veio. (Não é `origem`: esse campo
  * já existe na pauta, como texto — 'avulsa' —, e é lido por fbSalvarPauta e pelo bot.) Erros sobem para quem chamou.
+ * `opcoes.automatico` (modo /auto do bot, 26/11/2026): ninguém está na tela para responder. Havendo pauta salva
+ * com o mesmo id, NUNCA é sobrescrita: se tem os mesmos itens, é ela que fica aberta (a função devolve
+ * 'existente'); se os itens são outros, a importação vai para um id separado.
  */
-async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) {
+async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null, opcoes = {}) {
   const file = { name: nomeArquivo };   // mesmo nome que o PDF escolhido à mão usava
   const texto       = await extrairTextoPdf(arrayBuffer);
   const parsed      = parsearPauta(texto);
@@ -316,7 +319,12 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
   // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
   // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
   // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
-  const idPauta = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed);
+  const escolha = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed, opcoes);
+  if (escolha && escolha.existente) {   // modo automático: a pauta da equipe fica como está
+    await carregarPautaPorId(escolha.existente);
+    return 'existente';
+  }
+  const idPauta = escolha;
   if (!idPauta) {
     mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
     return;
@@ -549,7 +557,7 @@ function normalizarItem(it) {
  *   \u00b7 itens DIFERENTES \u2192 provavelmente \u00e9 outra sess\u00e3o do mesmo dia: oferece
  *     salvar como pauta separada (padr\u00e3o), substituir, ou cancelar.
  */
-async function resolverIdImportacao(idPauta, parsed) {
+async function resolverIdImportacao(idPauta, parsed, opcoes = {}) {
   let existente = null;
   try {
     const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json`);
@@ -561,6 +569,9 @@ async function resolverIdImportacao(idPauta, parsed) {
   const antigas = chaves(existente);
   const novas   = chaves({ itens: parsed.itens.map(normalizarItem) });
   const iguais  = antigas.size === novas.size && [...novas].every(k => antigas.has(k));
+
+  // Modo automático (bot): sem pergunta e sem sobrescrever. Mesmos itens → usa a que existe; outros → id separado.
+  if (opcoes.automatico) return iguais ? { existente: idPauta } : await proximoIdLivre(idPauta);
 
   if (iguais) {
     return confirm(
