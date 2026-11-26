@@ -441,7 +441,6 @@ Para a análise de proposições que **não estão em pauta**. A equipe recebia 
 - **Notas das pautas do Plenário**: o acervo inteiro da equipe, para consulta (só é baixado quando alguém abre esta visão)
 - **Uso no Plenário**:
   - **Usar em pauta** inclui a proposição no fim de uma pauta salva (só o item novo é gravado)
-  - no Plenário, o item cuja proposição já tem nota no acervo — feita aqui, pelo bot ou numa pauta anterior, para outro parecer — **avisa**, dizendo de quando é, de quem e sobre que documentos foi feita. **Usar esta nota** passa a valê-la para o parecer da pauta, com a procedência registrada, e roda a conferência do "Verificar atualização". Nada é copiado sem o clique: a nota pode ser anterior a um parecer novo
   - a **NTA** feita aqui aparece no item da pauta ("Abrir NTA"); gerar outra na pauta não mexe na individual
 - **Onde fica**: a nota, em `/analises_pauta` (como todas); o registro da nota individual, em `/analises_avulsas` — o mesmo nó do `/avulsa`, que a limpeza de notas sem uso respeita; a lista de servidores, em `/notas_individuais_servidores`. **Remover** tira a proposição das notas individuais e não apaga a nota (ela pode estar em uso numa pauta); sem pauta nem registro, a limpeza a remove depois
 - Limite conhecido: requerimentos (REQ, REC) não entram como nota individual — a nota do requerimento é a do projeto que ele urgencia
@@ -912,7 +911,7 @@ sispode/
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 │   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
 │   ├── html-inerte.test.js         # Filtro de atributos de evento: a função, todas as páginas carregam o arquivo, e no Chromium a leitura deixa de registrar erro de política de segurança
-│   ├── notas-individuais.test.js   # Notas individuais: funções, ligação com o Plenário, a página no navegador (servidores, minhas notas, nova nota pelas quatro entradas, uso em pauta) e o aviso de nota do acervo no Plenário
+│   ├── notas-individuais.test.js   # Notas individuais: funções, ligação com o Plenário, a página no navegador (servidores, minhas notas, nova nota pelas quatro entradas, uso em pauta) e o Plenário sem aviso de nota do acervo
 │   ├── pe5.test.js                 # NTA, formato atual: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
 │   ├── pe5-referencia.js           # caso de referência (PL 4675/2025) com as respostas gravadas no lugar do modelo
 │   ├── parecer-v3.test.js          # NTA, formato anterior: pipeline, tese, portões, rubrica

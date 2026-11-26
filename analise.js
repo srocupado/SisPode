@@ -4971,7 +4971,8 @@ function renderAnaliseCard(it) {
     // Análise copiada de um item irmão (requerimento ↔ projeto urgenciado):
     // a procedência fica visível, senão a meta diria "gerada em" para um texto
     // que não foi gerado para este item.
-    const reapHtml = it.analise.reaproveitadaDe
+    // (As notas marcadas "nota do acervo" vêm de um aviso que existiu em 25 e 26/11/2026 e foi retirado: não levam o selo.)
+    const reapHtml = it.analise.reaproveitadaDe && !/^nota do acervo/.test(it.analise.reaproveitadaDe)
       ? ` · <span title="A análise foi reaproveitada porque os documentos analisados são exatamente os mesmos; nenhuma nova chamada à IA foi feita" style="color:#2fcf7a;font-weight:600">reaproveitada de ${escapeHtml(it.analise.reaproveitadaDe)}</span>`
       : '';
     metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${reapHtml}${docsHtml}${promptHtml}`;
@@ -5990,7 +5991,6 @@ async function carregarPautaPorId(id) {
         // Chegada tardia (retry/rede lenta) com o item já em edição: não
         // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
         if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); completarApelidoFaltante(it); }
-        else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
       }).catch(() => {});
       // Parecer de Especialista salvo nesta pauta: só a meta (poucos bytes) desce
       // agora; o documento inteiro desce ao clicar em "Abrir parecer".
@@ -6246,7 +6246,7 @@ async function carregarUltimaPauta() {
           it.analiseStatus = 'ok';
           renderAnaliseCard(it);
           completarApelidoFaltante(it);
-        } else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
+        }
       }).catch(() => {});
       // A NTA salva (só a meta): sem isto, a pauta aberta sozinha ao entrar ficava sem o botão "Abrir NTA"
       // até alguém clicar nela na lista de pautas.
