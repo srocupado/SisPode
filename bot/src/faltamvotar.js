@@ -13,7 +13,7 @@
 // numa simbólica (daria "todos faltaram", falso). O idVotacao vem ao vivo do
 // votacaoAtual do cosev.
 
-const { sessaoAtual } = require('./plenariocosev');
+const { leituraDaSessao } = require('./plenariocosev');
 
 const VOT_URL = id => `https://infoleg.camara.leg.br/ws-plenario/votacao/${id}`;
 const REGEX_PODE = /^PODE(MOS)?$/i;
@@ -42,8 +42,10 @@ function reDoPartido(sigla) {
  *   presentesNaoVotaram?, foraDaCasa?, casaRegistrou?, casaTotal?, idVotacao?}>}
  */
 async function faltamVotar(sigla = 'PODE') {
-  const sess = await sessaoAtual().catch(() => null);
-  if (!sess || !sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
+  const sess = await leituraDaSessao().catch(() => ({ falha: true }));
+  // `falha`: o painel não respondeu — NÃO é o mesmo que "não há sessão" (quem acompanha a votação não pode encerrar por isso)
+  if (sess.falha) return { aberta: false, falha: true, motivo: 'não consegui ler o painel da Câmara agora' };
+  if (!sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
   const v = sess.votacao;
   if (!v || v.id == null) return { aberta: false, motivo: 'não há votação em curso' };
   if (String(v.tipoVotacao || '').toUpperCase() !== 'E') {
@@ -118,6 +120,7 @@ function formatarFaltantesTexto(r) {
 // Substitui a "rede de segurança" (um aviso quando 80% da Casa tinha votado e havia deputado PRESENTE sem voto):
 // como o painel só marca o deputado como presente depois que ele vota, aquela lista saía sempre vazia.
 const ACOMP_INTERVALO_MS = 15e3, ACOMP_MINIMO_CASA = 257;
+const ACOMP_MAX_FALHAS = 40;   // leituras seguidas sem resposta do painel (10 minutos) até suspender o acompanhamento
 
 const horaBrasilia = d => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d);
 
@@ -126,7 +129,7 @@ const horaBrasilia = d => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/
  * (traz o destaque, quando é um: "PLP Nº 299/2026 - DTQ 1 - FDR PSOL-REDE"); sem ele, vale a proposição.
  * Texto puro, sem marcação: a mensagem é editada a cada 15 segundos e não pode falhar por causa de um asterisco.
  */
-function formatarAcompanhamento(r, { estado = 'aberta', titulo = '', hora = '', leituraDe = '' } = {}) {
+function formatarAcompanhamento(r, { estado = 'aberta', titulo = '', hora = '', leituraDe = '', semLeitura = false } = {}) {
   const nome = String(titulo || r.prop || 'votação em curso').replace(/\s+/g, ' ').trim();
   const casa = r.casaTotal ? `Na Casa, ${r.casaRegistrou} de ${r.casaTotal} deputados ${estado === 'aberta' ? 'já votaram' : 'votaram'}.` : '';
   const faltam = r.naoVotaram || [], lista = faltam.map(n => `• ${n}`).join('\n');
@@ -142,7 +145,8 @@ function formatarAcompanhamento(r, { estado = 'aberta', titulo = '', hora = '', 
     L.push(`${r.votaram} de ${r.total} deputados do Podemos votaram. Não registraram voto${leituraDe ? ` (última leitura, às ${leituraDe})` : ''}:`, '', lista);
     return L.join('\n');
   }
-  L.push(`Até o momento, ${r.votaram} de ${r.total} deputados do Podemos votaram. Ainda não registraram voto:`, '', lista, '', `Atualizado às ${hora} — esta mensagem se atualiza a cada 15 segundos.`);
+  L.push(`Até o momento, ${r.votaram} de ${r.total} deputados do Podemos votaram. Ainda não registraram voto:`, '', lista, '',
+    semLeitura ? `⚠️ Última leitura às ${hora}. O painel da Câmara parou de responder: a lista pode estar desatualizada.` : `Atualizado às ${hora} — esta mensagem se atualiza a cada 15 segundos.`);
   return L.join('\n');
 }
 
@@ -176,27 +180,43 @@ function criarAcompanhamentoFaltantes(cfg) {
     a.texto = texto;
   }
 
+  /** Fecha a mensagem com o retrato final da votação (pelo id; sem ele, a última leitura) e dá a votação por concluída. */
+  async function encerrar(a) {
+    if (a.msg) {
+      let fim = null;
+      try { fim = await consultarPorId(a.id); } catch (_) { /* fica a última leitura */ }
+      const base = fim || a.ultimo;
+      if (base) await publicar(a, formatarAcompanhamento(base, { estado: 'encerrada', titulo: a.titulo, leituraDe: fim ? '' : a.lidoEm }));
+    }
+    concluir(a);
+  }
+
   async function passo() {
     const a = atual;
     if (!a || a.ocupado) return;
     a.ocupado = true;
     try {
       if (!ligado()) { parar(); return; }   // desligado no meio: para de atualizar; a mensagem fica como está
-      const r = await consultarAtual();
-      const outra = r && r.idVotacao != null && String(r.idVotacao) !== String(a.id);
-      if (!(r && r.aberta) || outra) {
-        // Encerrou — ou a leitura falhou. Falha de rede e votação encerrada chegam iguais ("não há votação"):
-        // só vale como encerramento na 2ª leitura seguida, ou quando o painel já mostra OUTRA votação.
-        // (Painel aberto ainda sem os votos individuais vem com o mesmo id: não é encerramento.)
-        if (r && !r.aberta && r.idVotacao != null && !outra) { a.fechadas = 0; return; }
+      let r;
+      try { r = await consultarAtual(); } catch (_) { r = { falha: true }; }   // leitura que estoura conta como painel sem resposta
+      if (atual !== a) return;              // outra votação tomou o lugar enquanto esta leitura estava no ar
+      // O painel não respondeu (rede, tempo esgotado): não é encerramento. Espera a próxima leitura; depois de dez
+      // minutos sem resposta, suspende — sem dar a votação por concluída: se o painel voltar com ela aberta, o
+      // monitor a entrega de novo e a MESMA mensagem volta a ser atualizada.
+      if (!r || r.falha) {
+        if (++a.falhas < ACOMP_MAX_FALHAS) return;
+        if (a.msg && a.ultimo) await publicar(a, formatarAcompanhamento(a.ultimo, { titulo: a.titulo, hora: a.lidoEm, semLeitura: true }));
+        parar();
+        return;
+      }
+      a.falhas = 0;
+      const outra = r.idVotacao != null && String(r.idVotacao) !== String(a.id);
+      if (!r.aberta || outra) {
+        // Painel aberto ainda sem os votos individuais vem com o mesmo id: a votação continua.
+        if (!r.aberta && r.idVotacao != null && !outra) { a.fechadas = 0; return; }
+        // O painel respondeu e não mostra mais a votação: vale na 2ª leitura seguida, ou já quando há OUTRA aberta.
         if (!outra && ++a.fechadas < 2) return;
-        if (a.msg) {
-          let fim = null;
-          try { fim = await consultarPorId(a.id); } catch (_) { /* fica a última leitura */ }
-          const base = fim || a.ultimo;
-          if (base) await publicar(a, formatarAcompanhamento(base, { estado: 'encerrada', titulo: a.titulo, leituraDe: fim ? '' : a.lidoEm }));
-        }
-        concluir(a);
+        await encerrar(a);
         return;
       }
       a.fechadas = 0; a.ultimo = r; a.lidoEm = horaBrasilia(agora());
@@ -212,8 +232,14 @@ function criarAcompanhamentoFaltantes(cfg) {
     if (id == null || !ligado()) return false;
     if (concluidas.has(String(id)) || (atual && String(atual.id) === String(id))) return false;
     if (salvo === true || (salvo && salvo.fim)) { concluidas.add(String(id)); return false; }   // já encerrada (ou aviso do formato antigo)
-    parar();   // uma votação por vez: a anterior, se ficou aberta aqui, é abandonada
-    const a = { id, titulo: String(titulo || '').replace(/\s+/g, ' ').trim(), msg: salvo && salvo.mid ? { chat: salvo.chat, mid: salvo.mid } : null, ultimo: null, lidoEm: '', fechadas: 0, ocupado: false, texto: '' };
+    // Uma votação por vez. Se a anterior ainda estava em curso aqui (nominais em sequência: a nova abriu antes do
+    // passo seguinte), ela é FECHADA — senão a mensagem dela ficaria para sempre dizendo que se atualiza.
+    const anterior = atual;
+    if (anterior) {
+      timers.clearInterval(anterior.timer); atual = null;
+      encerrar(anterior).catch(e => console.warn(`[faltantes] não consegui fechar a mensagem da votação ${anterior.id}: ${e.message}`));
+    }
+    const a = { id, titulo: String(titulo || '').replace(/\s+/g, ' ').trim(), msg: salvo && salvo.mid ? { chat: salvo.chat, mid: salvo.mid } : null, ultimo: null, lidoEm: '', fechadas: 0, falhas: 0, ocupado: false, texto: '' };
     a.timer = timers.setInterval(() => { passo().catch(() => {}); }, intervaloMs);
     atual = a;
     passo().catch(() => {});
@@ -223,4 +249,4 @@ function criarAcompanhamentoFaltantes(cfg) {
   return { acompanhar, parar, passo, emCurso: () => (atual ? { id: atual.id, titulo: atual.titulo, comMensagem: !!atual.msg } : null) };
 }
 
-module.exports = { faltamVotar, retratoDaVotacao, formatarFaltantes, formatarFaltantesTexto, formatarAcompanhamento, criarAcompanhamentoFaltantes, horaBrasilia, ACOMP_INTERVALO_MS, ACOMP_MINIMO_CASA };
+module.exports = { faltamVotar, retratoDaVotacao, formatarFaltantes, formatarFaltantesTexto, formatarAcompanhamento, criarAcompanhamentoFaltantes, horaBrasilia, ACOMP_INTERVALO_MS, ACOMP_MINIMO_CASA, ACOMP_MAX_FALHAS };

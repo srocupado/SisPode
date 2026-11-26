@@ -160,6 +160,17 @@ const itens = (...refs) => refs.map(r => { const [s, n, a] = r.split(/[ /]/); re
     ok(JSON.stringify(await A.resolverIdImportacao('02-09-2026', { itens: itens('PDL 995 2026') }, auto)) === '{"existente":"02-09-2026"}', 'automático, mesmos itens → fica a pauta que a equipe já tem');
     ok(await A.resolverIdImportacao('02-09-2026', { itens: itens('PL 77 2026') }, auto) === '02-09-2026-3', 'automático, itens diferentes → id separado (o primeiro livre)');
     ok(perguntas.length === 0 && BANCO['02-09-2026'].itens.length === 1, 'e nenhuma pergunta foi feita nem a pauta salva foi tocada');
+    // Varredura de 26/11/2026 (M5): a equipe importou o PDF à mão e mexeu na lista — continua sendo a pauta DA SESSÃO.
+    const ch = (...refs) => itens(...refs).map(i => ({ ...i, chave: `${i.sigla}-${i.numero}-${i.ano}` }));
+    BANCO['07-09-2026'] = { id: '07-09-2026', itens: ch('PL 1 2026', 'PL 2 2026', 'PL 3 2026', 'PL 4 2026', 'PL 99 2026') };   // a equipe incluiu o PL 99
+    ok(JSON.stringify(await A.resolverIdImportacao('07-09-2026', { itens: itens('PL 1 2026', 'PL 2 2026', 'PL 3 2026', 'PL 4 2026') }, auto)) === '{"existente":"07-09-2026"}', 'automático, pauta salva com um item A MAIS (incluído pela equipe) → é a mesma sessão: vale a da equipe');
+    ok(JSON.stringify(await A.resolverIdImportacao('07-09-2026', { itens: itens('PL 1 2026', 'PL 2 2026', 'PL 3 2026', 'PL 4 2026', 'PL 5 2026', 'PL 6 2026') }, auto)) === '{"existente":"07-09-2026"}', 'automático, PDF oficial com itens que a pauta salva não tem, mas a maioria coincide → a mesma sessão');
+    ok(await A.resolverIdImportacao('07-09-2026', { itens: itens('PL 1 2026', 'PL 70 2026', 'PL 71 2026', 'PL 72 2026', 'PL 73 2026') }, auto) === '07-09-2026-2', 'automático, quase nada coincide → outra sessão do mesmo dia: id separado');
+    BANCO['08-09-2026'] = { id: '08-09-2026', sessaoOficial: { eventoId: '111' }, itens: ch('PL 1 2026', 'PL 2 2026') };
+    ok(await A.resolverIdImportacao('08-09-2026', { itens: itens('PL 1 2026', 'PL 2 2026') }, { automatico: true, eventoId: '222' }) === '08-09-2026-2' && JSON.stringify(await A.resolverIdImportacao('08-09-2026', { itens: itens('PL 1 2026', 'PL 2 2026') }, { automatico: true, eventoId: '111' })) === '{"existente":"08-09-2026"}',
+      'automático, pauta salva de OUTRA sessão oficial → id separado, mesmo com os mesmos itens; da mesma sessão → a existente');
+    BANCO['09-09-2026'] = { id: '09-09-2026', itens: [] };
+    ok(await A.resolverIdImportacao('09-09-2026', { itens: itens('PL 1 2026') }, auto) === '09-09-2026-2', 'automático, pauta salva vazia → id separado');
   }
 
   console.log('\n== monitor do bot: a 2ª sessão do dia é pauta NOVA ==');

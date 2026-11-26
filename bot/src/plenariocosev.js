@@ -19,18 +19,24 @@ const PRESENCA = 'https://infoleg.camara.leg.br/ws-plenario/presenca';
 const SESSAO   = 'https://cosev-api-prod.camara.leg.br/parlamentar/sessao-atual';
 const ITENS    = 'https://cosev-api-prod.camara.leg.br/parlamentar/votacao/itens-em-votacao-na-sessao';
 
-async function getJson(url, ms = 12000) {
+/**
+ * Leitura que DISTINGUE falha de resposta vazia: { falha: true } (rede, tempo esgotado, HTTP de erro, JSON
+ * inválido) ou { dados } — `dados` null quando o corpo veio vazio, que é como o painel diz "sem sessão".
+ * Quem acompanha uma votação precisa da diferença: painel fora do ar não é votação encerrada (26/11/2026).
+ */
+async function lerJson(url, ms = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
-    if (!r.ok) return null;
+    if (!r.ok) return { falha: true };
     const txt = await r.text();
-    if (!txt) return null;                       // corpo vazio (ex.: sem sessão)
-    try { return JSON.parse(txt); } catch { return null; }
-  } catch { return null; }
+    if (!txt) return { dados: null };            // corpo vazio (ex.: sem sessão)
+    try { return { dados: JSON.parse(txt) }; } catch { return { falha: true }; }
+  } catch { return { falha: true }; }
   finally { clearTimeout(timer); }
 }
+async function getJson(url, ms = 12000) { return (await lerJson(url, ms)).dados || null; }
 
 /**
  * Fases do Plenário pelo painel de presença ao vivo.
@@ -57,8 +63,16 @@ async function statusPlenario() {
  * @returns {Promise<{aberta:boolean, numSessao?, nome?, tipo?, inicio?, casa?, deliberativa?, raw?}|null>}
  */
 async function sessaoAtual() {
-  const s = await getJson(SESSAO);
-  if (!s || typeof s !== 'object') return null;
+  const r = await leituraDaSessao();
+  return r.falha || r.semResposta ? null : r;
+}
+/** Como sessaoAtual, mas dizendo POR QUE não veio sessão: { falha: true } (não deu para ler) ou
+ *  { aberta: false, semResposta: true } (o painel respondeu vazio: não há sessão). */
+async function leituraDaSessao() {
+  const l = await lerJson(SESSAO);
+  if (l.falha) return { falha: true };
+  const s = l.dados;
+  if (!s || typeof s !== 'object') return { aberta: false, semResposta: true };
   const n = s.sessaoAtual || null;
   if (!n) return { aberta: false };
   const nome = n.nomSessao || '';
@@ -110,4 +124,4 @@ async function itensEmVotacao() {
   }));
 }
 
-module.exports = { statusPlenario, sessaoAtual, itensEmVotacao, PRESENCA, SESSAO, ITENS };
+module.exports = { statusPlenario, sessaoAtual, leituraDaSessao, itensEmVotacao, PRESENCA, SESSAO, ITENS };

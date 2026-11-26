@@ -221,6 +221,7 @@ const rejeita = async p => { try { await p; return null; } catch (e) { return e;
     const state = { historico: {}, dirty: true };
     const S = new Function('state', 'fetch', 'FIREBASE_URL', 'atualizarStatusSync', 'atualizarSidebarPautas', 'setTimeout', `
       let _dirtySeq = 0;
+      const itensIncluidosPorFora = async () => [], pautaMarcarVista = () => {};   // 26/11/2026: a conferência de itens de fora tem teste próprio (notas-individuais.test.js)
       ${fn('_fbSalvarPautaExec')}
       return _fbSalvarPautaExec;`)(state, async (_u, init) => { corpo = JSON.parse(init.body); return { ok: true, status: 200 }; }, 'https://fb', () => {}, () => {}, () => {});
     const item = extra => Object.assign({ ordem: 1, tipoCategoria: 'projeto', sigla: 'PL', numero: '1', ano: '2026', ementa: 'e', chave: 'PL-1-2026', enriquecimento: { status: 'ok' }, analise: null }, extra);

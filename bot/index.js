@@ -19,7 +19,7 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, rotinaPautaDaSessao } = require('./src/worker');
-const { setAutoLigado, statusAuto, rotinaAuto } = require('./src/auto');
+const { setAutoLigado, statusAuto, rotinaAuto, retomarRotinasInterrompidas } = require('./src/auto');
 const { SIGLAS_AVULSA, entradaDoTexto, refDoTexto: refAvulsaDoTexto, pedidoDeAvulsa, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp } = require('./src/avulsa');
 const { fbGet, fbPut } = require('./src/firebase');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
@@ -2516,22 +2516,26 @@ if (MONITOR_ATIVO) {
   if (!MONITOR_ENSAIO && !GRUPO_CHAT_ID) {
     console.warn('Monitor em modo produção sem GRUPO_CHAT_ID — mensagens serão descartadas. Configure o grupo ou ligue MONITOR_ENSAIO=1.');
   }
+  // Modo automático (/auto on): o que a rotina precisa do bot (ver src/auto.js).
+  const cfgAuto = {
+    api: bot.api,
+    destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
+    perfil: () => getPerfil(ADMIN_USER_ID),
+    executar: rotinaPautaDaSessao,
+    arquivo: (buf, nome) => new InputFile(buf, nome),
+    travar: () => { if (_workerOcupado) return false; _workerOcupado = true; return true; },
+    destravar: () => { _workerOcupado = false; },
+  };
   // Convocação de sessão deliberativa (com a pauta e os apelidos) → mesmo destino do monitor.
   iniciarConvocacoes({
     api: bot.api,
     destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
     perfilIA: () => getPerfil(ADMIN_USER_ID),   // apelidos por IA na chave do admin
     // Modo automático (/auto on): convocação com pauta → importa, analisa as pendentes e manda o material ao grupo.
-    aoAnunciarComPauta: ev => rotinaAuto(ev, {
-      api: bot.api,
-      destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
-      perfil: () => getPerfil(ADMIN_USER_ID),
-      executar: rotinaPautaDaSessao,
-      arquivo: (buf, nome) => new InputFile(buf, nome),
-      travar: () => { if (_workerOcupado) return false; _workerOcupado = true; return true; },
-      destravar: () => { _workerOcupado = false; },
-    }),
+    aoAnunciarComPauta: ev => rotinaAuto(ev, cfgAuto),
   });
+  // Rotina que o bot deixou pela metade ao reiniciar (uma atualização no meio): retoma se a sessão ainda não começou.
+  setTimeout(() => { retomarRotinasInterrompidas(cfgAuto).catch(e => console.warn('[auto] retomada falhou:', e.message)); }, 20e3);
 } else {
   console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
 }

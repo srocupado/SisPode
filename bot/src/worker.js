@@ -28,6 +28,12 @@ const FUNCOES_PAINEL = [
 ];
 
 let _browser = null;
+// Quantos trabalhos estão com o painel aberto agora. O navegador é UM só, e cada trabalho fechava-o ao terminar:
+// o resumo da sessão (que o monitor chama sem a trava do /analisar) derrubava a rotina do /auto no meio, e
+// vice-versa — e os dois costumam coincidir, porque a convocação da sessão seguinte sai no fim da sessão, que é
+// quando o resumo roda (varredura de 26/11/2026). Agora cada trabalho fecha só a sua página; o navegador fecha
+// quando o último termina.
+let _emUso = 0;
 
 async function abrirNavegador() {
   if (_browser && _browser.connected) return _browser;
@@ -65,6 +71,13 @@ async function fecharNavegador() {
   if (b) await b.close().catch(() => {});
 }
 
+/** Fim de um trabalho: fecha a página dele e, se nenhum outro está com o painel aberto, o navegador. */
+async function soltarPainel(page) {
+  if (page) await page.close().catch(() => {});
+  _emUso = Math.max(0, _emUso - 1);
+  if (_emUso === 0) await fecharNavegador();
+}
+
 // O id da extensão descarregada muda por instalação — descobre pelo alvo
 // chrome-extension:// (service worker do MV3 sobe junto com o navegador).
 async function acharExtensionId(browser) {
@@ -81,36 +94,45 @@ async function acharExtensionId(browser) {
 
 /** Abre o painel Análise no worker, valida a API interna e injeta a config. */
 async function abrirPainel({ perfil } = {}) {
-  let browser = await abrirNavegador();
-  let extId;
+  _emUso++;   // antes de qualquer espera: quem estiver terminando agora já vê que há outro trabalho e não fecha o navegador
+  let page = null;
   try {
-    extId = await acharExtensionId(browser);
+    let browser = await abrirNavegador();
+    let extId;
+    try {
+      extId = await acharExtensionId(browser);
+    } catch (e) {
+      // Navegador reaproveitado com o service worker MV3 adormecido: o alvo
+      // chrome-extension:// some e o waitForTarget estoura. Recicla o Chromium
+      // uma vez (subida nova recarrega a extensão) antes de desistir — desde que
+      // nenhum outro trabalho esteja usando este navegador.
+      if (_emUso > 1) throw e;
+      console.warn('[worker] extensão não visível — reciclando o Chromium e tentando de novo:', e.message);
+      await fecharNavegador();
+      browser = await abrirNavegador();
+      extId = await acharExtensionId(browser);
+    }
+    page = await browser.newPage();
+    await page.goto(`chrome-extension://${extId}/analise.html`, { waitUntil: 'domcontentloaded' });
+
+    const faltando = await page.evaluate(nomes =>
+      nomes.filter(n => typeof globalThis[n] !== 'function'), FUNCOES_PAINEL);
+    if (faltando.length) {
+      throw new Error(`A extensão mudou — funções não encontradas no painel: ${faltando.join(', ')}. Atualize o bot.`);
+    }
+
+    if (perfil?.apiKey) {
+      // Mesmo shape do ⚙ Configurações do painel; a geração roda na conta do solicitante.
+      await page.evaluate(cfg => new Promise(r => chrome.storage.local.set({ config: cfg }, r)), {
+        provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
+        nomeUsuario: `${perfil.nome || 'analista'} (via bot)`,
+      });
+    }
+    return { browser, page, extId };
   } catch (e) {
-    // Navegador reaproveitado com o service worker MV3 adormecido: o alvo
-    // chrome-extension:// some e o waitForTarget estoura. Recicla o Chromium
-    // uma vez (subida nova recarrega a extensão) antes de desistir.
-    console.warn('[worker] extensão não visível — reciclando o Chromium e tentando de novo:', e.message);
-    await fecharNavegador();
-    browser = await abrirNavegador();
-    extId = await acharExtensionId(browser);
+    await soltarPainel(page);   // não chegou a entregar o painel: devolve a vez
+    throw e;
   }
-  const page = await browser.newPage();
-  await page.goto(`chrome-extension://${extId}/analise.html`, { waitUntil: 'domcontentloaded' });
-
-  const faltando = await page.evaluate(nomes =>
-    nomes.filter(n => typeof globalThis[n] !== 'function'), FUNCOES_PAINEL);
-  if (faltando.length) {
-    throw new Error(`A extensão mudou — funções não encontradas no painel: ${faltando.join(', ')}. Atualize o bot.`);
-  }
-
-  if (perfil?.apiKey) {
-    // Mesmo shape do ⚙ Configurações do painel; a geração roda na conta do solicitante.
-    await page.evaluate(cfg => new Promise(r => chrome.storage.local.set({ config: cfg }, r)), {
-      provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
-      nomeUsuario: `${perfil.nome || 'analista'} (via bot)`,
-    });
-  }
-  return { browser, page, extId };
 }
 
 async function carregarPauta(page, pautaId) {
@@ -146,7 +168,7 @@ async function analisarPauta({ perfil, pautaId, onProgress, timeoutMin = 45 }) {
 
     return await gerarEAguardar(page, { onProgress, timeoutMin });
   } finally {
-    await fecharNavegador();
+    await soltarPainel(page);
   }
 }
 
@@ -260,7 +282,7 @@ async function rotinaPautaDaSessao({ perfil, sessao, onProgress, timeoutMin = 60
     delete material.html;
     return { ...pauta, notas, semChave: !perfil?.apiKey, ...material, pdf };
   } finally {
-    await fecharNavegador();
+    await soltarPainel(page);
   }
 }
 
@@ -296,7 +318,7 @@ async function exportarPdfPauta({ perfil, pautaId }) {
 
     return { pdf: await imprimirHtml(browser, html), ...meta };
   } finally {
-    await fecharNavegador();
+    await soltarPainel(page);
   }
 }
 
@@ -406,7 +428,7 @@ async function notaAvulsa({ perfil, prop, forcar = false, solicitante = '', onPr
     }, solicitante);
     return { pdf: await imprimirHtml(browser, r.html), nova: st.nova, regerada, inconclusa, ...r, html: undefined };
   } finally {
-    await fecharNavegador();
+    await soltarPainel(page);
   }
 }
 
@@ -448,8 +470,8 @@ async function resumoSessao({ pautaId, dataISO }) {
       return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data, res.recursos || []), destinos, semDestino, semProposicao: res.semProposicao || 0 };
     }, dataISO);
   } finally {
-    await fecharNavegador();
+    await soltarPainel(page);
   }
 }
 
-module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, rotinaPautaDaSessao, fecharNavegador };
+module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, rotinaPautaDaSessao, fecharNavegador, _teste: { abrirPainel, soltarPainel, emUso: () => _emUso } };

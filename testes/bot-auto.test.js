@@ -32,12 +32,12 @@ const RESULTADO = {
 };
 
 /** Ambiente de mentira: Firebase em memória, Telegram que só registra, painel que devolve o que o teste mandar. */
-function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chave = 'k', fbFalha = false } = {}) {
-  const fb = { '/bot/auto': ligado ? { ligado: true } : null }, env = [], edicoes = [], execs = [], esperas = [];
+function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chave = 'k', fbFalha = false, falhaEnvio = null, registros = {} } = {}) {
+  const fb = { '/bot/auto': ligado ? { ligado: true } : null, ...Object.fromEntries(Object.entries(registros).map(([id, r]) => [`/bot/auto_rotinas/${id}`, r])) }, env = [], edicoes = [], execs = [], esperas = [];
   let trava = false, ocupado = ocupadoPor, n = 0;
   const cfg = {
     api: {
-      sendMessage: async (chat, texto) => { env.push({ tipo: 'msg', chat, texto }); return { message_id: env.length }; },
+      sendMessage: async (chat, texto) => { if (falhaEnvio && falhaEnvio.test(texto)) throw new Error('Bad Request: message is too long'); env.push({ tipo: 'msg', chat, texto }); return { message_id: env.length }; },
       editMessageText: async (chat, id, texto) => { edicoes.push({ chat, id, texto }); },
       sendDocument: async (chat, doc, extra) => { env.push({ tipo: 'doc', chat, doc, legenda: extra && extra.caption }); return { message_id: env.length }; },
     },
@@ -53,7 +53,7 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     arquivo: (buf, nome) => ({ buf, nome }),
     travar: () => { if (ocupado > 0) { ocupado--; return false; } if (trava) return false; trava = true; return true; },
     destravar: () => { trava = false; },
-    fbGet: async p => { if (fbFalha) throw new Error('Firebase GET 503'); return fb[p] === undefined ? null : fb[p]; },
+    fbGet: async p => { if (fbFalha) throw new Error('Firebase GET 503'); if (p === '/bot/auto_rotinas') return Object.fromEntries(Object.entries(fb).filter(([k]) => k.startsWith('/bot/auto_rotinas/')).map(([k, v]) => [k.split('/').pop(), v])); return fb[p] === undefined ? null : fb[p]; },
     fbPatch: async (p, v) => { fb[p] = { ...(fb[p] || {}), ...v }; return v; },
     esperar: async ms => { esperas.push(ms); },
   };
@@ -137,6 +137,48 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     ok(A.cargaResponsaveis([]) === '' && A.nomePdf('') === 'pauta.pdf' && /sessão de 26\/11\.$|sessão de 26\/11…$/.test(A.textoProgresso({ data: '2026-11-26' }, { fase: 'pauta' })), 'textos de reserva: sem responsáveis, sem título e sessão sem hora');
   }
 
+  // Varredura de 26/11/2026.
+  console.log('\n== 3b. mensagem longa, envio que falha e bot que reinicia no meio ==');
+  {
+    // (M3) pauta grande: a mensagem dos apelidos passa do limite do Telegram
+    const longo = Array.from({ length: 80 }, (_, i) => `▪️ *PL ${1000 + i}/2026* (${'apelido bem comprido da matéria '.repeat(4).trim()})`).join('\n');
+    const a = ambiente({ respostas: [{ ...RESULTADO, apelidos: longo }] });
+    const r = await A.rotinaAuto(EV, a.cfg);
+    const partes = a.env.filter(e => e.tipo === 'msg').slice(1, -1).map(e => e.texto);   // entre o aviso de início e os itens do Podemos
+    ok(longo.length > 8000 && r.ok && partes.length >= 3 && partes.every(p => p.length <= 3900 && !p.startsWith('\n')) && partes.join('\n') === longo && a.env.at(-1).texto === RESULTADO.podemos.texto,
+      `mensagem de apelidos de ${longo.length} caracteres: vai em ${partes.length} mensagens, cortadas em quebra de linha, sem perder nada — e os itens do Podemos saem depois`);
+    ok(A.fatiar('abc').join() === 'abc' && A.fatiar('').length === 0 && A.fatiar('x'.repeat(5000)).every(p => p.length <= 3900), 'texto curto vai inteiro; texto sem quebra de linha também é cortado');
+    // um envio que falha não desfaz o resto nem vira "não consegui preparar a pauta"
+    const b = ambiente({ falhaEnvio: /^▪️ \*PL 724/ });
+    const rb = await A.rotinaAuto(EV, b.cfg);
+    const tb = b.edicoes.at(-1).texto;
+    ok(rb.ok && rb.enviosFalhos.length === 1 && b.env.map(e => e.tipo).join() === 'msg,doc,msg' && b.env.at(-1).texto === RESULTADO.podemos.texto && /^✅ Modo automático/.test(tb) && /⚠ Não consegui mandar ao grupo: a mensagem dos apelidos \(Bad Request: message is too long\)\./.test(tb) && !/não consegui preparar/.test(tb),
+      'apelidos recusados pelo Telegram: o PDF e os itens do Podemos saem assim mesmo, e o resumo diz o que não foi — em vez de "não consegui preparar a pauta"');
+    ok(b.fb['/bot/auto_rotinas/83300'].terminadaEm && !b.fb['/bot/auto_rotinas/83300'].erro && b.fb['/bot/auto_rotinas/83300'].enviosFalhos.length === 1, 'e a rotina fica registrada como feita, com o envio que faltou');
+
+    // (M4) o bot reiniciou no meio da rotina (uma atualização, por exemplo)
+    const pela_metade = { data: '2026-11-26', hora: '10:00', iniciadaEm: '2026-11-25T23:50:00.000Z', tentativas: 1, statusChat: 'GRUPO', statusMid: 55 };
+    const c = ambiente({ registros: { 83300: pela_metade } });
+    ok((await A.rotinaAuto(EV, c.cfg)).pulou === 'já feita' && !c.execs.length, 'pelo gatilho normal, sessão já começada não roda de novo');
+    const rc = await A.retomarRotinasInterrompidas({ ...c.cfg, agora: () => '2026-11-26T00:10' });
+    ok(rc.length === 1 && rc[0].ok && c.execs.length === 1 && c.execs[0].sessao.id === '83300' && c.execs[0].sessao.data === '2026-11-26', 'na subida do bot, a rotina que ficou pela metade é retomada (a sessão ainda não começou)');
+    ok(c.env.map(e => e.tipo).join() === 'doc,msg,msg' && c.edicoes.every(e => e.id === 55) && /\(Retomando: o bot reiniciou no meio\.\)$/.test(c.edicoes[0].texto) && /^✅ Modo automático/.test(c.edicoes.at(-1).texto),
+      'sem mandar outro aviso: o "preparando…" que ficou no grupo é o que passa a ser atualizado, até virar o resumo');
+    ok(c.fb['/bot/auto_rotinas/83300'].tentativas === 2 && c.fb['/bot/auto_rotinas/83300'].terminadaEm && (await A.retomarRotinasInterrompidas({ ...c.cfg, agora: () => '2026-11-26T00:20' })).length === 0 && c.execs.length === 1, 'a retomada acontece uma vez; rotina terminada não é retomada');
+    const d = ambiente({ registros: { 83300: pela_metade } });
+    const rd = await A.retomarRotinasInterrompidas({ ...d.cfg, agora: () => '2026-11-26T10:30' });
+    ok(rd.length === 1 && rd[0].erro && !d.execs.length && !d.env.length && d.edicoes.length === 1 && d.edicoes[0].id === 55 && /^⚠️ Modo automático: a preparação da pauta da sessão de 26\/11, 10h foi interrompida e a sessão já começou\./.test(d.edicoes[0].texto) && d.fb['/bot/auto_rotinas/83300'].terminadaEm,
+      'se a sessão já começou, não roda: só corrige o aviso que tinha ficado como "preparando…"');
+    const e = ambiente({ registros: { 83300: { ...pela_metade, tentativas: 2 } } });
+    const re = await A.retomarRotinasInterrompidas({ ...e.cfg, agora: () => '2026-11-26T00:10' });
+    ok(re[0].erro === 'foi interrompida duas vezes' && !e.execs.length && /foi interrompida duas vezes/.test(e.edicoes[0].texto), 'interrompida pela segunda vez: desiste e avisa (não entra em laço de reinício)');
+    const f = ambiente({ ligado: false, registros: { 83300: pela_metade } });
+    ok((await A.retomarRotinasInterrompidas({ ...f.cfg, agora: () => '2026-11-26T00:10' })).length === 0 && !f.execs.length && !f.edicoes.length, 'com o modo desligado, nada é retomado');
+    const g = ambiente();
+    await A.rotinaAuto(EV, g.cfg);
+    ok(g.fb['/bot/auto_rotinas/83300'].statusMid === 1 && g.fb['/bot/auto_rotinas/83300'].statusChat === 'GRUPO' && g.fb['/bot/auto_rotinas/83300'].tentativas === 1, 'a rotina guarda qual é a mensagem de aviso, para poder retomá-la');
+  }
+
   console.log('\n== 4. a ligação com o bot e com a extensão ==');
   {
     const idx = fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8'), worker = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'worker.js'), 'utf8');
@@ -144,9 +186,9 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     const cmd = idx.slice(idx.indexOf("bot.command('auto'"), idx.indexOf('// ---------- Corrigir uma mensagem publicada no grupo'));
     ok(/if \(String\(ctx\.from\.id\) !== ADMIN_USER_ID\) return ctx\.reply\('Só o administrador liga\/desliga o modo automático/.test(cmd) && /await setAutoLigado\(arg === 'on', nomeDe\(ctx\)\)/.test(cmd) && /const s = await statusAuto\(\);/.test(cmd), '/auto on|off é só do administrador (a chave é dele); sem argumento, mostra o estado');
     ok(/\{ command: 'auto', description: /.test(idx) && /'\/auto — modo automático:/.test(idx), 'o comando está no menu do administrador e na ajuda');
-    const liga = idx.slice(idx.indexOf('aoAnunciarComPauta: ev => rotinaAuto(ev, {'), idx.indexOf("console.log('Monitor de sessão desativado"));
+    const liga = idx.slice(idx.indexOf('const cfgAuto = {'), idx.indexOf("console.log('Monitor de sessão desativado"));
     ok(/perfil: \(\) => getPerfil\(ADMIN_USER_ID\)/.test(liga) && /executar: rotinaPautaDaSessao/.test(liga) && /destino: \(\) => \(MONITOR_ENSAIO \? ADMIN_USER_ID : GRUPO_CHAT_ID\)/.test(liga)
-      && /travar: \(\) => \{ if \(_workerOcupado\) return false; _workerOcupado = true; return true; \}/.test(liga) && /destravar: \(\) => \{ _workerOcupado = false; \}/.test(liga),
+      && /travar: \(\) => \{ if \(_workerOcupado\) return false; _workerOcupado = true; return true; \}/.test(liga) && /destravar: \(\) => \{ _workerOcupado = false; \}/.test(liga) && /aoAnunciarComPauta: ev => rotinaAuto\(ev, cfgAuto\)/.test(liga) && /retomarRotinasInterrompidas\(cfgAuto\)/.test(liga),
       'o gatilho é a convocação com pauta: chave do admin, mesmo destino da convocação (grupo; em ensaio, o admin) e a mesma trava do /analisar');
     ok(/if \(linhas\.length && cfg\.aoAnunciarComPauta\) \{\s*Promise\.resolve\(\)\.then\(\(\) => cfg\.aoAnunciarComPauta\(ev\)\)\.catch\(/.test(conv), 'a convocação não espera a rotina (que leva minutos) nem cai se ela falhar');
     const rot = worker.slice(worker.indexOf('async function rotinaPautaDaSessao('), worker.indexOf('/** Renderiza o HTML de impressão'));
@@ -160,7 +202,7 @@ function ambiente({ ligado = true, respostas = [RESULTADO], ocupadoPor = 0, chav
     const faltam = nomes.filter(n => !new RegExp(`(?:async )?function ${n}\\(`).test(pag));
     ok(!faltam.length && /const enriquecimentoFalhou = /.test(an) && /<script src="plenario-calendario\.js">/.test(fs.readFileSync(path.join(RAIZ, 'analise.html'), 'utf8')), `as funções que a rotina chama existem na página do Plenário${faltam.length ? ' — faltam: ' + faltam.join(', ') : ''}`);
     const imp = an.slice(an.indexOf('async function importarPautaPdf('), an.indexOf('function normalizarItem('));
-    ok(/if \(escolha && escolha\.existente\) \{[\s\S]*?await carregarPautaPorId\(escolha\.existente\);\s*return 'existente';/.test(imp) && /if \(opcoes\.automatico\) return iguais \? \{ existente: idPauta \} : await proximoIdLivre\(idPauta\);/.test(an)
+    ok(/if \(escolha && escolha\.existente\) \{[\s\S]*?await carregarPautaPorId\(escolha\.existente\);[\s\S]*?if \(!state\.pauta \|\| state\.pauta\.id !== escolha\.existente\) throw new Error\([^)]*\);\s*return 'existente';/.test(imp) && /return mesmaSessao \? \{ existente: idPauta \} : await proximoIdLivre\(idPauta\);/.test(an)
       && imp.indexOf('herdarResponsaveis(state.pauta.itens') > 0 && imp.indexOf('herdarResponsaveis(state.pauta.itens') < imp.indexOf('distribuirResponsaveis(state.pauta.itens'),
       'na extensão, a importação automática não pergunta nem sobrescreve; a pauta nova mantém o responsável de quem já acompanhava a matéria e sorteia o resto');
   }

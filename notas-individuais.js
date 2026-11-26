@@ -223,13 +223,20 @@ function niMontarCasca() {
 // ---------- quem está usando ----------
 async function niCarregarServidores() {
   let lista = [];
-  try { lista = niListaServidores(await niGet(NI_CAMINHO_SERV)); } catch (_) { /* fica com o que houver */ }
+  // Falha de leitura NÃO é "lista vazia": sem a marca, a lista do Plenário aparecia como se fosse a do módulo e,
+  // salva nas Configurações, apagava a lista gravada (varredura de 26/11/2026).
+  try { lista = niListaServidores(await niGet(NI_CAMINHO_SERV)); ni.servidoresIlegivel = false; }
+  catch (_) { ni.servidoresIlegivel = true; if ((ni.servidores || []).length) return ni.servidores; }   // fica com a última lista lida
   // Primeira vez: começa pela lista do Plenário, só como sugestão — ela passa a ser do módulo ao ser gravada.
   if (!lista.length) { try { lista = niListaServidores(await carregarServidores()); } catch (_) {} }
   ni.servidores = lista;
   return lista;
 }
-async function niSalvarServidores(lista) { ni.servidores = niListaServidores(lista); await niPut(NI_CAMINHO_SERV, ni.servidores); }
+async function niSalvarServidores(lista) {
+  // Não grava por cima de uma lista que não conseguiu ler: tenta ler de novo antes.
+  if (ni.servidoresIlegivel) { await niCarregarServidores(); if (ni.servidoresIlegivel) throw new Error('não consegui ler a lista gravada no banco; para não gravar por cima dela às cegas, tente de novo em instantes'); }
+  ni.servidores = niListaServidores(lista); await niPut(NI_CAMINHO_SERV, ni.servidores);
+}
 
 async function niGravarNome(nome) {
   ni.eu = nome;
@@ -292,7 +299,10 @@ function niMontarConfig() {
       <div id="ni-config-st" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
     </div></div>`);
   document.querySelector('.config-tab-btn[data-config-tab="notas-servidores"]').addEventListener('click', () => selecionarAbaConfig('notas-servidores'));
-  const preencher = () => { document.getElementById('ni-config-servidores').value = ni.servidores.join('\n'); document.getElementById('ni-config-st').textContent = ''; };
+  const preencher = () => {
+    document.getElementById('ni-config-servidores').value = ni.servidores.join('\n');
+    document.getElementById('ni-config-st').textContent = ni.servidoresIlegivel ? '⚠ Não consegui ler a lista gravada no banco: os nomes acima podem não ser os da equipe. Não será possível salvar até a leitura voltar.' : '';
+  };
   // a cada abertura das Configurações, a lista mais recente (outro servidor pode ter mudado)
   document.getElementById('btn-configuracoes').addEventListener('click', () => { preencher(); niCarregarServidores().then(preencher).catch(() => {}); });
   document.getElementById('ni-config-salvar').addEventListener('click', async () => {
@@ -592,10 +602,26 @@ function niAbrirNovaNota() {
         }
         if (!a) return;
         if (!ni.registros[a.chave]) {
-          const reg = niRegistro({ ...a, responsavel: $('#ni-resp').value }, ni.eu);
           st('Gravando…');
-          await niPut(`${NI_CAMINHO_REG}/${encodeURIComponent(a.chave)}`, reg);
-          ni.registros[a.chave] = reg;
+          // Confere NO BANCO, não só na lista carregada ao abrir a tela: outro servidor pode ter registrado esta
+          // proposição nesse meio-tempo, e gravar por cima trocava o responsável dele pelo daqui, sem aviso.
+          let jaLa = await niGet(`${NI_CAMINHO_REG}/${encodeURIComponent(a.chave)}`);
+          for (let t = 0; jaLa && a.entrada === 'texto' && t < 3; t++) {   // minuta: o número foi tomado agora; pega o seguinte
+            ni.registros[a.chave] = jaLa;
+            const numero = String(niProximaMinuta(ni.registros, a.ano));
+            a = { ...a, numero, chave: niChave({ sigla: NI_SIGLA_TEXTO, numero, ano: a.ano }) };
+            jaLa = ni.registros[a.chave] || await niGet(`${NI_CAMINHO_REG}/${encodeURIComponent(a.chave)}`);
+          }
+          if (jaLa) {
+            ni.registros[a.chave] = jaLa;
+            if (a.entrada === 'texto') throw new Error('não consegui um número livre para a minuta; tente de novo');
+            const resp = niResponsavel(jaLa);
+            mostrarToast(`Esta proposição já tinha nota individual${resp ? `, com ${resp}` : ''}: abri a que existe, sem mudar o responsável.`, 'info');
+          } else {
+            const reg = niRegistro({ ...a, responsavel: $('#ni-resp').value }, ni.eu);
+            await niPut(`${NI_CAMINHO_REG}/${encodeURIComponent(a.chave)}`, reg);
+            ni.registros[a.chave] = reg;
+          }
         }
         o.remove();
         niDesenharLateral();

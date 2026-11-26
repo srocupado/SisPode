@@ -91,6 +91,7 @@ const ANO = String(new Date().getFullYear());
 
     // ---- Câmara: quatro proposições; a de número 100 tem urgência
     const props = { 9100: { n: 100, a: 2025, e: 'Ementa cem', regime: 'Urgência (Art. 155, RICD)' }, 9200: { n: 200, a: 2025, e: 'Ementa duzentos' }, 9300: { n: 300, a: 2024, e: 'Ementa trezentos' }, 9400: { n: 400, a: 2025, e: 'Ementa quatrocentos' } };
+    let fbFalha = null;   // regex do caminho do Firebase cuja LEITURA deve falhar
     const novaPagina = async (b, { nome = '' } = {}) => {
       const pg = await b.newPage({ viewport: { width: 1440, height: 900 } });
       const rede = { escritas: [], pedidos: [], erros: [] };
@@ -106,6 +107,7 @@ const ANO = String(new Date().getFullYear());
         rede.pedidos.push(`${met} ${u}`);
         const f = /firebaseio\.com\/(.+?)\.json(\?.*)?$/.exec(u);
         if (f) {
+          if (met === 'GET' && fbFalha && fbFalha.test(f[1])) return rt.fulfill({ status: 503, headers: cab, body: 'fora do ar' });   // leitura que falha (varredura de 26/11/2026)
           if (met === 'GET') { const v = fbLer(f[1]); return json(/shallow=true/.test(f[2] || '') && v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map(k => [k, true])) : v); }
           rede.escritas.push(`${met} ${decodeURIComponent(f[1])}`);
           fbGravar(f[1], met === 'DELETE' ? null : JSON.parse(q.postData() || 'null'));
@@ -293,7 +295,66 @@ const ANO = String(new Date().getFullYear());
       'o código do aviso saiu; nota já gravada como "nota do acervo" não mostra o selo (o de requerimento ↔ projeto continua)');
     const ntaPl = await pl.evaluate(() => { const it = state.pauta.itens.find(i => i.chave === 'PL-100-2025'); return { btn: document.querySelector('.an-card[data-chave="PL-100-2025"] [data-role=btn-abrir-parecer]').style.display, ch: it._chaveParecer || '' }; });
     ok(ntaPl.btn === 'inline-flex' && ntaPl.ch === 'nota-pl-100-2025__PL-100-2025', 'a NTA feita nas notas individuais aparece no item da pauta ("Abrir NTA")');
+    // Varredura de 26/11/2026 (A3): item posto na pauta por fora enquanto ela está aberta aqui não pode sumir na gravação.
+    const itemDeFora = (n, extra = {}) => ({ ordem: 9, tipoCategoria: 'projeto', sigla: 'PL', numero: String(n), ano: '2025', ementa: `Ementa de fora ${n}`, autorTexto: '', temUrgencia: false, chave: `PL-${n}-2025`, ...extra });
+    const nAntes = fb.pautas.p1.itens.length;
+    fb.pautas.p1.itens.push(itemDeFora(200));                    // é o que o "Usar em pauta" faz: grava direto em /pautas/p1/itens/N
+    await pl.evaluate(() => { marcarSujo(); return fbSalvarPauta(state.pauta); });
+    await pl.waitForSelector('.an-card[data-chave="PL-200-2025"]', { timeout: 10000 });
+    const a3 = await pl.evaluate(() => ({ n: state.pauta.itens.length, toast: document.body.innerText.includes('Um item foi incluído nesta pauta por outra pessoa') }));
+    ok(fb.pautas.p1.itens.length === nAntes + 1 && fb.pautas.p1.itens.some(i => i.chave === 'PL-200-2025') && a3.n === nAntes + 1 && a3.toast,
+      'item incluído por fora (o "Usar em pauta") com a pauta aberta aqui: a gravação NÃO o apaga — ele entra na pauta da tela, com aviso');
+    // removido aqui continua removido: o navegador já tinha visto o item
+    await pl.evaluate(() => { const i = state.pauta.itens.findIndex(x => x.chave === 'PL-200-2025'); state.pauta.itens.splice(i, 1); marcarSujo(); return fbSalvarPauta(state.pauta); });
+    ok(!fb.pautas.p1.itens.some(i => i.chave === 'PL-200-2025') && fb.pautas.p1.itens.length === nAntes, 'item que o analista remove aqui depois de tê-lo visto NÃO volta na gravação seguinte');
+    // com uma nota em edição, a lista não é redesenhada (fecharia o editor): o item vai na gravação e entra na tela depois
+    fb.pautas.p1.itens.push(itemDeFora(777));
+    const a3b = await pl.evaluate(async () => { _autosaveState.set('PL-300-2024', {}); marcarSujo(); await fbSalvarPauta(state.pauta); return { naTela: !!document.querySelector('.an-card[data-chave="PL-777-2025"]'), naMemoria: state.pauta.itens.some(i => i.chave === 'PL-777-2025') }; });
+    ok(fb.pautas.p1.itens.some(i => i.chave === 'PL-777-2025') && !a3b.naTela && !a3b.naMemoria, 'com nota em edição: o item de fora é preservado no Firebase, sem redesenhar a lista por baixo do editor');
+    const a3c = await pl.evaluate(async () => { _autosaveState.delete('PL-300-2024'); marcarSujo(); await fbSalvarPauta(state.pauta); return { naTela: !!document.querySelector('.an-card[data-chave="PL-777-2025"]'), n: state.pauta.itens.filter(i => i.chave === 'PL-777-2025').length }; });
+    ok(a3c.naTela && a3c.n === 1 && fb.pautas.p1.itens.filter(i => i.chave === 'PL-777-2025').length === 1, 'fechada a edição, a gravação seguinte põe o item na tela — uma vez só');
     ok(redePl.erros.length === 0, `nenhum erro na página do Plenário${redePl.erros.length ? ' — ' + redePl.erros[0] : ''}`);
+
+    console.log('\n== 5. varredura de 26/11/2026: lista de servidores ilegível e nota já registrada por outro ==');
+    {
+      // (M9) o módulo abre com a leitura da lista de servidores falhando
+      const listaGravada = JSON.stringify(fb.notas_individuais_servidores);
+      fbFalha = /^notas_individuais_servidores/;
+      const { pg: v, rede: redeV } = await novaPagina(b, { nome: 'Vinícius Lára' });
+      await v.goto(base + '/analise.html?modo=notas', { waitUntil: 'load' });
+      await v.waitForSelector('.ni-tab', { timeout: 20000 });
+      await v.click('#btn-configuracoes');
+      await v.click('.config-tab-btn[data-config-tab="notas-servidores"]');
+      await v.waitForFunction(() => /Não consegui ler a lista gravada no banco/.test(document.getElementById('ni-config-st')?.textContent || ''), null, { timeout: 10000 });
+      ok((await v.$eval('#ni-config-servidores', x => x.value)) === 'Pedro Ribeiro\nVinícius Lára', 'lista de servidores do módulo ilegível: aparece a do Plenário como sugestão, com o aviso de que não é a gravada');
+      await v.click('#ni-config-salvar');
+      await v.waitForFunction(() => /Não foi possível salvar: não consegui ler a lista gravada/.test(document.getElementById('ni-config-st').textContent), null, { timeout: 10000 });
+      ok(JSON.stringify(fb.notas_individuais_servidores) === listaGravada && !redeV.escritas.some(e => /notas_individuais_servidores/.test(e)), 'e salvar nesse estado NÃO grava por cima da lista do módulo');
+      fbFalha = null;
+      await v.click('#modal-configuracoes .modal-close');
+      await v.click('#btn-configuracoes');
+      await v.click('.config-tab-btn[data-config-tab="notas-servidores"]');
+      await v.waitForFunction(lista => document.getElementById('ni-config-servidores').value === lista, JSON.parse(listaGravada).join('\n'), { timeout: 10000 });
+      ok((await v.textContent('#ni-config-st')) === '', 'voltando a leitura, a lista gravada aparece e o aviso some');
+      await v.click('#modal-configuracoes .modal-close');
+
+      // (M10) outro servidor registra a proposição DEPOIS de esta tela abrir
+      delete fb.analises_avulsas['PL-200-2025'];
+      await v.reload({ waitUntil: 'load' }); await v.waitForSelector('.ni-tab', { timeout: 20000 });
+      fb.analises_avulsas['PL-200-2025'] = { sigla: 'PL', numero: '200', ano: '2025', entrada: 'camara', idCamara: 9200, ementa: 'Ementa duzentos', responsavel: 'Maria Exemplo', pedidoPor: 'Maria Exemplo', pedidoEm: '2026-11-26T12:00:00.000Z', origem: 'painel' };
+      await v.click('#ni-nova');
+      await v.fill('#ni-n-texto', 'PL 200/2025'); await v.click('[data-ni=buscar-numero]');
+      await v.waitForFunction(() => document.getElementById('ni-achado').style.display !== 'none');
+      ok(/Ainda não está nas notas individuais/.test(await v.textContent('#ni-achado')), 'a tela, aberta antes, ainda acha que a proposição não tem nota individual');
+      const antes = redeV.escritas.length;
+      await v.click('[data-ni=criar]');
+      await v.waitForFunction(() => state.pauta?.itens?.[0]?.chave === 'PL-200-2025', null, { timeout: 20000 });
+      ok(fb.analises_avulsas['PL-200-2025'].responsavel === 'Maria Exemplo' && fb.analises_avulsas['PL-200-2025'].pedidoEm === '2026-11-26T12:00:00.000Z' && !redeV.escritas.slice(antes).some(e => /^PUT analises_avulsas\/PL-200-2025$/.test(e)),
+        'criar confere no banco antes de gravar: o registro da colega fica como estava (o responsável dela não é trocado)');
+      ok(await v.evaluate(() => document.body.innerText.includes('já tinha nota individual, com Maria Exemplo')), 'e a tela diz que a nota já existia e com quem está, abrindo a que existe');
+      ok(redeV.erros.length === 0, `nenhum erro na página${redeV.erros.length ? ' — ' + redeV.erros[0] : ''}`);
+      await v.close();
+    }
     await b.close(); srv.close();
   }
 

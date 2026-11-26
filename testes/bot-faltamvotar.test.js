@@ -148,6 +148,39 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
     await h.iniciar(14017, '');
     ok(h.env.length === 1 && /^✅ Votação nominal — PLP Nº 299\/2026\nToda a bancada do Podemos votou \(27 de 27\)\./.test(h.env[0]) && h.A.emCurso() === null, 'bancada toda já votou quando a Casa chega a 257: um aviso só, e fim');
 
+    // Varredura de 26/11/2026 (M1): painel fora do ar NÃO é votação encerrada.
+    const FALHA = { aberta: false, falha: true, motivo: 'não consegui ler o painel da Câmara agora' };
+    const m1 = amb([ret(300, 25, ['A (SP)']), FALHA, FALHA, FALHA, FALHA, ret(320, 26, ['A (SP)'])]);
+    await m1.iniciar(14017, ''); await m1.passos(4);
+    ok(m1.env.length === 1 && m1.ed.length === 0 && m1.A.emCurso() && !m1.marcas.some(x => x[0] === 'fim'), 'quatro leituras seguidas sem resposta do painel (um minuto fora do ar): a mensagem NÃO é fechada como "encerrada"');
+    await m1.passos(1);
+    ok(m1.ed.length === 1 && /320 de 513/.test(m1.ed[0].texto) && !/encerrada/.test(m1.ed[0].texto), 'quando o painel volta, a mesma mensagem segue sendo atualizada');
+    const m1b = amb([ret(300, 25, ['A (SP)']), FALHA]);
+    await m1b.iniciar(14017, ''); await m1b.passos(F.ACOMP_MAX_FALHAS);
+    ok(F.ACOMP_MAX_FALHAS === 40 && m1b.ed.length === 1 && /⚠️ Última leitura às 22:57:47\. O painel da Câmara parou de responder: a lista pode estar desatualizada\.$/.test(m1b.ed[0].texto) && !/se atualiza a cada 15 segundos/.test(m1b.ed[0].texto) && m1b.A.emCurso() === null && !m1b.marcas.some(x => x[0] === 'fim'),
+      'dez minutos sem resposta: a mensagem avisa que parou de ser atualizada e o acompanhamento é suspenso — sem dar a votação por concluída');
+    const m1c = amb([ret(330, 26, ['A (SP)'])]);
+    ok(await m1c.iniciar(14017, '', { chat: 'GRUPO', mid: 901 }) === true && m1c.env.length === 0 && m1c.ed.length === 1 && m1c.ed[0].mid === 901, 'se o painel volta com a votação aberta, o monitor a entrega de novo e a mesma mensagem é retomada');
+    // (M2) nominais em sequência: a nova abre antes do passo seguinte da anterior
+    const finalA = { prop: 'PLP Nº 299/2026', total: 27, votaram: 26, naoVotaram: ['C (PR)'], casaRegistrou: 470, casaTotal: 513 };
+    const m2 = amb([ret(300, 25, ['A (SP)', 'C (PR)']), ret(40, 2, ['X (SP)'], { idVotacao: 14018 })], { porId: finalA });
+    await m2.iniciar(14017, 'PLP Nº 299/2026 - DTQ 1');
+    ok(await m2.iniciar(14018, 'PLP Nº 299/2026 - DTQ 2') === true && m2.A.emCurso().id === 14018, 'outra nominal abre com a anterior ainda em acompanhamento: a nova passa a ser acompanhada');
+    ok(m2.ed.length === 1 && m2.ed[0].mid === 901 && m2.ed[0].texto === '🗳 Votação nominal encerrada — PLP Nº 299/2026 - DTQ 1\nNa Casa, 470 de 513 deputados votaram.\n26 de 27 deputados do Podemos votaram. Não registraram voto:\n\n• C (PR)' && JSON.stringify(m2.marcas) === '[["msg",14017,901],["fim",14017]]',
+      'e a mensagem da anterior é FECHADA com o retrato final, em vez de ficar para sempre dizendo que se atualiza');
+    ok(m2.env.length === 1 && m2.A.acompanhar(14017, '') === false, 'a nova (ainda abaixo de 257 votos) não mandou nada; a anterior não recomeça');
+    // faltamVotar: falha de rede × painel sem sessão
+    global.fetch = async () => { throw new Error('ECONNRESET'); };
+    const semRede = await faltamVotar('PODE');
+    global.fetch = async () => ({ ok: false, status: 503, text: async () => '' });
+    const erro503 = await faltamVotar('PODE');
+    global.fetch = async () => ({ ok: true, status: 200, text: async () => '' });
+    const semSessao = await faltamVotar('PODE');
+    ok(semRede.falha === true && erro503.falha === true && /não consegui ler o painel/.test(semRede.motivo) && !semSessao.falha && semSessao.motivo === 'não há sessão aberta no momento', 'faltamVotar distingue "não consegui ler o painel" (rede, HTTP de erro) de "não há sessão aberta" (o painel respondeu vazio)');
+    const C = require(path.join(RAIZ, 'bot', 'src', 'plenariocosev.js'));
+    global.fetch = async () => { throw new Error('x'); };
+    ok(await C.sessaoAtual() === null && (await C.leituraDaSessao()).falha === true, 'quem usa sessaoAtual continua recebendo null na falha (nada muda para o monitor)');
+
     // faltamVotar diz que a votação continua aberta mesmo sem os votos individuais; o retrato por id serve à encerrada
     global.fetch = async u => (/sessao-atual/.test(u) ? resp(SESSAO) : /ws-plenario\/votacao\/14017$/.test(u) ? resp({ parlamentaresVotos: [] }) : { ok: false, status: 404, text: async () => '' });
     const semVotos = await faltamVotar('PODE');

@@ -424,6 +424,33 @@ const item = (conf, re) => conf.itens.find(i => re.test(i.teste));
     ok(/15 buscas e 8 páginas abertas nas pesquisas/.test(hw) && H.pe5ResumoLeituraWeb([{ web: true }]) === '' && /o provedor recusou a leitura de páginas/.test(H.pe5ResumoLeituraWeb([{ web: true, buscas: 1, paginas: 0, avisos: ['O provedor recusou a leitura de páginas (x); a pesquisa foi feita só com a busca.'] }])), 'a conferência informa buscas e páginas abertas pelo modelo, e se a leitura de páginas foi recusada');
   }
 
+  console.log('\n== 9. varredura de 26/11/2026: atores com a mesma sigla, rodada que falha, numeração ==');
+  {
+    const J = (...listas) => PL.pe5JuntarDebates(...listas.map(l => ({ atores: l.map(([ator, posicao], i) => ({ id: `Q${i + 1}`, ator, posicao })) })));
+    const nomes = r => r.atores.map(a => `${a.ator} [${a.posicao}]`).join(' | ');
+    // (A2) a sigla do partido ou da UF ao lado de um nome não diz QUEM é
+    const dois = J([['Deputado João Silva (PT)', 'favorável']], [['Deputada Maria Souza (PT)', 'contrário']]);
+    ok(nomes(dois) === 'Deputado João Silva (PT) [favorável] | Deputada Maria Souza (PT) [contrário]' && !dois.avisos.length, 'dois deputados do mesmo partido são DOIS atores, cada um com a sua posição (antes: um só, "Maria Souza, favorável")');
+    ok(J([['João Silva (PT)', 'favorável']], [['Maria Souza (PT)', 'contrário'], ['PT', 'contrário']]).atores.length === 3, 'sem o cargo no nome também: a sigla do partido não funde as pessoas nem as junta ao próprio partido');
+    ok(J([['Governo de Minas Gerais (MG)', 'favorável']], [['Assembleia Legislativa (MG)', 'contrário']]).atores.length === 2 && J([['Governador Fulano (SP)', 'favorável']], [['Prefeita Beltrana (SP)', 'contrário']]).atores.length === 2, 'a UF entre parênteses também não: dois órgãos do mesmo estado são dois atores');
+    ok(J([['Confederação Nacional da Indústria (CNI), presidente Ricardo Alban', 'contrário']], [['CNI', 'contrário'], ['Confederação Nacional da Indústria (CNI)', 'contrário']]).atores.length === 1 && J([['Instituto de Defesa de Consumidores (Idec)', 'favorável']], [['Idec', 'favorável']]).atores.length === 1,
+      'a sigla da ENTIDADE continua juntando: "Confederação Nacional da Indústria (CNI)", "CNI" e a mesma com o presidente são um ator só');
+    ok(J([['Senador Eduardo Braga (MDB-AM), relator no Senado', 'favorável']], [['Eduardo Braga', 'favorável']]).atores.length === 1 && J([['Senador Rogerio Marinho', 'contrário']], [['Rogerio Marinho', 'contrário']]).atores.length === 1, 'a mesma pessoa com e sem cargo, partido e aposto continua sendo uma');
+    ok(J([['Partido dos Trabalhadores (PT)', 'favorável']], [['PT', 'favorável'], ['Bancada do PT (PT)', 'favorável']]).atores.length === 1, 'quando o ator É o partido, a sigla vale: "Partido dos Trabalhadores (PT)", "PT" e "Bancada do PT (PT)" são um só');
+    // (M8) número novo depois do MAIOR já usado
+    const som = PL.pe5SomarPesquisa([{ id: 'W1', l: 'a' }, { id: 'W2', l: 'b' }, { id: 'W4', l: 'd' }, { id: 'W5', l: 'e' }], [{ l: 'f' }, { l: 'a' }, { l: 'g' }], 'W', x => x.l);
+    ok(som.map(x => x.id).join() === 'W1,W2,W4,W5,W6,W7' && new Set(som.map(x => x.id)).size === som.length, 'lista com um número faltando (item sem fonte descartado): os novos seguem o maior número, sem repetir "W5"; o repetido não entra');
+    ok(PL.pe5SomarPesquisa(undefined, [{ l: 'c' }], 'H', x => x.l)[0].id === 'H1' && PL.pe5SomarPesquisa([{ l: 'a' }, { l: 'b' }], [{ l: 'c' }], 'R', x => x.l)[2].id === 'R3', 'lista vazia começa em 1; lista sem números segue a contagem');
+    // (M7) rodada complementar que FALHA não é "procurou e não achou"
+    const etapas = [];
+    const falha = await gerarReferencia({ onChamada: c => etapas.push(c.etapa), respostas: { 'pesquisa-complementar': 'isto não é JSON' } });
+    ok(!falha.p.erro && etapas.filter(e => /^pesquisa-complementar/.test(e)).join() === 'pesquisa-complementar,pesquisa-complementar-2', 'a 1ª rodada falha (resposta que não se lê): a 2ª roda assim mesmo — e, como procurou e não trouxe nada novo, a 3ª não');
+    ok(/Esta é a 2ª tentativa/.test(falha.prompts['pesquisa-complementar-2']) && falha.p.pesquisa.internacional.avisos.some(a => /pesquisa-complementar\) não devolveu resultado utilizável/.test(a)), 'e a falha fica registrada nos avisos da pesquisa');
+    const etapas3 = [];
+    await gerarReferencia({ onChamada: c => etapas3.push(c.etapa), respostas: { 'pesquisa-complementar': 'x', 'pesquisa-complementar-2': 'y', 'pesquisa-complementar-3': 'z' } });
+    ok(etapas3.filter(e => /^pesquisa-complementar/.test(e)).length === 3, 'três rodadas que falham: para na terceira (o teto continua valendo)');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

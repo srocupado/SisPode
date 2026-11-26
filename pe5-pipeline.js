@@ -177,6 +177,19 @@ async function pe5LimparPesquisa(obj, grupos, fetchFn) {
   return out;
 }
 
+/**
+ * Acrescenta à lista da pesquisa os itens novos de uma rodada complementar, sem repetir (pela `chave`) e com
+ * identificador novo. O número segue o MAIOR já usado, não o tamanho da lista: quando um item sem fonte tinha
+ * sido descartado (W1, W2, W4, W5), contar pelo tamanho dava um segundo "W5", e a conferência — que sabe o que
+ * foi usado pelo identificador — podia contar um no lugar do outro.
+ */
+function pe5SomarPesquisa(lista, novos, pref, chave) {
+  const out = [...(lista || [])], vistos = new Set(out.map(chave).filter(Boolean));
+  let n = Math.max(out.length, ...out.map(x => parseInt(String((x && x.id) || '').replace(/^\D+/, ''), 10) || 0));
+  for (const x of novos || []) { const k = chave(x); if (k && vistos.has(k)) continue; if (k) vistos.add(k); out.push({ ...x, id: `${pref}${++n}` }); }
+  return out;
+}
+
 /** Aplica as correções do revisor: troca de trecho que aparece UMA vez no documento. */
 /**
  * Junta as duas buscas do debate. Ator repetido (mesmo nome, sem porta-voz) fica uma vez, com os argumentos
@@ -189,9 +202,20 @@ function pe5JuntarDebates(...listas) {
   // infla o quadro de tendência.
   const semAc = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
   const limpa = n => semAc(n).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\b(senador|senadora|deputado|deputada|ministro|ministra|presidente|governo|federal|do|da|de|dos|das|e|o|a)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // A sigla entre parênteses identifica a ENTIDADE ("(CNI)", "(Idec)"). Ao lado do nome de uma pessoa, ela diz o
+  // partido ou o estado — "Deputado João Silva (PT)" e "Deputada Maria Souza (PT)" são duas pessoas. Até 26/11/2026
+  // as duas viravam um ator só, com a posição da primeira: o quadro de tendência perdia gente e trocava posições.
+  // Por isso: quem começa por cargo (deputado, senador, ministro, líder…) só casa pelo nome; e sigla de partido ou
+  // de UF só vale como identidade quando o ator É o partido ("Bancada do PT (PT)", "Partido Liberal (PL)").
+  const PARTIDO_UF = new Set(('pt pl pp mdb psd psdb pdt psb psol pcdob pv rede novo pode podemos uniao republicanos cidadania solidariedade avante prd psc ptb patriota pros agir dc pmb pmn prtb pstu pcb pco up mobiliza '
+    + 'ac al ap am ba ce df es go ma mt ms mg pa pb pr pe pi rj rn rs ro rr sc sp se to').split(' '));
+  const EH_PESSOA = /^(?:dep(?:utad[oa])?|sen(?:ador[a]?)?|ver(?:eador[a]?)?|governador[a]?|prefeit[oa]|ministr[oa]|secret[áa]ri[oa]|presidente|vice-presidente|relator[a]?|l[íi]der)(?![a-zà-ú])/i;
+  const EH_O_PARTIDO = /^(?:partido|bancada|lideran[çc]a|federa[çc][ãa]o|bloco|diret[óo]rio)(?![a-zà-ú])/i;
   const chaves = n => {
     const bruto = String(n || '');
-    const siglas = [...bruto.matchAll(/\(([A-Za-zÀ-ú]{2,12})\)/g)].map(m => semAc(m[1]).toLowerCase());   // "(CNI)"; "(PL-RN)" e listas ficam de fora
+    let siglas = [...bruto.matchAll(/\(([A-Za-zÀ-ú]{2,12})\)/g)].map(m => semAc(m[1]).toLowerCase());   // "(CNI)"; "(PL-RN)" e listas ficam de fora
+    if (EH_PESSOA.test(bruto.trim())) siglas = [];
+    else if (!EH_O_PARTIDO.test(bruto.trim())) siglas = siglas.filter(g => !PARTIDO_UF.has(g));
     const semPar = bruto.replace(/\([^)]*\)/g, ' ');
     const nome = limpa(semPar.split(/,\s+(?=[a-zà-ú])|\s+[—–-]\s+/)[0]);   // corta o aposto ("…, relator no Senado"); "A, B e C" fica inteiro
     if (/^[A-ZÀ-Ú]{2,12}$/.test(bruto.trim())) siglas.push(semAc(bruto.trim()).toLowerCase());
@@ -378,8 +402,8 @@ async function gerarParecerPE5(ctx, io) {
     // saiu com dois países e nenhuma decisão judicial.
     const avisosLeitura = new Set();
     const uma = async (nome, prompt, grupos) => {
-      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 12, ler: true }); for (const a of r.avisos || []) avisosLeitura.add(a); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
-      catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
+      try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio', buscas: 12, ler: true }); for (const a of r.avisos || []) avisosLeitura.add(a); const j = pe5ExtrairJson(r.text); if (!j) return { falhou: true, avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
+      catch (e) { return { falhou: true, avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
     // O debate vai em QUATRO buscas, uma por grupo de atores, cada uma com os dois lados (ver PE5_GRUPOS_DEBATE).
     // Numa busca só, o modelo voltava com 11 atores onde havia mais de 20; em duas (apoio e crítica), entidades,
@@ -399,11 +423,7 @@ async function gerarParecerPE5(ctx, io) {
     // como aviso na conferência da nota. Histórico: o país oposto e a origem da lei entraram em 22/11/2026 (a NTA do
     // PLP 299/2026 ficou sem os Estados Unidos e sem o PLP 93/2023); os atores e as rodadas, em 25/11/2026.
     const chv = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    const soma = (lista, novos, pref, chave) => {
-      const out = [...lista], vistos = new Set(lista.map(chave).filter(Boolean));
-      for (const x of novos || []) { const k = chave(x); if (k && vistos.has(k)) continue; if (k) vistos.add(k); out.push({ ...x, id: `${pref}${out.length + 1}` }); }
-      return out;
-    };
+    const soma = (lista, novos, pref, chave) => pe5SomarPesquisa(lista, novos, pref, chave);
     const rotulos = Object.values(R.PE5_GRUPOS_DEBATE || {}).map(g => g.rotulo);
     intl.jurisdicoes = intl.jurisdicoes || []; cx.jurisprudencia = cx.jurisprudencia || []; cg.historico = cg.historico || [];
     for (let rodada = 1; rodada <= M.rodadas; rodada++) {
@@ -424,7 +444,9 @@ async function gerarParecerPE5(ctx, io) {
       const novos = (comp.atores || []).filter(a => a && a.ator).map(a => ({ ...a, id: '', grupo: rotulos.includes(a.grupo) ? a.grupo : (rotulos.find(g => chv(g) === chv(a.grupo)) || 'Outros') }));
       if (novos.length) deb = pe5JuntarDebates(deb, { atores: novos, controversias: [], avisos: [] });
       intl.avisos = [...(intl.avisos || []), ...(comp.avisos || [])];
-      if (intl.jurisdicoes.length + cx.jurisprudencia.length + cg.historico.length + deb.atores.length === antes) break;   // a rodada não achou nada novo: insistir com o mesmo pedido não muda
+      // A rodada PROCUROU e não achou nada novo: insistir com o mesmo pedido não muda. Rodada que FALHOU (tempo
+      // esgotado, resposta que não se lê) não procurou nada: a seguinte ainda vale a tentativa.
+      if (!comp.falhou && intl.jurisdicoes.length + cx.jurisprudencia.length + cg.historico.length + deb.atores.length === antes) break;
     }
     if (avisosLeitura.size) deb.avisos = [...(deb.avisos || []), ...avisosLeitura];
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], judicializacao: [], ...cg } };
@@ -524,5 +546,5 @@ async function gerarParecerPE5(ctx, io) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { gerarParecerPE5, pe5ExtrairJson, pe5ConferirTrechos, pe5JuntarLeituras, pe5JuntarDebates, pe5MotivoTruncada, pe5Cambio, pe5LeiVigente, pe5LimparPesquisa, pe5AplicarRevisao };
+  module.exports = { gerarParecerPE5, pe5ExtrairJson, pe5ConferirTrechos, pe5JuntarLeituras, pe5JuntarDebates, pe5SomarPesquisa, pe5MotivoTruncada, pe5Cambio, pe5LeiVigente, pe5LimparPesquisa, pe5AplicarRevisao };
 }

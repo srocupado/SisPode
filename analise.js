@@ -319,9 +319,12 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null, 
   // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
   // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
   // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
-  const escolha = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed, opcoes);
+  const escolha = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed, { ...opcoes, eventoId: sessaoOficial?.eventoId });
   if (escolha && escolha.existente) {   // modo automático: a pauta da equipe fica como está
     await carregarPautaPorId(escolha.existente);
+    // carregarPautaPorId não lança se a leitura falhar (só avisa na tela): sem esta conferência, quem chamou
+    // seguiria com a pauta que estava aberta ANTES, achando que é a desta sessão.
+    if (!state.pauta || state.pauta.id !== escolha.existente) throw new Error(`não consegui abrir a pauta "${escolha.existente}", que já estava salva`);
     return 'existente';
   }
   const idPauta = escolha;
@@ -570,8 +573,18 @@ async function resolverIdImportacao(idPauta, parsed, opcoes = {}) {
   const novas   = chaves({ itens: parsed.itens.map(normalizarItem) });
   const iguais  = antigas.size === novas.size && [...novas].every(k => antigas.has(k));
 
-  // Modo automático (bot): sem pergunta e sem sobrescrever. Mesmos itens → usa a que existe; outros → id separado.
-  if (opcoes.automatico) return iguais ? { existente: idPauta } : await proximoIdLivre(idPauta);
+  // Modo automático (bot): sem pergunta e sem sobrescrever. A pauta salva é a MESMA sessão — e é ela que vale —
+  // quando tem os mesmos itens ou a maior parte deles (a equipe importou o PDF à mão e depois incluiu ou tirou um
+  // item): antes, um item de diferença bastava para o bot criar uma segunda pauta da sessão ("…-2") e mandar ao
+  // grupo o PDF dela. É OUTRA sessão — e vai para um id separado — quando veio de outra sessão oficial ou quando
+  // quase nada coincide (duas sessões no mesmo dia, sem ordinal no cabeçalho).
+  if (opcoes.automatico) {
+    const evSalva = String(existente.sessaoOficial?.eventoId || ''), evNova = String(opcoes.eventoId || '');
+    const emComum = [...novas].filter(k => antigas.has(k)).length;
+    const mesmaSessao = antigas.size > 0 && !(evSalva && evNova && evSalva !== evNova)
+      && (iguais || emComum >= Math.ceil(Math.min(antigas.size, novas.size) / 2));
+    return mesmaSessao ? { existente: idPauta } : await proximoIdLivre(idPauta);
+  }
 
   if (iguais) {
     return confirm(
@@ -5982,6 +5995,7 @@ async function carregarPautaPorId(id) {
         analiseStatus: 'sem_analise',
       })),
     };
+    pautaMarcarVista(state.pauta);
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-exportar-docx').disabled = false;
@@ -6079,6 +6093,58 @@ async function confirmarApagarPauta() {
 //  FIREBASE — PAUTA + ANÁLISES
 // ============================================================
 let _pautaSaveEmVoo = null;  // PUT em andamento — serializa gravações concorrentes
+
+// ITEM INCLUÍDO POR FORA (varredura de 26/11/2026). A pauta é gravada INTEIRA, a partir do que está na memória
+// de quem salva. Um item posto no Firebase por outro caminho — o "Usar em pauta" das notas individuais, ou um
+// colega com a mesma pauta aberta — sumia na primeira gravação de quem a tinha aberta desde antes. Agora, antes
+// de gravar, o navegador confere o que há no Firebase: item que ele NUNCA viu nesta pauta é de fora e entra na
+// gravação (e na tela). Item que ele já viu e que não está mais na memória foi removido aqui — continua removido.
+const _pautaChavesVistas = new Map();   // id da pauta → Set das chaves que este navegador já viu nela no Firebase
+const _pautaItensDeFora = new Map();    // id da pauta → itens de fora que ainda não entraram na tela (há nota em edição)
+function pautaMarcarVista(pauta, extras = []) {
+  if (!pauta || !pauta.id) return;
+  _pautaChavesVistas.set(pauta.id, new Set([...(pauta.itens || []), ...extras].map(i => i && i.chave).filter(Boolean)));
+}
+/**
+ * Devolve os itens de fora que precisam ir na gravação e ainda NÃO estão em `pauta.itens`. Com a tela livre
+ * (nenhuma nota em edição), eles entram na pauta aberta — e a lista devolvida vem vazia, porque já estão nela.
+ * Sem conseguir ler o Firebase, devolve só os que já tinham sido vistos e aguardavam a tela.
+ */
+async function itensIncluidosPorFora(pauta) {
+  const vistas = _pautaChavesVistas.get(pauta.id);
+  if (!vistas) return [];   // pauta que este navegador ainda não gravou nem abriu do Firebase: nada a conferir
+  const pend = _pautaItensDeFora.get(pauta.id) || [];
+  try {
+    const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(pauta.id)}/itens.json`);
+    const remoto = r.ok ? await r.json() : null;
+    const lista = Array.isArray(remoto) ? remoto : Object.values(remoto || {});
+    const locais = new Set((pauta.itens || []).map(i => i.chave));
+    for (const i of lista) {
+      if (!i || !i.chave || vistas.has(i.chave) || locais.has(i.chave)) continue;
+      vistas.add(i.chave); pend.push(i);
+    }
+  } catch (_) { /* sem leitura: segue com o que já se sabia */ }
+  if (!pend.length) return [];
+  const fica = pend.filter(i => !(pauta.itens || []).some(l => l.chave === i.chave));
+  if (pauta === state.pauta && _autosaveState.size === 0) {
+    const novos = fica.map(i => ({ ...i, relator: normalizarRelator(i.relator), enriquecimento: { status: 'pendente' }, analise: null, analiseStatus: 'sem_analise' }));
+    pauta.itens.push(...novos);
+    _pautaItensDeFora.delete(pauta.id);
+    if (novos.length) {
+      renderizarPauta();
+      for (const it of novos) {
+        enriquecerItem(it).catch(() => {});
+        fbCarregarAnalise(it).then(a => { if (a && !it.analise) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); } }).catch(() => {});
+      }
+      mostrarToast(`${novos.length === 1 ? 'Um item foi incluído' : `${novos.length} itens foram incluídos`} nesta pauta por outra pessoa (ou pelas notas individuais): ${novos.map(it => `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`).join(', ')}.`, 'info');
+    }
+    return [];
+  }
+  // Há nota em edição: redesenhar a lista agora fecharia o editor. O item vai na gravação e entra na tela na
+  // próxima gravação com a tela livre (ou ao recarregar a pauta).
+  _pautaItensDeFora.set(pauta.id, fica);
+  return fica;
+}
 let _dirtySeq = 0;           // incrementado a cada edição; detecta edição durante o PUT
 
 async function fbSalvarPauta(pauta) {
@@ -6105,6 +6171,8 @@ async function _fbSalvarPautaExec(pauta) {
   // Atualiza sidebar após salvamento (concorrente, não bloqueia)
   setTimeout(atualizarSidebarPautas, 300);
   let res;
+  // Itens postos nesta pauta por outro caminho desde que ela foi aberta aqui: vão junto, para não sumirem.
+  const deFora = await itensIncluidosPorFora(pauta).catch(() => []);
   try {
     // Salva sem o PDF binário inflando demais — guarda em campo separado.
     res = await fetch(`${FIREBASE_URL}/pautas/${pauta.id}.json`, {
@@ -6136,7 +6204,7 @@ async function _fbSalvarPautaExec(pauta) {
           apelido: it.apelidoManual ? (it.apelido || null) : null,
           apelidoManual: it.apelidoManual || null,
           chave: it.chave,
-        })),
+        })).concat(deFora),
       }),
     });
   } catch (e) {
@@ -6149,6 +6217,7 @@ async function _fbSalvarPautaExec(pauta) {
     atualizarStatusSync('offline');
     throw new Error(`Firebase HTTP ${res.status}`);
   }
+  pautaMarcarVista(pauta, deFora);   // o Firebase agora tem exatamente isto
   // Só marca como limpo se NÃO houve edição durante o PUT — senão a mudança
   // ficaria "salva" sem ter sido, até (se) outra edição disparar novo save.
   if (_dirtySeq === dirtyAntes) state.dirty = false;
@@ -6232,6 +6301,7 @@ async function carregarUltimaPauta() {
         analiseStatus: 'sem_analise',
       })),
     };
+    pautaMarcarVista(state.pauta);
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-exportar-docx').disabled = false;
