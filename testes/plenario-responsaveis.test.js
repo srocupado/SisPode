@@ -34,9 +34,10 @@ const semente = s => () => { s = (s * 1103515245 + 12345) % 2147483648; return s
     ${trecho(/const SERVIDOR_MPV = [^\n]+/)}
     ${fn('carregarServidores')}
     ${fn('distribuirResponsaveis')}
+    ${fn('herdarResponsaveis')}
     ${fn('salvarServidores')}
     ${fn('atualizarRevisado')}
-    return { carregarServidores, distribuirResponsaveis, salvarServidores, atualizarRevisado, SERVIDORES_PADRAO };
+    return { carregarServidores, distribuirResponsaveis, herdarResponsaveis, salvarServidores, atualizarRevisado, SERVIDORES_PADRAO };
   `)(state, 'https://fb', async (url, init = {}) => {
     if ((init.method || 'GET') === 'PUT') { put = { url, corpo: JSON.parse(init.body) }; return { ok: true, json: async () => null }; }
     return { ok: true, json: async () => firebase };
@@ -101,6 +102,31 @@ const semente = s => () => { s = (s * 1103515245 + 12345) % 2147483648; return s
   ok(/await importarPautaPdf\(await file\.arrayBuffer\(\), file\.name\)/.test(fn('onPdfSelecionado')), 'o PDF escolhido à mão é importado por importarPautaPdf');
   const iDist = imp.indexOf('distribuirResponsaveis(state.pauta.itens'), iRender = imp.indexOf('renderizarPauta()'), iSalvar = imp.indexOf('fbSalvarPauta(state.pauta)');
   ok(iDist > 0 && iDist < iRender && iRender < iSalvar, 'sorteia antes de desenhar e de salvar: o nome vai gravado com os itens da pauta');
+  // Responsável fixo por proposição (26/11/2026): a matéria que volta à pauta fica com quem já a acompanhava.
+  {
+    const P = F.SERVIDORES_PADRAO;   // Pedro Ribeiro, Daniel Roriz, Suellen Ali
+    const pautas = {
+      'a': { uploadedAt: '2026-11-24T10:00:00Z', itens: [{ chave: 'PL-1', analista: 'Pedro Ribeiro' }, { chave: 'PL-2', analista: 'Daniel Roriz' }, { chave: 'PL-3', analista: 'Fulano que saiu' }, { chave: 'PL-4', analista: 'Suellen Ali' }] },
+      'b': { uploadedAt: '2026-11-25T10:00:00Z', itens: [{ chave: 'PL-1', analista: 'suellen  ali' }, { chave: 'PL-2', analista: '' }, { chave: 'PL-5' }, null] },
+      'c': { uploadedAt: '2026-11-23T10:00:00Z', itens: [{ chave: 'PL-1', analista: 'Daniel Roriz' }, { chave: 'PL-3', analista: 'Daniel Roriz' }] },
+      'sem-itens': { uploadedAt: '2026-11-26T10:00:00Z' },
+    };
+    const nova = [{ chave: 'PL-1' }, { chave: 'PL-2' }, { chave: 'PL-3' }, { chave: 'PL-5' }, { chave: 'PL-9' }, { chave: 'PL-4', analista: 'Pedro Ribeiro' }];
+    const n = F.herdarResponsaveis(nova, pautas, P);
+    ok(n === 3 && nova[0].analista === 'Suellen Ali' && nova[1].analista === 'Daniel Roriz', 'a proposição que volta à pauta fica com o responsável da pauta mais recente (a troca feita à mão na véspera vale; pauta sem responsável não apaga o anterior)');
+    ok(nova[2].analista === 'Daniel Roriz', 'responsável que saiu da lista de servidores não é herdado: vale o anterior a ele que ainda está na lista');
+    ok(!nova[3].analista && !nova[4].analista && nova[5].analista === 'Pedro Ribeiro', 'matéria sem responsável anterior e matéria nova ficam para o sorteio; quem já tem responsável na pauta nova não é trocado');
+    ok(F.herdarResponsaveis([{ chave: 'PL-1' }], null, P) === 0 && F.herdarResponsaveis([{ chave: 'PL-1' }], pautas, []) === 0, 'sem pautas anteriores ou sem lista de servidores, nada é herdado');
+    // o sorteio do resto leva em conta o que cada um já herdou
+    for (let sd = 1; sd <= 30; sd++) {
+      const x = [{ chave: 'A', analista: 'Pedro Ribeiro' }, { chave: 'B', analista: 'Pedro Ribeiro' }, { chave: 'C', analista: 'Pedro Ribeiro' }, { chave: 'D' }, { chave: 'E' }];
+      F.distribuirResponsaveis(x, P, semente(sd));
+      if ([x[3].analista, x[4].analista].sort().join() !== 'Daniel Roriz,Suellen Ali') { ok(false, `sorteio ${sd}: as matérias novas deveriam ir para quem herdou menos`); break; }
+      if (sd === 30) ok(true, 'no sorteio das matérias novas, quem já herdou mais recebe por último (trinta sorteios)');
+    }
+    const iHerda = imp.indexOf('herdarResponsaveis(state.pauta.itens');
+    ok(iHerda > 0 && iHerda < iDist && /fetch\(`\$\{FIREBASE_URL\}\/pautas\.json`\)/.test(imp), 'a importação herda os responsáveis das pautas salvas ANTES de sortear');
+  }
   const salvar = src.slice(src.indexOf('async function fbSalvarPauta('), src.indexOf('function marcarSujo()'));
   ok(/analista: it\.analista \|\| null/.test(salvar), 'o item salvo na pauta leva o responsável');
 

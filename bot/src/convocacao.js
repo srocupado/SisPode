@@ -316,6 +316,11 @@ async function tickConvocacoes(cfg = _cfg) {
     await gravar(`/bot/convocacoes/${ev.id}`, { data: ev.data, hora: ev.hora, comPauta: linhas.length > 0, enviadaEm: new Date().toISOString() })
       .catch(e => console.warn(`[convocacao] registro da sessão ${ev.id} não foi salvo: ${e.message}`));
     enviadas.push(texto);
+    // Convocação COM pauta: é o gatilho do modo automático (/auto), que roda por conta própria — leva minutos e
+    // não pode segurar o anúncio das outras sessões nem derrubar o tick se falhar.
+    if (linhas.length && cfg.aoAnunciarComPauta) {
+      Promise.resolve().then(() => cfg.aoAnunciarComPauta(ev)).catch(e => console.warn(`[convocacao] rotina da sessão ${ev.id} falhou: ${e.message}`));
+    }
     console.log(`[convocacao] sessão ${ev.id} (${ev.data} ${ev.hora}) anunciada ${linhas.length ? `com a pauta (${linhas.length} itens)` : 'sem pauta'}.`);
   }
   return enviadas;

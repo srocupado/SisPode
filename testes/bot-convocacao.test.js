@@ -64,7 +64,9 @@ global.fetch = async (url, init = {}) => {
   return json({}, 404);
 };
 const env = [];
+const gatilho = [];   // sessões entregues ao modo automático (/auto)
 const cfg = {
+  aoAnunciarComPauta: async ev => { gatilho.push(ev.id); if (gatilho.length) throw new Error('a rotina falhou'); },
   api: { sendMessage: async (chat, texto) => { env.push({ chat, texto }); return { message_id: env.length }; } },
   destino: () => 'GRUPO', perfilIA: () => null, agora: () => '2026-11-10T09:00',
   fbGet: async p => (p === '/bot/convocacoes' ? fb : null),
@@ -78,16 +80,20 @@ const cfg = {
   env.splice(1, 1);   // daqui em diante só as convocações
   m = await C.tickConvocacoes(cfg);
   ok(m.length === 0 && env.length === 1, 'o tick seguinte não repete');
+  ok(gatilho.length === 0, 'convocação SEM pauta não dispara o modo automático');
   pagina = comPauta;   // a pauta saiu
   m = await C.tickConvocacoes(cfg);
   const t = env[1] && env[1].texto;
   ok(m.length === 1 && /^❗ \*CONVOCAÇÃO DE SESSÃO EXTRAORDINÁRIA – TERÇA-FEIRA \(10\/11\) – 13h55\*\n\n🗒️  \*Pauta\*\n1\. /.test(t || ''), 'a pauta saiu: reenvia a convocação com a pauta');
   ok(/^1\. Urgência ao PL 2167\/2026 \(Cria a Política Nacional de Cuidados Paliativos\)$/m.test(t || '') && /^5\. PL 5815\/2025 \(/m.test(t || ''), 'itens numerados com apelido (sem IA: o de reserva; urgência pela ementa do projeto)');
+  await new Promise(r => setTimeout(r, 20));
+  ok(gatilho.join() === '83243', 'convocação COM pauta entrega a sessão ao modo automático — e a falha dele não derruba a convocação');
   m = await C.tickConvocacoes(cfg);
   ok(m.length === 0 && env.length === 2 && fb[83243].comPauta === true, 'com pauta enviada, não manda mais (e o reenvio com a pauta não repetiu o aviso do Infoleg)');
   const falhaFb = { ...cfg, fbGet: async () => { throw new Error('Firebase GET 503'); } };
   let erro = null; try { await C.tickConvocacoes({ ...falhaFb, agora: () => '2026-11-10T09:00' }); } catch (e) { erro = e.message; }
   ok(erro && env.length === 2, 'sem ler o registro, não envia (evita mensagem em dobro)');
+  ok(gatilho.length === 1, 'e o modo automático é chamado uma vez por sessão');
 
   console.log('\n== formato do WhatsApp ==');
   const md = W.payloadWhatsApp('sendMessage', { chat_id: 1, text: 'Anunciado o *PL 1/2026* — veja [a pauta](https://x.y/p)', parse_mode: 'Markdown' });

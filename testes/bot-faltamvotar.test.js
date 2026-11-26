@@ -70,6 +70,101 @@ const resp = corpo => ({ ok: true, status: 200, text: async () => JSON.stringify
   ok(/votaram na MPV nº 1300\/2026\./.test(formatarFaltantesTexto({ ...r19, prop: 'MPV Nº 1300/2026' })) && /votaram na PEC nº 66\/2023\./.test(formatarFaltantesTexto({ ...r19, prop: 'PEC Nº 66/2023' })), '"na" para MPV e PEC');
   ok(formatarFaltantesTexto({ aberta: false, motivo: 'não há votação em curso' }) === 'Sem lista de faltantes agora — não há votação em curso.', 'sem votação nominal: a mensagem de sempre');
 
+  // ACOMPANHAMENTO AUTOMÁTICO (26/11/2026): depois de 257 votos na Casa, uma mensagem no grupo com quem do Podemos
+  // falta votar, atualizada a cada 15 segundos, até a bancada toda votar ou a votação encerrar.
+  console.log('\n== 5. acompanhamento automático (/faltamvotar auto on|off) ==');
+  {
+    const F = require(path.join(RAIZ, 'bot', 'src', 'faltamvotar.js'));
+    ok(F.ACOMP_INTERVALO_MS === 15000 && F.ACOMP_MINIMO_CASA === 257, 'a cada 15 segundos, depois de 257 votos na Casa');
+    const ret = (casa, votaram, faltam, extra = {}) => ({ aberta: true, idVotacao: 14017, prop: 'PLP Nº 299/2026', total: 27, votaram, naoVotaram: faltam, casaRegistrou: casa, casaTotal: 513, ...extra });
+    /** Ambiente: o painel devolve a fila `leituras` (a última se repete); o relógio anda 15 s por passo. */
+    const amb = (leituras, { ligado = true, porId = null, salvo = null } = {}) => {
+      const env = [], ed = [], marcas = [], t = { n: 0, parou: 0, fn: null };
+      let i = 0, seg = 0, on = ligado;
+      const A = F.criarAcompanhamentoFaltantes({
+        consultarAtual: async () => { const r = leituras[Math.min(i++, leituras.length - 1)]; if (r instanceof Error) throw r; return r; },
+        consultarPorId: async () => { if (porId instanceof Error) throw porId; return porId; },
+        enviar: async texto => { env.push(texto); return { chat: 'GRUPO', mid: 900 + env.length }; },
+        editar: async (msg, texto) => { ed.push({ ...msg, texto }); },
+        ligado: () => on, aoEnviar: (id, m) => marcas.push(['msg', id, m.mid]), aoConcluir: id => marcas.push(['fim', id]),
+        agora: () => new Date(Date.UTC(2026, 10, 24, 1, 57, 47) + (seg++) * 15000),
+        timers: { setInterval: (fn, ms) => { t.fn = fn; t.ms = ms; return ++t.n; }, clearInterval: () => { t.parou++; t.fn = null; } },
+      });
+      // `iniciar` espera o primeiro passo, que o acompanhamento dá sozinho ao começar (é a 1ª leitura da fila)
+      const iniciar = async (...args) => { const r = A.acompanhar(...args); await new Promise(x => setTimeout(x, 5)); return r; };
+      return { A, env, ed, marcas, t, iniciar, desligar: () => { on = false; }, passos: async n => { for (let k = 0; k < n; k++) await A.passo(); } };
+    };
+    const TIT = 'PLP  Nº 299/2026 - DTQ 1 - FDR PSOL-REDE';
+
+    // antes dos 257: silêncio; depois: uma mensagem, que se atualiza
+    const a = amb([ret(120, 5, ['A (SP)', 'B (RJ)', 'C (PR)']), ret(256, 10, ['A (SP)', 'B (RJ)', 'C (PR)']), ret(257, 24, ['A (SP)', 'B (RJ)', 'C (PR)']), ret(300, 25, ['A (SP)', 'C (PR)']), ret(300, 25, ['A (SP)', 'C (PR)']), ret(410, 27, [])]);
+    ok(await a.iniciar(14017, TIT) === true && a.t.ms === 15000 && a.A.acompanhar(14017, TIT) === false, 'a primeira nominal vista começa o acompanhamento, de 15 em 15 segundos; ver a mesma votação de novo não começa outro');
+    await a.passos(1);   // 2ª leitura: ainda abaixo de 257
+    ok(a.env.length === 0 && a.ed.length === 0, 'com menos de 257 votos na Casa, nada vai ao grupo (quem quiser a lista, pede)');
+    await a.passos(1);
+    ok(a.env.length === 1 && a.env[0] === '🗳 Votação nominal — PLP Nº 299/2026 - DTQ 1 - FDR PSOL-REDE\nNa Casa, 257 de 513 deputados já votaram.\nAté o momento, 24 de 27 deputados do Podemos votaram. Ainda não registraram voto:\n\n• A (SP)\n• B (RJ)\n• C (PR)\n\nAtualizado às 22:58:17 — esta mensagem se atualiza a cada 15 segundos.',
+      'no 257º voto, a mensagem vai ao grupo: a votação (com o destaque), a contagem da Casa, a da bancada, quem falta e a hora de Brasília');
+    await a.passos(2);
+    ok(a.env.length === 1 && a.ed.length === 2 && a.ed.every(e => e.chat === 'GRUPO' && e.mid === 901) && /Na Casa, 300 de 513/.test(a.ed[0].texto) && /25 de 27 deputados do Podemos votaram\. Ainda não registraram voto:\n\n• A \(SP\)\n• C \(PR\)\n\nAtualizado às 22:58:32/.test(a.ed[0].texto) && /Atualizado às 22:58:47/.test(a.ed[1].texto),
+      'daí em diante é a MESMA mensagem, editada a cada passo: a lista encolhe e a hora anda mesmo sem voto novo');
+    await a.passos(1);
+    ok(a.ed.at(-1).texto === '✅ Votação nominal — PLP Nº 299/2026 - DTQ 1 - FDR PSOL-REDE\nToda a bancada do Podemos votou (27 de 27).\nNa Casa, 410 de 513 deputados já votaram.' && a.t.parou === 1 && a.A.emCurso() === null,
+      'quando o último vota, a mensagem vira "✅ Toda a bancada do Podemos votou" e o acompanhamento para');
+    ok(JSON.stringify(a.marcas) === '[["msg",14017,901],["fim",14017]]' && a.A.acompanhar(14017, TIT) === false, 'a mensagem e o fim ficam registrados; a mesma votação não recomeça');
+
+    // a votação encerra com gente sem votar
+    const final = { prop: 'PLP Nº 299/2026', total: 27, votaram: 26, naoVotaram: ['C (PR)'], casaRegistrou: 480, casaTotal: 513 };
+    const b = amb([ret(300, 25, ['A (SP)', 'C (PR)']), { aberta: false, motivo: 'não há votação em curso' }, { aberta: false, motivo: 'não há votação em curso' }], { porId: final });
+    await b.iniciar(14017, 'PLP Nº 299/2026');
+    await b.passos(1);
+    ok(b.env.length === 1 && b.ed.length === 0 && b.A.emCurso(), 'uma leitura sem votação não encerra nada (pode ser falha de rede)');
+    await b.passos(1);
+    ok(b.ed.at(-1).texto === '🗳 Votação nominal encerrada — PLP Nº 299/2026\nNa Casa, 480 de 513 deputados votaram.\n26 de 27 deputados do Podemos votaram. Não registraram voto:\n\n• C (PR)' && b.A.emCurso() === null,
+      'na segunda leitura seguida, a mensagem fecha com o retrato FINAL da votação (quem votou nos últimos segundos sai da lista)');
+    const c = amb([ret(300, 25, ['A (SP)', 'C (PR)']), ret(1, 0, ['X (SP)'], { idVotacao: 14018 })], { porId: new Error('500') });
+    await c.iniciar(14017, ''); await c.passos(1);
+    ok(/^🗳 Votação nominal encerrada — PLP Nº 299\/2026\n/.test(c.ed.at(-1).texto) && /Não registraram voto \(última leitura, às 22:57:47\):\n\n• A \(SP\)\n• C \(PR\)$/.test(c.ed.at(-1).texto) && c.A.emCurso() === null,
+      'outra votação já aberta no painel: encerra de imediato; sem o retrato final, vale a última leitura, com a hora dita');
+    const d = amb([ret(100, 3, ['A (SP)']), { aberta: false, motivo: 'x' }, { aberta: false, motivo: 'x' }]);
+    await d.iniciar(14017, ''); await d.passos(2);
+    ok(d.env.length === 0 && d.ed.length === 0 && d.A.emCurso() === null && JSON.stringify(d.marcas) === '[["fim",14017]]', 'votação que encerra antes dos 257 votos: nada foi nem vai ao grupo');
+
+    // tropeços
+    const e = amb([ret(300, 25, ['A (SP)']), new Error('rede'), { aberta: false, motivo: 'o painel ainda não trouxe os votos individuais', idVotacao: 14017 }, { aberta: false, motivo: 'idem', idVotacao: 14017 }, ret(310, 26, ['A (SP)'])]);
+    await e.iniciar(14017, ''); await e.passos(3);
+    ok(e.env.length === 1 && e.ed.length === 0 && e.A.emCurso(), 'falha de leitura e painel momentaneamente sem os votos não encerram o acompanhamento');
+    await e.passos(1);
+    ok(e.ed.length === 1 && /310 de 513/.test(e.ed[0].texto), 'e na leitura boa seguinte a mensagem volta a se atualizar');
+    const f = amb([ret(300, 25, ['A (SP)'])]);
+    await f.iniciar(14017, ''); f.desligar(); await f.passos(1);
+    ok(f.env.length === 1 && f.ed.length === 0 && f.A.emCurso() === null && !f.marcas.some(m => m[0] === 'fim'), '/faltamvotar auto off no meio da votação: para de atualizar e deixa a mensagem como está');
+    ok(amb([ret(300, 25, ['A (SP)'])], { ligado: false }).A.acompanhar(14017, '') === false, 'desligado, nenhuma votação é acompanhada');
+    // o bot reiniciou no meio da votação: retoma a mesma mensagem; votação já encerrada não recomeça
+    const g = amb([ret(300, 25, ['A (SP)'])]);
+    await g.iniciar(14017, '', { chat: 'GRUPO', mid: 777 });
+    ok(g.env.length === 0 && g.ed.length === 1 && g.ed[0].mid === 777, 'bot reiniciado no meio da votação: continua editando a mensagem que já estava no grupo, sem mandar outra');
+    ok(amb([ret(300, 25, [])]).A.acompanhar(14017, '', { fim: true }) === false && amb([ret(300, 25, [])]).A.acompanhar(14017, '', true) === false, 'votação já encerrada (ou avisada pelo formato antigo) não recomeça depois do reinício');
+    const h = amb([ret(300, 27, [])]);
+    await h.iniciar(14017, '');
+    ok(h.env.length === 1 && /^✅ Votação nominal — PLP Nº 299\/2026\nToda a bancada do Podemos votou \(27 de 27\)\./.test(h.env[0]) && h.A.emCurso() === null, 'bancada toda já votou quando a Casa chega a 257: um aviso só, e fim');
+
+    // faltamVotar diz que a votação continua aberta mesmo sem os votos individuais; o retrato por id serve à encerrada
+    global.fetch = async u => (/sessao-atual/.test(u) ? resp(SESSAO) : /ws-plenario\/votacao\/14017$/.test(u) ? resp({ parlamentaresVotos: [] }) : { ok: false, status: 404, text: async () => '' });
+    const semVotos = await faltamVotar('PODE');
+    ok(semVotos.aberta === false && semVotos.idVotacao === 14017, 'painel aberto ainda sem os votos: "não aberta", mas com o id da votação (o acompanhamento não toma por encerramento)');
+    global.fetch = async u => (/ws-plenario\/votacao\/14017$/.test(u) ? resp(PAINEL) : { ok: false, status: 404, text: async () => '' });
+    const porId = await F.retratoDaVotacao(14017, 'PODE');
+    ok(porId && porId.total === 27 && porId.votaram === 15 && porId.naoVotaram.length === 12 && porId.casaTotal === PAINEL.parlamentaresVotos.length && porId.idVotacao === 14017, 'o retrato de uma votação pelo id não depende de a sessão ainda mostrá-la (serve ao fechamento)');
+
+    // a ligação com o monitor e com o comando
+    const mon = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'monitor.js'), 'utf8'), idx = fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8');
+    ok(/if \(!v\.simbolica && String\(v\.tipoVotacao \|\| ''\)\.toUpperCase\(\) === 'E' && v\.id != null && _faltantesAuto\) \{\s*acompFaltantes\(\)\.acompanhar\(v\.id, v\.titulo, est\.faltantesAvisados\[v\.id\]\);/.test(mon) && !/FALTANTES_LIMIAR|presentesNaoVotaram/.test(mon),
+      'o monitor entrega ao acompanhamento toda nominal em curso (a de destaque também); a rede de segurança dos 80% saiu');
+    ok(/ligado: \(\) => !!\(_cfg && _cfg\.ligado && _faltantesAuto\)/.test(mon) && /editar: \(msg, texto\) => _cfg\.api\.editMessageText\(msg\.chat, msg\.mid, texto\)/.test(mon) && /aoConcluir: id => gravar\(id, \{ fim: true \}\)/.test(mon) && /if \(!v && _acompFaltantes\) _acompFaltantes\.parar\(\);/.test(mon),
+      'liga/desliga pelo mesmo /faltamvotar auto on|off; a mensagem é editada no lugar; o estado fica gravado na sessão');
+    ok(/Acompanhamento automático dos faltantes LIGADO\./.test(idx) && /Acompanhamento automático dos faltantes DESLIGADO\. A lista continua saindo para quem pedir/.test(idx) && !/Rede de segurança de faltantes/.test(idx), 'o comando fala do acompanhamento, não mais da rede de segurança');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })();

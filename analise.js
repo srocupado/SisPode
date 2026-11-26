@@ -232,13 +232,41 @@ function distribuirResponsaveis(itens, servidores, aleatorio = Math.random) {
   // o servidor de MPV não entra no sorteio do resto
   const srv = embaralhar(nomes.filter(n => n !== doMpv));
   if (!srv.length) return feitos;   // só ele na lista: o resto fica sem responsável
-  const carga = new Map(srv.map(n => [n, 0]));
+  // A carga de cada servidor começa pelo que ele JÁ tem na pauta (itens herdados de pauta anterior ou postos à
+  // mão): quem manteve quatro matérias de ontem não recebe as novas de hoje antes dos outros.
+  const carga = new Map(srv.map(n => [n, (itens || []).filter(it => String(it.analista || '').trim() === n).length]));
   for (const it of embaralhar(restantes)) {
     const menor = srv.reduce((a, b) => (carga.get(b) < carga.get(a) ? b : a));
     it.analista = menor;
     carga.set(menor, carga.get(menor) + 1);
   }
   return feitos + restantes.length;
+}
+
+/**
+ * RESPONSÁVEL FIXO POR PROPOSIÇÃO (26/11/2026). A matéria que volta à pauta fica com o servidor que já a
+ * acompanhava. Antes, cada importação sorteava tudo de novo: em 54 reaparições de proposição entre pautas, o
+ * responsável mudou em 38 (o PL 5542/2026 trocou de servidor quatro vezes em oito dias). Vale o responsável da
+ * pauta MAIS RECENTE em que a proposição aparece com um — inclusive o trocado à mão no card e o da própria
+ * pauta que está sendo reimportada. Só herda nome que ainda está na lista de servidores; os demais itens seguem
+ * para o sorteio. Devolve quantos itens herdaram.
+ */
+function herdarResponsaveis(itens, pautas, servidores) {
+  const chave = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const naLista = new Map((servidores || []).map(s => String(s || '').trim()).filter(Boolean).map(s => [chave(s), s]));
+  const anteriores = Object.values(pautas || {}).filter(p => p && Array.isArray(p.itens))
+    .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));   // a mais recente primeiro
+  const dono = new Map();
+  for (const p of anteriores) for (const it of p.itens) {
+    const nome = naLista.get(chave(it && it.analista));
+    if (it && it.chave && nome && !dono.has(it.chave)) dono.set(it.chave, nome);
+  }
+  let n = 0;
+  for (const it of itens || []) {
+    if (String(it.analista || '').trim() || !dono.has(it.chave)) continue;
+    it.analista = dono.get(it.chave); n++;
+  }
+  return n;
 }
 
 async function carregarConfig() {
@@ -269,8 +297,11 @@ async function onPdfSelecionado(ev) {
  * a pauta do calendário sair igual à do PDF carregado à mão. `sessaoOficial` (opcional) fica gravada na pauta:
  * { eventoId, url, data } — a sessão e o link da pauta oficial de onde o PDF veio. (Não é `origem`: esse campo
  * já existe na pauta, como texto — 'avulsa' —, e é lido por fbSalvarPauta e pelo bot.) Erros sobem para quem chamou.
+ * `opcoes.automatico` (modo /auto do bot, 26/11/2026): ninguém está na tela para responder. Havendo pauta salva
+ * com o mesmo id, NUNCA é sobrescrita: se tem os mesmos itens, é ela que fica aberta (a função devolve
+ * 'existente'); se os itens são outros, a importação vai para um id separado.
  */
-async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) {
+async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null, opcoes = {}) {
   const file = { name: nomeArquivo };   // mesmo nome que o PDF escolhido à mão usava
   const texto       = await extrairTextoPdf(arrayBuffer);
   const parsed      = parsearPauta(texto);
@@ -288,7 +319,12 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
   // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
   // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
   // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
-  const idPauta = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed);
+  const escolha = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed, opcoes);
+  if (escolha && escolha.existente) {   // modo automático: a pauta da equipe fica como está
+    await carregarPautaPorId(escolha.existente);
+    return 'existente';
+  }
+  const idPauta = escolha;
   if (!idPauta) {
     mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
     return;
@@ -306,8 +342,15 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
     ...(lacunas ? { lacunas } : {}),
     ...(sessaoOficial ? { sessaoOficial } : {}),
   };
-  // Responsáveis sorteados entre os servidores da equipe (já gravados com a pauta, logo abaixo)
-  const distribuidos = distribuirResponsaveis(state.pauta.itens, await carregarServidores());
+  // Responsáveis (já gravados com a pauta, logo abaixo): a proposição que já esteve em pauta fica com o servidor
+  // que a acompanhava; só as demais são sorteadas entre os servidores da equipe.
+  const servidores = await carregarServidores();
+  let herdados = 0;
+  try {
+    const r = await fetch(`${FIREBASE_URL}/pautas.json`);
+    if (r.ok) herdados = herdarResponsaveis(state.pauta.itens, await r.json(), servidores);
+  } catch (_) { /* sem as pautas anteriores, todos os itens vão para o sorteio */ }
+  const distribuidos = distribuirResponsaveis(state.pauta.itens, servidores);
 
   renderizarPauta();
   document.getElementById('btn-exportar-pdf').disabled = false;
@@ -329,7 +372,7 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
   } else if (lacunas) {
     mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
   } else {
-    mostrarToast(`✓ ${parsed.itens.length} itens identificados${distribuidos ? ` · responsáveis sorteados entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
+    mostrarToast(`✓ ${parsed.itens.length} itens identificados${herdados ? ` · ${herdados} com o responsável da pauta anterior` : ''}${distribuidos ? ` · ${distribuidos} sorteado(s) entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
   }
 
   // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
@@ -514,7 +557,7 @@ function normalizarItem(it) {
  *   \u00b7 itens DIFERENTES \u2192 provavelmente \u00e9 outra sess\u00e3o do mesmo dia: oferece
  *     salvar como pauta separada (padr\u00e3o), substituir, ou cancelar.
  */
-async function resolverIdImportacao(idPauta, parsed) {
+async function resolverIdImportacao(idPauta, parsed, opcoes = {}) {
   let existente = null;
   try {
     const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json`);
@@ -526,6 +569,9 @@ async function resolverIdImportacao(idPauta, parsed) {
   const antigas = chaves(existente);
   const novas   = chaves({ itens: parsed.itens.map(normalizarItem) });
   const iguais  = antigas.size === novas.size && [...novas].every(k => antigas.has(k));
+
+  // Modo automático (bot): sem pergunta e sem sobrescrever. Mesmos itens → usa a que existe; outros → id separado.
+  if (opcoes.automatico) return iguais ? { existente: idPauta } : await proximoIdLivre(idPauta);
 
   if (iguais) {
     return confirm(
@@ -4936,7 +4982,8 @@ function renderAnaliseCard(it) {
     // Análise copiada de um item irmão (requerimento ↔ projeto urgenciado):
     // a procedência fica visível, senão a meta diria "gerada em" para um texto
     // que não foi gerado para este item.
-    const reapHtml = it.analise.reaproveitadaDe
+    // (As notas marcadas "nota do acervo" vêm de um aviso que existiu em 25 e 26/11/2026 e foi retirado: não levam o selo.)
+    const reapHtml = it.analise.reaproveitadaDe && !/^nota do acervo/.test(it.analise.reaproveitadaDe)
       ? ` · <span title="A análise foi reaproveitada porque os documentos analisados são exatamente os mesmos; nenhuma nova chamada à IA foi feita" style="color:#2fcf7a;font-weight:600">reaproveitada de ${escapeHtml(it.analise.reaproveitadaDe)}</span>`
       : '';
     metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${reapHtml}${docsHtml}${promptHtml}`;
@@ -5955,7 +6002,6 @@ async function carregarPautaPorId(id) {
         // Chegada tardia (retry/rede lenta) com o item já em edição: não
         // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
         if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); completarApelidoFaltante(it); }
-        else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
       }).catch(() => {});
       // Parecer de Especialista salvo nesta pauta: só a meta (poucos bytes) desce
       // agora; o documento inteiro desce ao clicar em "Abrir parecer".
@@ -6211,7 +6257,7 @@ async function carregarUltimaPauta() {
           it.analiseStatus = 'ok';
           renderAnaliseCard(it);
           completarApelidoFaltante(it);
-        } else if (!a) niOferecerNotaDoAcervo(it).catch(() => {});   // a proposição tem nota feita fora desta pauta?
+        }
       }).catch(() => {});
       // A NTA salva (só a meta): sem isto, a pauta aberta sozinha ao entrar ficava sem o botão "Abrir NTA"
       // até alguém clicar nela na lista de pautas.

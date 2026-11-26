@@ -11,7 +11,7 @@
 //   3. a página real, no Chromium, com a rede trocada por um Firebase em memória e respostas da Câmara e do
 //      Senado: escolher o servidor e manter a lista do módulo, "Minhas notas" × as dos demais, abrir a nota como
 //      card do Plenário, criar por número, por palavras, do Senado e de texto sem número, usar em pauta, remover;
-//   4. no Plenário: o item de pauta avisa que a proposição já tem nota no acervo e passa a usá-la no clique.
+//   4. no Plenário: o item incluído pelo "Usar em pauta" e a NTA feita nas notas individuais; nenhum aviso de nota do acervo.
 const fs = require('fs'), path = require('path'), http = require('http');
 const RAIZ = path.join(__dirname, '..'), FX = path.join(__dirname, 'fixtures', 'senado');
 const N = require(path.join(RAIZ, 'notas-individuais.js'));
@@ -53,8 +53,6 @@ const ANO = String(new Date().getFullYear());
   ok(JSON.stringify(N.niRegistroDaChave('PLP-73-2025')) === '{"sigla":"PLP","numero":"73","ano":"2025","entrada":"camara"}' && N.niRegistroDaChave('SF-PL-5-2025').entrada === 'senado' && N.niRegistroDaChave('REQ-sn-PL5902-2023-2026') === null,
     'nota que só existe no acervo das pautas: o registro sai da chave; chave fora do padrão fica de fora');
   ok(N.niFiltrar([linha, { ...linha, rotulo: 'PL 1/2020', descricao: 'Outra', responsavel: 'Zé', chave: 'PL-1-2020' }], 'apeli').length === 1 && N.niFiltrar([linha], 'VINICIUS').length === 1 && N.niFiltrar([linha], '').length === 1, 'busca na lista: por apelido e por responsável, sem acento');
-  const aviso = N.niAvisoAcervo({ geradoEm: '2026-11-24T20:45:00Z', analista: 'Vinicius L', documentos: [{ rotulo: 'PRLP nº 2 de 23/11/2026' }] }, true);
-  ok(/já tem nota individual no acervo de 24\/11\/2026, de Vinicius L, feita sobre: PRLP nº 2 de 23\/11\/2026\./.test(aviso), 'aviso no Plenário: quando, de quem e sobre que documentos a nota foi feita');
 
   console.log('\n== 2. ligação com o Plenário e com o painel (código) ==');
   const an = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8'), pn = fs.readFileSync(path.join(RAIZ, 'panel.js'), 'utf8'), html = fs.readFileSync(path.join(RAIZ, 'analise.html'), 'utf8');
@@ -279,21 +277,20 @@ const ANO = String(new Date().getFullYear());
     if (rede.erros.length || escritasDe(/analises_pauta/).length !== 1) console.log('    erros:', rede.erros, '| escritas:', rede.escritas.join(' | '));
     await pg.close();
 
-    console.log('\n== 4. no Plenário: a proposição já tem nota no acervo ==');
+    console.log('\n== 4. no Plenário: o item incluído e a NTA; nenhum aviso de nota do acervo ==');
     const { pg: pl, rede: redePl } = await novaPagina(b, { nome: 'Daniel Roriz' });
     await pl.goto(base + '/analise.html', { waitUntil: 'load' });
-    await pl.waitForSelector('.an-card[data-chave="PL-100-2025"] [data-role=ni-acervo]', { timeout: 20000 });
-    const pp = await pl.evaluate(() => { const it = state.pauta.itens.find(i => i.chave === 'PL-100-2025'), c = document.querySelector('.an-card[data-chave="PL-100-2025"]');
-      return { titulo: document.querySelector('.header-main').textContent, lateral: document.querySelector('.an-sidebar-titulo').textContent, pk: parecerKey(it), nota: !!it.analise, aviso: c.querySelector('[data-role=ni-acervo]').innerText.replace(/\s+/g, ' '), outro: !!document.querySelector('.an-card[data-chave="PL-300-2024"] [data-role=ni-acervo]'), n: state.pauta.itens.length }; });
+    await pl.waitForSelector('.an-card[data-chave="PL-100-2025"]', { timeout: 20000 });
+    await pl.waitForFunction(() => document.querySelector('.an-card[data-chave="PL-100-2025"] [data-role=btn-abrir-parecer]')?.style.display === 'inline-flex', null, { timeout: 20000 });
+    await pl.waitForTimeout(800);   // tempo para as notas da pauta chegarem
+    const pp = await pl.evaluate(() => { const it = state.pauta.itens.find(i => i.chave === 'PL-100-2025');
+      return { titulo: document.querySelector('.header-main').textContent, lateral: document.querySelector('.an-sidebar-titulo').textContent, pk: parecerKey(it), nota: !!it.analise, aviso: !!document.querySelector('[data-role=ni-acervo], .ni-acervo'), texto: /já tem nota|Usar esta nota|reaproveitada/i.test(document.body.innerText), n: state.pauta.itens.length }; });
     ok(pp.titulo === 'Análise de Pauta de Plenário' && pp.lateral === 'Pautas salvas' && pp.n === 3, 'sem "?modo=notas" a página é o Plenário de sempre, com a pauta — e o item incluído pelo "Usar em pauta"');
-    ok(pp.pk === 'parecer-2026-11-10' && !pp.nota && /Esta proposição já tem nota individual no acervo de 24\/11\/2026, de Maria Exemplo, feita sobre: Redação original \(inteiro teor\)\. Usar esta nota/.test(pp.aviso) && !pp.outro,
-      'item cujo parecer não tem nota, mas a proposição tem: o card avisa (quando, de quem, sobre que documento) — e só nele');
-    await pl.click('.an-card[data-chave="PL-100-2025"] [data-role=ni-usar]');
-    await pl.waitForFunction(() => state.pauta.itens.find(i => i.chave === 'PL-100-2025').analise && !document.querySelector('[data-role=ni-acervo]'));
-    await pl.waitForTimeout(600);
-    const copiada = fb.analises_pauta['PL-100-2025']['parecer-2026-11-10'];
-    ok(copiada && copiada.parecerKey === 'parecer-2026-11-10' && /^nota do acervo de 24\/11\/2026$/.test(copiada.reaproveitadaDe) && copiada.markdown.includes('Texto da nota.') && !!fb.analises_pauta['PL-100-2025']['inteiro-teor'],
-      '"Usar esta nota": a nota passa a valer para o parecer desta pauta, com a procedência registrada; a original fica como estava');
+    // 26/11/2026: o aviso "esta proposição já tem nota no acervo" e o selo "reaproveitada de nota do acervo" foram retirados do Plenário.
+    ok(pp.pk === 'parecer-2026-11-10' && !pp.nota && !pp.aviso && !pp.texto && !redePl.escritas.some(e => /analises_pauta\/PL-100-2025/.test(e)),
+      'item cujo parecer não tem nota, mas a proposição tem: o card NÃO avisa nem oferece reaproveitar, e nada é copiado');
+    ok(!/niOferecerNotaDoAcervo|niAvisoAcervo/.test(an + fs.readFileSync(path.join(RAIZ, 'notas-individuais.js'), 'utf8')) && /reaproveitadaDe && !\/\^nota do acervo\/\.test\(it\.analise\.reaproveitadaDe\)/.test(an),
+      'o código do aviso saiu; nota já gravada como "nota do acervo" não mostra o selo (o de requerimento ↔ projeto continua)');
     const ntaPl = await pl.evaluate(() => { const it = state.pauta.itens.find(i => i.chave === 'PL-100-2025'); return { btn: document.querySelector('.an-card[data-chave="PL-100-2025"] [data-role=btn-abrir-parecer]').style.display, ch: it._chaveParecer || '' }; });
     ok(ntaPl.btn === 'inline-flex' && ntaPl.ch === 'nota-pl-100-2025__PL-100-2025', 'a NTA feita nas notas individuais aparece no item da pauta ("Abrir NTA")');
     ok(redePl.erros.length === 0, `nenhum erro na página do Plenário${redePl.erros.length ? ' — ' + redePl.erros[0] : ''}`);

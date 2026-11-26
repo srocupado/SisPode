@@ -18,7 +18,8 @@ const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, iden
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
-const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa } = require('./src/worker');
+const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, rotinaPautaDaSessao } = require('./src/worker');
+const { setAutoLigado, statusAuto, rotinaAuto } = require('./src/auto');
 const { SIGLAS_AVULSA, entradaDoTexto, refDoTexto: refAvulsaDoTexto, pedidoDeAvulsa, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp } = require('./src/avulsa');
 const { fbGet, fbPut } = require('./src/firebase');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
@@ -89,13 +90,14 @@ const TEXTO_AJUDA =
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
-  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou. Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
+  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou. Admin: /faltamvotar auto on|off — acompanhamento automático: depois que 257 deputados votaram, uma mensagem no grupo com quem do Podemos falta, atualizada a cada 15 segundos\n' +
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
   '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
   '/ata — modo de anotação da Reunião de Líderes: você vai escrevendo (ou ditando) o que for definido e, ao final, eu monto a mensagem pronta para repassar aos deputados no WhatsApp. /ata ver · /ata apagar 3 · /ata fim · /ata ultima\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
+  '/auto — modo automático: quando sai convocação com pauta, o bot importa a pauta, gera as notas pendentes (na chave do administrador) e põe no grupo o PDF, os apelidos e os itens do Podemos (admin: /auto on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
@@ -1364,6 +1366,23 @@ bot.command('monitor', async ctx => {
       : 'Nenhuma sessão em andamento.'));
 });
 
+// ---------- Modo automático: /auto [on|off] (ver src/auto.js) ----------
+bot.command('auto', async ctx => {
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg === 'on' || arg === 'off') {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga o modo automático (as notas saem na chave dele).');
+    try { await setAutoLigado(arg === 'on', nomeDe(ctx)); }
+    catch (e) { return ctx.reply(`Não consegui gravar o modo automático (${e.message}). Ficou como estava.`); }
+    if (arg === 'off') return ctx.reply('Modo automático DESLIGADO. Na convocação, o bot volta a mandar só a mensagem de sempre.');
+    const semChave = !getPerfil(ADMIN_USER_ID)?.apiKey;
+    return ctx.reply('Modo automático LIGADO. Quando sair convocação com pauta, eu importo a pauta da sessão, gero as notas das matérias pendentes na sua chave e ponho no grupo o PDF, os apelidos e os itens do Podemos.' +
+      (semChave ? '\n⚠ Você está sem chave de IA: configure com /config no privado, senão as notas não serão geradas.' : ''));
+  }
+  const s = await statusAuto();
+  return ctx.reply(`Modo automático: ${s.ligado ? '🟢 ligado' : '🔴 desligado'}${s.erro ? ` (não consegui ler o estado: ${s.erro})` : ''}.\n` +
+    'Ligado, a convocação com pauta dispara: importar a pauta da sessão, gerar as notas pendentes (chave do administrador) e mandar ao grupo o PDF, os apelidos e os itens do Podemos. Admin: /auto on | /auto off.');
+});
+
 // ---------- Corrigir uma mensagem publicada no grupo (autorizados, no privado) ----------
 // Liberado a TODOS os usuários autorizados (lista do /usuarios) — são os
 // responsáveis por ajustar mensagens no grupo. No privado do bot.
@@ -1517,15 +1536,19 @@ bot.command('oradores', ctx => cmdOradores(ctx, ctx.match));
 
 // ---------- /faltamvotar — quem do PODE ainda não votou na nominal aberta ----------
 // Autorizados, no grupo ou privado. Fonte: painel do app Infoleg (host infoleg),
-// só em votação NOMINAL. Admin liga/desliga a rede de segurança: /faltamvotar auto on|off.
+// só em votação NOMINAL. Admin liga/desliga o acompanhamento automático: /faltamvotar auto on|off.
 async function cmdFaltamVotar(ctx) {
   if (!isAutorizado(ctx.from.id)) return;
   const arg = String(ctx.match || '').trim().toLowerCase();
   if (arg.startsWith('auto')) {
-    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga a rede de segurança.');
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga o acompanhamento automático dos faltantes.');
     const on = /\bon\b|liga/.test(arg), off = /\boff\b|desliga/.test(arg);
-    if (on || off) { setFaltantesAuto(on); return ctx.reply(`Rede de segurança de faltantes ${on ? 'LIGADA' : 'DESLIGADA'}.`); }
-    return ctx.reply(`Rede de segurança de faltantes: ${getFaltantesAuto() ? '🟢 ligada' : '🔴 desligada'}. Use /faltamvotar auto on|off.`);
+    if (on || off) {
+      setFaltantesAuto(on);
+      return ctx.reply(on ? 'Acompanhamento automático dos faltantes LIGADO. Em cada votação nominal, depois que 257 deputados tiverem votado, ponho no grupo quem do Podemos ainda não votou e atualizo a mensagem a cada 15 segundos, até a bancada toda votar ou a votação encerrar.'
+        : 'Acompanhamento automático dos faltantes DESLIGADO. A lista continua saindo para quem pedir, com /faltamvotar ou perguntando.');
+    }
+    return ctx.reply(`Acompanhamento automático dos faltantes: ${getFaltantesAuto() ? '🟢 ligado' : '🔴 desligado'}. Ligado, depois de 257 votos na Casa o grupo recebe quem do Podemos falta votar, com atualização a cada 15 segundos. Use /faltamvotar auto on|off.`);
   }
   return responderFaltantes(ctx);
 }
@@ -2498,6 +2521,16 @@ if (MONITOR_ATIVO) {
     api: bot.api,
     destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
     perfilIA: () => getPerfil(ADMIN_USER_ID),   // apelidos por IA na chave do admin
+    // Modo automático (/auto on): convocação com pauta → importa, analisa as pendentes e manda o material ao grupo.
+    aoAnunciarComPauta: ev => rotinaAuto(ev, {
+      api: bot.api,
+      destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
+      perfil: () => getPerfil(ADMIN_USER_ID),
+      executar: rotinaPautaDaSessao,
+      arquivo: (buf, nome) => new InputFile(buf, nome),
+      travar: () => { if (_workerOcupado) return false; _workerOcupado = true; return true; },
+      destravar: () => { _workerOcupado = false; },
+    }),
   });
 } else {
   console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
@@ -2572,6 +2605,7 @@ const MENU_REVISOR = [...MENU_COMANDOS, MENU_REVISAR];
 // Menu do ADMIN: o dos autorizados + administração do monitor.
 const MENU_ADMIN = [...MENU_COMANDOS, MENU_REVISAR,
   { command: 'monitor', description: 'Status/liga-desliga do monitor de sessão' },
+  { command: 'auto', description: 'Modo automático: pauta, notas e PDF na convocação (on|off)' },
   { command: 'update', description: 'Atualizar o bot pelo GitHub (main) e reiniciar' }];
 
 // Define o menu do "/" no privado de UM usuário conforme o papel dele. Escopo

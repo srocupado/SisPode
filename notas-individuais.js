@@ -153,17 +153,9 @@ function niFiltrar(linhas, termo) {
 }
 
 /** Texto do aviso, no Plenário, de que a proposição já tem nota no acervo (feita para outro parecer ou fora da pauta). */
-function niAvisoAcervo(nota, individual) {
-  const d = new Date(nota.editadoEm || nota.geradoEm || '');
-  const quando = isNaN(d) ? '' : ` de ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  const quem = nota.analista ? `, de ${nota.analista}` : '';
-  const docs = (nota.documentos || []).map(x => x.rotulo).filter(Boolean).slice(0, 3).join('; ');
-  return `Esta proposição já tem nota${individual ? ' individual' : ''} no acervo${quando}${quem}${docs ? `, feita sobre: ${docs}` : ''}.`;
-}
-
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { NI_SIGLAS, NI_SIGLA_TEXTO, NI_ROTULO_SENADO, niNorm, niMesmoServidor, niListaServidores, niLerEntrada, niChave, niProximaMinuta,
-    niRegistro, niResponsavel, niDoServidor, niEntrada, niRotulo, niItem, niNotaMaisRecente, niLinha, niRegistroDaChave, niFiltrar, niAvisoAcervo };
+    niRegistro, niResponsavel, niDoServidor, niEntrada, niRotulo, niItem, niNotaMaisRecente, niLinha, niRegistroDaChave, niFiltrar };
 }
 
 // ============================================================
@@ -663,37 +655,4 @@ async function niIncluirEmPauta(chave, idPauta) {
   const item = { ...niItem(reg, chave), ordem, ementa: aberto?.ementa || reg.ementa || reg.titulo || '', autorTexto: aberto?.autorTexto || '', temUrgencia: !!aberto?.temUrgencia, provisorio: aberto?.provisorio || null };
   await niPut(`${caminho}/itens/${p.itens.length}`, item);
   return p.nome || p.titulo || idPauta;
-}
-
-// ---------- no Plenário: a proposição já tem nota no acervo ----------
-let _niRegistroPlenario = null;
-/**
- * Item de pauta sem nota para o parecer atual: se a proposição tem nota salva para OUTRO parecer (feita no
- * módulo de notas individuais, pelo bot ou numa pauta anterior), o card oferece usá-la. Nada é copiado sem
- * o clique: a nota pode ter sido feita antes de um parecer novo, e "Usar esta nota" confere a tramitação.
- */
-async function niOferecerNotaDoAcervo(it) {
-  if (!it || it.analise || !it.chave) return;
-  let porParecer = null;
-  try { porParecer = await niGet(`analises_pauta/${encodeURIComponent(it.chave)}`); } catch (_) { return; }
-  const nota = niNotaMaisRecente(porParecer);
-  if (!nota || !itemAindaAtivo(it) || it.analise || it.analiseStatus === 'gerando') return;
-  if (!_niRegistroPlenario) _niRegistroPlenario = niGet(`${NI_CAMINHO_REG}`).then(r => r || {}).catch(() => ({}));
-  const individual = !!(await _niRegistroPlenario)[it.chave];
-  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
-  const info = card?.querySelector('.an-card-info');
-  if (!info || info.querySelector('[data-role=ni-acervo]') || it.analise) return;
-  info.insertAdjacentHTML('beforeend', `<div class="ni-acervo" data-role="ni-acervo">📚 ${escapeHtml(niAvisoAcervo(nota, individual))}
-    <span class="ni-acervo-acoes"><button class="btn btn-outline btn-sm" data-role="ni-usar">Usar esta nota</button><span class="ni-dim">ou gere uma nova em “Gerar Análise”.</span></span></div>`);
-  info.querySelector('[data-role=ni-usar]').addEventListener('click', async () => {
-    if (it.analise) return info.querySelector('[data-role=ni-acervo]')?.remove();
-    const d = new Date(nota.editadoEm || nota.geradoEm || '');
-    it.analise = { ...nota, parecerKey: parecerKey(it), analista: it.analista || nota.analista || '', reaproveitadaDe: `nota do acervo${isNaN(d) ? '' : ' de ' + niDataBR(d.toISOString())}`, reaproveitadaEm: new Date().toISOString() };
-    it.analiseStatus = 'ok';
-    info.querySelector('[data-role=ni-acervo]')?.remove();
-    renderAnaliseCard(it);
-    try { await fbSalvarAnalise(it); } catch (e) { mostrarToast(`A nota está na tela, mas não foi gravada para esta pauta: ${e.message}`, 'erro'); }
-    // A nota pode ser anterior a um parecer novo: a mesma conferência do botão "Verificar atualização".
-    verificarAtualizacaoItemUI(it).catch(() => {});
-  });
 }
