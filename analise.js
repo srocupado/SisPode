@@ -232,13 +232,41 @@ function distribuirResponsaveis(itens, servidores, aleatorio = Math.random) {
   // o servidor de MPV não entra no sorteio do resto
   const srv = embaralhar(nomes.filter(n => n !== doMpv));
   if (!srv.length) return feitos;   // só ele na lista: o resto fica sem responsável
-  const carga = new Map(srv.map(n => [n, 0]));
+  // A carga de cada servidor começa pelo que ele JÁ tem na pauta (itens herdados de pauta anterior ou postos à
+  // mão): quem manteve quatro matérias de ontem não recebe as novas de hoje antes dos outros.
+  const carga = new Map(srv.map(n => [n, (itens || []).filter(it => String(it.analista || '').trim() === n).length]));
   for (const it of embaralhar(restantes)) {
     const menor = srv.reduce((a, b) => (carga.get(b) < carga.get(a) ? b : a));
     it.analista = menor;
     carga.set(menor, carga.get(menor) + 1);
   }
   return feitos + restantes.length;
+}
+
+/**
+ * RESPONSÁVEL FIXO POR PROPOSIÇÃO (26/11/2026). A matéria que volta à pauta fica com o servidor que já a
+ * acompanhava. Antes, cada importação sorteava tudo de novo: em 54 reaparições de proposição entre pautas, o
+ * responsável mudou em 38 (o PL 5542/2026 trocou de servidor quatro vezes em oito dias). Vale o responsável da
+ * pauta MAIS RECENTE em que a proposição aparece com um — inclusive o trocado à mão no card e o da própria
+ * pauta que está sendo reimportada. Só herda nome que ainda está na lista de servidores; os demais itens seguem
+ * para o sorteio. Devolve quantos itens herdaram.
+ */
+function herdarResponsaveis(itens, pautas, servidores) {
+  const chave = n => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const naLista = new Map((servidores || []).map(s => String(s || '').trim()).filter(Boolean).map(s => [chave(s), s]));
+  const anteriores = Object.values(pautas || {}).filter(p => p && Array.isArray(p.itens))
+    .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));   // a mais recente primeiro
+  const dono = new Map();
+  for (const p of anteriores) for (const it of p.itens) {
+    const nome = naLista.get(chave(it && it.analista));
+    if (it && it.chave && nome && !dono.has(it.chave)) dono.set(it.chave, nome);
+  }
+  let n = 0;
+  for (const it of itens || []) {
+    if (String(it.analista || '').trim() || !dono.has(it.chave)) continue;
+    it.analista = dono.get(it.chave); n++;
+  }
+  return n;
 }
 
 async function carregarConfig() {
@@ -306,8 +334,15 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
     ...(lacunas ? { lacunas } : {}),
     ...(sessaoOficial ? { sessaoOficial } : {}),
   };
-  // Responsáveis sorteados entre os servidores da equipe (já gravados com a pauta, logo abaixo)
-  const distribuidos = distribuirResponsaveis(state.pauta.itens, await carregarServidores());
+  // Responsáveis (já gravados com a pauta, logo abaixo): a proposição que já esteve em pauta fica com o servidor
+  // que a acompanhava; só as demais são sorteadas entre os servidores da equipe.
+  const servidores = await carregarServidores();
+  let herdados = 0;
+  try {
+    const r = await fetch(`${FIREBASE_URL}/pautas.json`);
+    if (r.ok) herdados = herdarResponsaveis(state.pauta.itens, await r.json(), servidores);
+  } catch (_) { /* sem as pautas anteriores, todos os itens vão para o sorteio */ }
+  const distribuidos = distribuirResponsaveis(state.pauta.itens, servidores);
 
   renderizarPauta();
   document.getElementById('btn-exportar-pdf').disabled = false;
@@ -329,7 +364,7 @@ async function importarPautaPdf(arrayBuffer, nomeArquivo, sessaoOficial = null) 
   } else if (lacunas) {
     mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
   } else {
-    mostrarToast(`✓ ${parsed.itens.length} itens identificados${distribuidos ? ` · responsáveis sorteados entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
+    mostrarToast(`✓ ${parsed.itens.length} itens identificados${herdados ? ` · ${herdados} com o responsável da pauta anterior` : ''}${distribuidos ? ` · ${distribuidos} sorteado(s) entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
   }
 
   // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
